@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
     const runId = `run-${randomUUID()}`;
-    createRun({ id: runId, author, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments });
+    (await createRun({ id: runId, author, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments }));
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({
@@ -24,13 +24,13 @@ export async function POST(request: Request) {
         send({ type: "runId", runId });
         try {
           const result = await withRaActor(author, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }))));
-          completeRun(runId, mapRunToView(result));
-          saveExecutedFlow(runId);
+          (await completeRun(runId, mapRunToView(result)));
+          (await saveExecutedFlow(runId));
           send({ type: "result", runId, ...result });
         } catch (err) {
           const message = (err as Error).message;
-          failRun(runId, message);
-          saveExecutedFlow(runId);
+          (await failRun(runId, message));
+          (await saveExecutedFlow(runId));
           send({ type: "error", message });
         } finally { if (connected) controller.close(); }
       },

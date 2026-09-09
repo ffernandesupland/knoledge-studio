@@ -49,7 +49,7 @@ describe("parseDocument", () => {
 
   it("rejects an oversized file before parsing it", async () => {
     const big = Buffer.alloc(MAX_UPLOAD_BYTES + 1);
-    await expect(parseDocument("big.txt", "text/plain", big)).rejects.toThrow(/larger than the 10 MB/);
+    await expect(parseDocument("big.txt", "text/plain", big)).rejects.toThrow(/larger than the 4 MB/);
   });
 
   it("rejects a file with no readable text", async () => {

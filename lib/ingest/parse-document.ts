@@ -5,7 +5,8 @@ export interface ParsedDocument {
   kind: "pdf" | "docx" | "text";
 }
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./limits";
+export { MAX_UPLOAD_BYTES } from "./limits";
 
 /** Allowlist rather than a denylist: anything not named here is refused. */
 const ACCEPTED: Record<string, ParsedDocument["kind"]> = {
@@ -41,7 +42,7 @@ export async function parseDocument(
   buffer: Buffer,
 ): Promise<ParsedDocument> {
   if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-    throw new Error(`${name} is larger than the 10 MB limit`);
+    throw new Error(`${name} is larger than the ${MAX_UPLOAD_MB} MB limit`);
   }
 
   const kind = classify(name, mime);

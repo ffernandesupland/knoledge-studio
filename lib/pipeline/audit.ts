@@ -14,8 +14,8 @@ export interface AuditEntry {
 }
 
 /** Append-only record of every RightAnswers write. */
-export function recordAudit(entry: AuditEntry): void {
-  db()
+export async function recordAudit(entry: AuditEntry): Promise<void> {
+  (await db()
     .prepare(
         `INSERT INTO write_audit (ts, run_id, user, op, idempotency_key, target, request, outcome, response, error)
          VALUES (@ts, @runId, @user, @op, @idempotencyKey, @target, @request, @outcome, @response, @error) ON CONFLICT DO NOTHING`,
@@ -31,25 +31,25 @@ export function recordAudit(entry: AuditEntry): void {
         outcome: entry.outcome,
         response: entry.response ?? null,
         error: entry.error ?? null,
-    });
+    }));
 }
 
 /**
  * True when this exact operation already completed. Retrying a partially-failed submit then
  * skips the writes that succeeded instead of duplicating them.
  */
-export function alreadySucceeded(idempotencyKey: string): { target: string | null } | null {
-  const row = db()
+export async function alreadySucceeded(idempotencyKey: string): Promise<{ target: string | null } | null> {
+  const row = (await db()
     .prepare(`SELECT target FROM write_audit WHERE idempotency_key=? AND outcome='ok' LIMIT 1`)
-    .get(idempotencyKey) as { target: string | null } | undefined;
+    .get(idempotencyKey)) as { target: string | null } | undefined;
   return row ?? null;
 }
 
-export function auditForRun(runId: string) {
-  return db()
+export async function auditForRun(runId: string) {
+  return (await db()
     .prepare(
       `SELECT ts, op, idempotency_key, target, outcome, error
        FROM write_audit WHERE run_id=? ORDER BY id`,
     )
-    .all(runId);
+    .all(runId));
 }

@@ -62,7 +62,7 @@ export async function runOperation<T>(args: RunArgs<T>): Promise<RunResult<T>> {
   const outputTokens = response.usage?.output_tokens ?? 0;
   const usage = { model, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) };
   // Record charged responses even if refusal/schema validation prevents authoring.
-  auditAi(args as RunArgs<unknown>, { ...usage, data: parsed ?? { error: "No parseable output", output: response.output } }, input);
+  (await auditAi(args as RunArgs<unknown>, { ...usage, data: parsed ?? { error: "No parseable output", output: response.output } }, input));
   if (!parsed) throw new Error(`${args.operation}: model returned no parseable output`);
   const result: RunResult<T> = { ...usage, data: args.schema.parse(parsed) };
   return result;

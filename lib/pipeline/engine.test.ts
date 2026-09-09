@@ -31,10 +31,10 @@ let counter = 0;
 let runId: string;
 beforeAll(() => { dir = mkdtempSync(path.join(tmpdir(), "ks-engine-")); useDatabase(path.join(dir, "test.db")); });
 afterAll(() => { closeDatabase(); rmSync(dir, { recursive: true, force: true }); });
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks();
   runId = `engine-${++counter}`;
-  createRun({ id: runId, author: "sauser", path: "create", inputText: "source", sourceIds: [], operations: [] });
+  (await createRun({ id: runId, author: "sauser", path: "create", inputText: "source", sourceIds: [], operations: [] }));
   mocks.plan.mockImplementation(async (evidence) => result({ proposals: evidence.map((e: { key: string }) => ({ key: e.key, purpose: "Help the reader", coverage: ["Supported scope"], rationale: "A distinct supported user need", openQuestions: [] })) }));
   mocks.templates.mockResolvedValue([template]); mocks.solution.mockImplementation(async (id) => ({ ...source, id }));
   mocks.history.mockResolvedValue([]); mocks.search.mockResolvedValue({ solutions: [], totalHits: 0 });
@@ -140,7 +140,7 @@ describe("submission contracts", () => {
   it("regenerates only the blocked item from saved sources and pauses without writes", async () => {
     const op = newOp();
     const prepared = { version: "old-version", title: op.title, summary: "", keywords: [], templateName: "AI Template", fields: [], warnings: [] };
-    saveWriteState(runId, op.idempotencyKey, { status: "review", prepared });
+    (await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared }));
     const reviews = { [op.idempotencyKey]: { version: prepared.version, fields: [], regenerate: true, templateName: template.templateName } };
     const [regenerated] = await executeWritePlan(args([op, newOp("other")], { reviews }));
     expect(regenerated.outcome).toBe("review");
@@ -156,7 +156,7 @@ describe("submission contracts", () => {
     const [r] = await executeWritePlan(args([newOp()], { restructureEnabled: true }));
     expect(r.outcome).toBe("ok");
     expect(mocks.write.mock.calls[0][0]).toMatchObject({ title: "Generated title", summary: "Generated summary", keywords: "vpn", status: "review" });
-    const row = db().prepare("SELECT request FROM write_audit WHERE idempotency_key=?").get(r.idempotencyKey) as { request: string };
+    const row = (await db().prepare("SELECT request FROM write_audit WHERE idempotency_key=?").get(r.idempotencyKey)) as { request: string };
     expect(JSON.parse(row.request).fields[0].fieldValue).toContain("Authored answer");
   });
   it("preserves an explicitly optimized or edited title", async () => {
@@ -169,7 +169,7 @@ describe("submission contracts", () => {
     const execution = args([op], { standardsRules: ["Numbered steps"] });
     const [first] = await executeWritePlan(execution);
     expect(first.outcome).toBe("review"); expect(mocks.write).not.toHaveBeenCalled();
-    expect(getWriteState(op.idempotencyKey)?.status).toBe("review");
+    expect((await getWriteState(op.idempotencyKey))?.status).toBe("review");
     const [second] = await executeWritePlan({ ...execution, reviews: { [op.idempotencyKey]: { version: first.prepared!.version, fields } } });
     expect(second.outcome).toBe("ok"); expect(mocks.merge).toHaveBeenCalledTimes(1); expect(mocks.standards).toHaveBeenCalledTimes(1);
   });
@@ -227,17 +227,17 @@ describe("decision ownership and persistence", () => {
   it("round-trips survivor, empty selection, standards, templates and disabled AI", async () => {
     const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] }));
     view.groups = [{ survivorId: "c0", averageSimilarity: 90, reason: "Overlap", members: [{ id: "c0", title: "Draft", stat: "New", retained: true }, { id: source.id, title: source.title, stat: "Existing", retained: false }] }];
-    completeRun(runId, view);
+    (await completeRun(runId, view));
     const snapshot: DecisionSnapshot = { ...view, groups: [{ ...view.groups[0], survivorId: source.id }], selectedKeys: [], resolutions: ["merged"], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "French", standard: "Custom", standardsRules: ["Active voice"], newSolutionTemplate: template.templateName, templateOverrides: ["c0"] };
-    saveSnapshot(runId, canonicalSnapshot(getRun(runId)!, snapshot));
-    expect(getRun(runId)!.snapshot).toMatchObject({ selectedKeys: [], resolutions: ["merged"], groups: [{ survivorId: source.id }], standardsRules: ["Active voice"], language: "French", templateOverrides: ["c0"] });
-    expect(getRun(runId)!.snapshot!.operations.every((o) => !o.on)).toBe(true);
+    (await saveSnapshot(runId, canonicalSnapshot((await getRun(runId))!, snapshot)));
+    expect((await getRun(runId))!.snapshot).toMatchObject({ selectedKeys: [], resolutions: ["merged"], groups: [{ survivorId: source.id }], standardsRules: ["Active voice"], language: "French", templateOverrides: ["c0"] });
+    expect((await getRun(runId))!.snapshot!.operations.every((o) => !o.on)).toBe(true);
   });
   it("does not accept invented write targets from the browser", async () => {
-    const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] })); completeRun(runId, view);
+    const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] })); (await completeRun(runId, view));
     const snapshot = { ...view, candidates: [{ ...view.candidates[0], targetSolutionId: source.id, proposal: { purpose: "Forged", coverage: ["Invented"], rationale: "Forged", openQuestions: [] } }], selectedKeys: ["c0"], resolutions: [], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "English", standard: "Default", standardsRules: [], newSolutionTemplate: null, templateOverrides: [] };
-    expect(canonicalSnapshot(getRun(runId)!, snapshot).candidates[0].targetSolutionId).toBeUndefined();
-    expect(canonicalSnapshot(getRun(runId)!, snapshot).candidates[0].proposal).toEqual(view.candidates[0].proposal);
+    expect(canonicalSnapshot((await getRun(runId))!, snapshot).candidates[0].targetSolutionId).toBeUndefined();
+    expect(canonicalSnapshot((await getRun(runId))!, snapshot).candidates[0].proposal).toEqual(view.candidates[0].proposal);
   });
 });
 
@@ -246,10 +246,10 @@ describe("uncertain-write reconciliation", () => {
   const request = (body: unknown) => new Request("http://localhost/api/submit/reconcile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   it("confirms a matching actual article and never repeats the write", async () => {
     const op = newOp(), execution = args([op]);
-    freezeExecution(runId, execution);
+    (await freezeExecution(runId, execution));
     mocks.write.mockRejectedValueOnce(new Error("response lost"));
     await executeWritePlan(execution);
-    const prepared = getWriteState(op.idempotencyKey)!.prepared!;
+    const prepared = (await getWriteState(op.idempotencyKey))!.prepared!;
     mocks.solution.mockResolvedValue({ ...source, id: "260909000000003", title: prepared.title, fields: prepared.fields.map((f) => ({ name: f.fieldName, content: f.fieldValue })) });
     const response = await reconcile(request({ runId, key: op.idempotencyKey, action: "confirm", solutionId: "260909000000003", verified: true }));
     expect(response.status).toBe(200);
@@ -257,14 +257,14 @@ describe("uncertain-write reconciliation", () => {
     expect(mocks.write).toHaveBeenCalledTimes(1);
   });
   it("refuses to confirm a different article", async () => {
-    const op = newOp(), execution = args([op]); freezeExecution(runId, execution);
+    const op = newOp(), execution = args([op]); (await freezeExecution(runId, execution));
     mocks.write.mockRejectedValueOnce(new Error("response lost")); await executeWritePlan(execution);
     const response = await reconcile(request({ runId, key: op.idempotencyKey, action: "confirm", solutionId: source.id, verified: true }));
     expect(response.status).toBe(400);
-    expect(getWriteState(op.idempotencyKey)?.status).toBe("uncertain");
+    expect((await getWriteState(op.idempotencyKey))?.status).toBe("uncertain");
   });
   it("requires explicit verified absence before reopening an uncertain write", async () => {
-    const op = newOp(), execution = args([op]); freezeExecution(runId, execution);
+    const op = newOp(), execution = args([op]); (await freezeExecution(runId, execution));
     mocks.write.mockRejectedValueOnce(new Error("response lost")); await executeWritePlan(execution);
     expect((await reconcile(request({ runId, key: op.idempotencyKey, action: "retry", verified: false }))).status).toBe(400);
     expect((await reconcile(request({ runId, key: op.idempotencyKey, action: "retry", verified: true }))).status).toBe(200);

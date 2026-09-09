@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireActor(request);
     const body = await readJson(request, schema);
-    const run = getRun(body.runId);
+    const run = (await getRun(body.runId));
     assertOwner(run, user);
     const snapshot = canonicalSnapshot(run, body.snapshot);
     const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
@@ -32,15 +32,15 @@ export async function POST(request: Request) {
         const send = (obj: unknown) => { if (connected) { try { controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n")); } catch { connected = false; } } };
         try {
           await withRunLock(run.id, async () => {
-            if (!loadExecution(run.id)) saveSnapshot(run.id, snapshot);
-            const args = freezeExecution<ExecuteArgs>(run.id, { runId: run.id, user, plan, collection, language: snapshot.language, restructureEnabled: snapshot.operations.some((o) => o.name === "Restructure content" && o.on), standardsRules: snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : [] });
-            markPartial(run.id);
+            if (!(await loadExecution(run.id))) (await saveSnapshot(run.id, snapshot));
+            const args = (await freezeExecution<ExecuteArgs>(run.id, { runId: run.id, user, plan, collection, language: snapshot.language, restructureEnabled: snapshot.operations.some((o) => o.name === "Restructure content" && o.on), standardsRules: snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : [] }));
+            (await markPartial(run.id));
             send({ type: "plan", plan: args.plan });
             const results = await withRaActor(user, () => withAiAudit(run.id, "submission", () => executeWritePlan({ ...args, reviews: body.reviews }, (p) => send({ type: "progress", ...p }))));
-            if (results.every((r) => r.outcome === "ok")) markSubmitted(run.id);
-            else markPartial(run.id);
-            saveExecutedFlow(run.id);
-            send({ type: "result", results, costUsd: getRun(run.id)?.costUsd });
+            if (results.every((r) => r.outcome === "ok")) (await markSubmitted(run.id));
+            else (await markPartial(run.id));
+            (await saveExecutedFlow(run.id));
+            send({ type: "result", results, costUsd: (await getRun(run.id))?.costUsd });
           });
         } catch (err) { send({ type: "error", message: (err as Error).message }); }
         finally { if (connected) controller.close(); }

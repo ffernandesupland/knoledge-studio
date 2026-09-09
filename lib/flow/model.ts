@@ -23,7 +23,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
   const existingSurvivor = o.survivor === "existing" && (o.existing || o.matches === "high");
   const n = (id: string, title: string, kind: NodeKind, active: boolean, detail: string, children?: FlowNode[], prompt?: string): FlowNode => ({ id, title, kind, active, detail, children, prompt });
   return [
-    n("input", "1 · Add source material", "input", true, "Ingestion does not call AI. Limits: 10 MB per uploaded file, 2 MB per fetched page, 500,000 source characters per analysis.", [
+    n("input", "1 · Add source material", "input", true, "Ingestion does not call AI. Limits: 4 MB per uploaded file, 2 MB per fetched page, 500,000 source characters per analysis.", [
       n("text", "Typed or pasted text", "input", o.text, "Keep the original source text and wrap it as untrusted data for model calls."),
       n("file", "Upload PDF, DOCX or text", "api", o.file, "POST /api/ingest → allowlist and size check → parse locally → extracted text persisted with the run."),
       n("url", "Fetch a URL", "api", o.url, "POST /api/ingest → check scheme/address → validate DNS and every redirect → bounded text extraction. No credentials sent to the source."),

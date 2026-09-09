@@ -49,23 +49,23 @@ const group: ViewDupeGroup = {
   members: [{ id: "c0", title: "Printer offline", stat: "New solution", retained: true }],
 };
 
-function seed(id: string) {
-  createRun({
+async function seed(id: string) {
+  (await createRun({
     id,
     author: "sauser",
     path: "create",
     inputText: "printer notes",
     sourceIds: [],
     operations: ["Split topics"],
-  });
+  }));
 }
 
 describe("run persistence", () => {
-  it("round-trips a completed run", () => {
-    seed("r1");
-    completeRun("r1", { candidates: [candidate], groups: [group], costUsd: 0.018, steps: [] });
+  it("round-trips a completed run", async () => {
+    (await seed("r1"));
+    (await completeRun("r1", { candidates: [candidate], groups: [group], costUsd: 0.018, steps: [] }));
 
-    const stored = getRun("r1")!;
+    const stored = (await getRun("r1"))!;
     expect(stored.status).toBe("done");
     expect(stored.costUsd).toBeCloseTo(0.018);
     expect(stored.candidates[0].title).toBe("Printer offline");
@@ -73,19 +73,19 @@ describe("run persistence", () => {
     expect(stored.groups[0].survivorId).toBe("c0");
   });
 
-  it("selects everything by default so a restored run matches a fresh one", () => {
-    expect(getRun("r1")!.decisions?.selectedKeys).toEqual(["c0"]);
-    expect(getRun("r1")!.decisions?.resolutions).toEqual([null]);
+  it("selects everything by default so a restored run matches a fresh one", async () => {
+    expect((await getRun("r1"))!.decisions?.selectedKeys).toEqual(["c0"]);
+    expect((await getRun("r1"))!.decisions?.resolutions).toEqual([null]);
   });
 
-  it("updates decisions without clobbering the run", () => {
-    saveDecisions("r1", {
+  it("updates decisions without clobbering the run", async () => {
+    (await saveDecisions("r1", {
       selectedKeys: [],
       resolutions: ["merged"],
       collection: "custom_x",
       language: "English",
-    });
-    const stored = getRun("r1")!;
+    }));
+    const stored = (await getRun("r1"))!;
     expect(stored.decisions).toMatchObject({
       selectedKeys: [],
       resolutions: ["merged"],
@@ -94,38 +94,38 @@ describe("run persistence", () => {
     expect(stored.candidates).toHaveLength(1);
   });
 
-  it("records a failed run with its reason", () => {
-    seed("r2");
-    failRun("r2", "Nothing to process");
-    const stored = getRun("r2")!;
+  it("records a failed run with its reason", async () => {
+    (await seed("r2"));
+    (await failRun("r2", "Nothing to process"));
+    const stored = (await getRun("r2"))!;
     expect(stored.status).toBe("error");
     expect(stored.error).toBe("Nothing to process");
   });
 
-  it("resumes the most recent completed run and ignores failed ones", () => {
-    const resumable = getResumableRun("sauser")!;
+  it("resumes the most recent completed run and ignores failed ones", async () => {
+    const resumable = (await getResumableRun("sauser"))!;
     expect(resumable.id).toBe("r1");
   });
 
-  it("stops offering a run once it has been submitted", () => {
-    markSubmitted("r1");
-    expect(getRun("r1")!.status).toBe("submitted");
-    expect(getResumableRun("sauser")).toBeNull();
+  it("stops offering a run once it has been submitted", async () => {
+    (await markSubmitted("r1"));
+    expect((await getRun("r1"))!.status).toBe("submitted");
+    expect((await getResumableRun("sauser"))).toBeNull();
   });
 
-  it("returns null for an unknown run", () => {
-    expect(getRun("nope")).toBeNull();
+  it("returns null for an unknown run", async () => {
+    expect((await getRun("nope"))).toBeNull();
   });
 
-  it("lists runs newest first", () => {
-    expect(listRuns().map((r) => r.id)).toContain("r1");
+  it("lists runs newest first", async () => {
+    expect((await listRuns()).map((r) => r.id)).toContain("r1");
   });
 });
 
 describe("write audit", () => {
-  it("records successes and failures", () => {
-    seed("r3");
-    recordAudit({
+  it("records successes and failures", async () => {
+    (await seed("r3"));
+    (await recordAudit({
       ts: new Date().toISOString(),
       runId: "r3",
       user: "sauser",
@@ -135,8 +135,8 @@ describe("write audit", () => {
       request: { kind: "create" },
       outcome: "ok",
       response: "Successfully created",
-    });
-    recordAudit({
+    }));
+    (await recordAudit({
       ts: new Date().toISOString(),
       runId: "r3",
       user: "sauser",
@@ -145,21 +145,21 @@ describe("write audit", () => {
       request: { kind: "revise" },
       outcome: "error",
       error: "boom",
-    });
-    expect(auditForRun("r3")).toHaveLength(2);
+    }));
+    expect((await auditForRun("r3"))).toHaveLength(2);
   });
 
-  it("reports an operation that already succeeded, so a retry can skip it", () => {
-    expect(alreadySucceeded("r3:create:c0")).toEqual({ target: "260903145019767" });
+  it("reports an operation that already succeeded, so a retry can skip it", async () => {
+    expect((await alreadySucceeded("r3:create:c0"))).toEqual({ target: "260903145019767" });
   });
 
-  it("does not treat a failed operation as already done", () => {
-    expect(alreadySucceeded("r3:revise:x")).toBeNull();
+  it("does not treat a failed operation as already done", async () => {
+    expect((await alreadySucceeded("r3:revise:x"))).toBeNull();
   });
 
   it("never blocks a write when auditing fails", () => {
-    expect(() =>
-      recordAudit({
+    expect(async () =>
+      (await recordAudit({
         ts: new Date().toISOString(),
         runId: "r3",
         user: "sauser",
@@ -168,7 +168,7 @@ describe("write audit", () => {
         target: "dupe",
         request: {},
         outcome: "ok",
-      }),
+      })),
     ).not.toThrow();
   });
 });

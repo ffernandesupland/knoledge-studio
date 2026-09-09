@@ -36,13 +36,13 @@ The [NextAuth Credentials provider](https://authjs.dev/getting-started/authentic
 
 ### Vercel environment
 
-Add the five variables above to the appropriate Vercel environments, together with the existing RA and OpenAI credentials. Keep `AUTH_SECRET` stable across instances of an environment. Set `AUTH_URL` and `KS_PUBLIC_ORIGIN` to your exact public HTTPS URL for a fixed custom domain; leave them unset for automatic Vercel preview-host handling. Redeploy after environment changes. No deployment was performed by this change.
+Add the five variables above to the appropriate Vercel environments, together with the existing RA and OpenAI credentials. Keep `AUTH_SECRET` stable across instances of an environment. Set `AUTH_URL` and `KS_PUBLIC_ORIGIN` to your exact public HTTPS URL for a fixed custom domain; leave them unset for automatic Vercel preview-host handling. Redeploy after environment changes. See [Vercel deployment](docs/vercel-deployment.md) for the complete setup.
 
-Authentication uses stateless sessions, but the rest of the app still uses local SQLite. [Vercel does not support persistent SQLite files](https://vercel.com/kb/guide/is-sqlite-supported-in-vercel): migrate run history, decisions, audit, locks and write state to a hosted database before deploying this app there. Moving SQLite into `/tmp` does not provide durable or shared storage.
+Authentication uses stateless sessions. On Vercel, configure `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` for a remote libSQL database. Run history, decisions, audit, locks and write state share that database across instances. The app refuses to use a local database on Vercel.
 
 ## Persistence and writes
 
-SQLite lives in `.data/knowledge-studio.db`; `KS_DB_PATH` selects another file. Keep it on persistent local storage. Schema additions preserve existing runs/audit rows. Runs predating the source-identity fix cannot be submitted; restore their sources and analyze them again.
+Without Turso settings, local development uses `.data/knowledge-studio.db`; `KS_DB_PATH` selects another file. Keep it on persistent local storage. Schema additions preserve existing runs/audit rows. Runs predating the source-identity fix cannot be submitted; restore their sources and analyze them again.
 
 Selections, source provenance, templates, survivor choices, operation flags, standards, collection and language are saved as one snapshot. Submission freezes its plan. Conflicts and incomplete fields pause before the affected write. Retries reuse prepared content and successful operations. Uncertain responses require explicit reconciliation with RightAnswers before another write.
 
@@ -60,4 +60,4 @@ npm run build
 
 Tests use isolated temporary databases and mocked external services. `submit-smoke` can write to the configured RA tenant; it is not a standard check. Browser automation is not used in this workspace.
 
-Completed and partial runs offer **Open executed engine flow**. Use **Past executions** in `/flow` to revisit saved decisions, exact prompts and write outcomes. Snapshots persist in SQLite’s `flow_executions` table; access is scoped to the run owner.
+Completed and partial runs offer **Open executed engine flow**. Use **Past executions** in `/flow` to revisit saved decisions, exact prompts and write outcomes. Snapshots persist in the database’s `flow_executions` table; access is scoped to the run owner.

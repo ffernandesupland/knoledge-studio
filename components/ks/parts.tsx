@@ -1,4 +1,5 @@
 "use client";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/ingest/limits";
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { KS_STEPS, type StepId } from "@/lib/ks/data";
@@ -168,6 +169,7 @@ export function KsSmartInput({
   async function ingestFile(file: File) {
     setBusy(`Reading ${file.name}…`);
     try {
+      if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than the ${MAX_UPLOAD_MB} MB limit`);
       const body = new FormData();
       body.append("file", file);
       const res = await fetch("/api/ingest", { method: "POST", body });
