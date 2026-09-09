@@ -3,22 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_EXTRA_CA_CERTS=./certs/corporate-ca.pem next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "spike": "NODE_EXTRA_CA_CERTS=./certs/corporate-ca.pem tsx scripts/spike.ts",
+    "check": "tsc --noEmit && vitest run",
+    "probe": "tsx scripts/probe.ts",
+    "probe2": "tsx scripts/probe2.ts",
+    "test": "vitest run",
+    "pipeline": "NODE_EXTRA_CA_CERTS=./certs/corporate-ca.pem tsx scripts/pipeline.ts",
+    "setup:ca": "bash scripts/setup-ca.sh",
+    "submit-smoke": "NODE_EXTRA_CA_CERTS=./certs/corporate-ca.pem tsx scripts/submit-smoke.ts",
+    "merge-smoke": "NODE_EXTRA_CA_CERTS=./certs/corporate-ca.pem tsx scripts/merge-smoke.ts"
   },
   "dependencies": {
+    "@fontsource/open-sans": "^5.3.0",
+    "better-sqlite3": "^13.0.3",
+    "mammoth": "^1.12.2",
+    "marked": "^18.0.12",
+    "material-symbols": "^0.47.0",
     "next": "16.3.4",
+    "next-auth": "^5.0.0-beta.32",
+    "openai": "^7.9.0",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "sanitize-html": "^2.17.7",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/sanitize-html": "^2.16.1",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
-    "typescript": "^5"
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

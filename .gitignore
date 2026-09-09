@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Corporate TLS interception (Zscaler): Node ignores the macOS keychain, so point it
+# at an exported root CA. Regenerate with: npm run setup:ca
+certs/
+
+# Local write audit log
+.audit/
+
+# Local SQLite store
+.data/
