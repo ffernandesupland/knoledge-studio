@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { classify, parseDocument, MAX_UPLOAD_BYTES } from "@/lib/ingest/parse-document";
 
 describe("classify", () => {
@@ -30,6 +31,13 @@ describe("classify", () => {
 });
 
 describe("parseDocument", () => {
+  it("extracts text from a real PDF using the Node parser and worker", async () => {
+    const buffer = readFileSync(new URL("./fixtures/text.pdf", import.meta.url));
+    const doc = await parseDocument("text.pdf", "application/pdf", buffer);
+    expect(doc.kind).toBe("pdf");
+    expect(doc.text).toContain("Knowledge Studio PDF upload test");
+  });
+
   it("reads plain text", async () => {
     const doc = await parseDocument("notes.txt", "text/plain", Buffer.from("Line one\r\nLine two"));
     expect(doc.kind).toBe("text");
