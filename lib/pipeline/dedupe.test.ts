@@ -61,17 +61,25 @@ describe("duplicate retrieval and adjudication", () => {
     expect(r.costUsd).toBe(0.04);
   });
   it("finds keyword-only results, deduplicates IDs, excludes sources, and records retrieval", async () => {
-    mocks.search.mockImplementation(async ({ searchType, page }) => ({ solutions: searchType === "Keyword" && page === 2 ? [{ id: "found" }, { id: "found" }, { id: "source" }] : [{ id: "noise" }], totalHits: 20 }));
+    mocks.search.mockImplementation(async ({ searchType }) => ({ solutions: searchType === "Keyword" ? [{ id: "found" }, { id: "found" }, { id: "source" }] : [{ id: "noise" }], totalHits: 20 }));
     const r = await findDuplicatesFor(candidate, { exclude: new Set(["source"]) });
     expect(r.matches.map((m) => m.solutionId)).toContain("found");
     expect(mocks.solution.mock.calls.filter(([id]) => id === "found")).toHaveLength(1);
     expect(mocks.solution).not.toHaveBeenCalledWith("source");
-    expect(r.retrieval).toMatchObject({ comparedIds: expect.arrayContaining(["found"]), searches: expect.arrayContaining([expect.objectContaining({ searchType: "Keyword", page: 2, query: "MCP" })]) });
+    expect(r.retrieval).toMatchObject({ comparedIds: expect.arrayContaining(["found"]), searches: expect.arrayContaining([expect.objectContaining({ searchType: "Keyword", page: 1, query: "MCP" })]) });
     expect(mocks.search.mock.calls.every(([args]) => args.loggingEnabled === false)).toBe(true);
+  });
+  it("checks at most six unique eligible results per search engine with no second page", async () => {
+    mocks.search.mockImplementation(async ({ searchType }) => ({ solutions: Array.from({ length: 12 }, (_, i) => ({ id: `${searchType}-${i}` })), totalHits: 100 }));
+    const r = await findDuplicatesFor(candidate);
+    expect(mocks.search).toHaveBeenCalledTimes(3);
+    expect(mocks.search.mock.calls.every(([args]) => args.page === 1)).toBe(true);
+    for (const [id] of mocks.solution.mock.calls) expect(Number(id.split("-")[1])).toBeLessThan(6);
+    expect(r.retrieval).toMatchObject({ searches: expect.arrayContaining([expect.objectContaining({ resultLimit: 6, consideredIds: Array.from({ length: 6 }, (_, i) => `Keyword-${i}`) })]) });
   });
   it("skips adjudication only after all retrieval channels return no candidates", async () => {
     expect((await findDuplicatesFor(candidate)).matches).toEqual([]);
-    expect(mocks.search).toHaveBeenCalledTimes(4);
+    expect(mocks.search).toHaveBeenCalledTimes(3);
     expect(mocks.operation).toHaveBeenCalledTimes(1);
   });
   it("stops on retrieval failure instead of claiming no duplicates", async () => {

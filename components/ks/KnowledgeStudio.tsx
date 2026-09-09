@@ -1123,13 +1123,16 @@ export default function KnowledgeStudio() {
       <div className="ks-wizard" style={{ minHeight: 0 }}>
         <div className="ks-focus-crumb">
           <span>
-            Editing <strong>{c?.title ?? "solution"}</strong>
+            Editing source: <strong>{c?.title ?? "proposal"}</strong>
           </span>
         </div>
         <div className="ks-focus-body">
           <div className="ks-focus-surface">
             {c && <>
-              <label className="form-label">Title</label>
+              {c.dupeGroup != null && resolutions[c.dupeGroup] === "merged" && (
+                <p>This is one source in a planned merge. The final article will combine the included sources with the retained solution on submit.</p>
+              )}
+              <label className="form-label">Source title</label>
               <input className="form-input" value={c.title} onChange={(e) => pipeline.updateCandidate(c.key, { title: e.target.value, titleLocked: true })} />
               <label className="form-label" style={{ marginTop: 16 }}>Source content for authoring</label>
               <textarea className="form-input" style={{ width: "100%", minHeight: 360 }} value={c.rawContent}
@@ -1162,10 +1165,10 @@ export default function KnowledgeStudio() {
   /* ── Submit ── */
   function renderSubmitStep() {
     const orderedGroups: [SubmitStatus, string][] = [
-      ["merged", "Merged"],
+      ["merged", "Merge targets"],
       ["new", "New"],
       ["updated", "Updated"],
-      ["flagged", "Flagged as merged"],
+      ["flagged", "Merge planned"],
     ];
 
     if (submitRun.phase === "submitting") {
@@ -1291,7 +1294,7 @@ export default function KnowledgeStudio() {
                           <div key={src.id} className="ks-merge-side archive">
                             <div className="role">
                               <span className="ms">label</span>
-                              Flagged as merged
+                              Merge source
                             </div>
                             <div className="nm">{src.title}</div>
                             <IdChip id={src.id} copyable={isSolutionId(src.id)} />
@@ -1417,14 +1420,14 @@ export default function KnowledgeStudio() {
           <div className="ks-submit-summary">
             <div className="ks-submit-summary-row">
               <span className="ks-submit-summary-title">
-                {submitItems.length} solution{submitItems.length === 1 ? "" : "s"} planned for submission
+                {submitItems.length} selected proposal{submitItems.length === 1 ? "" : "s"} in this plan
               </span>
               <span className="ks-submit-summary-badges">
                 {(Object.keys(archSummary.counts) as SubmitStatus[])
                   .filter((k) => archSummary.counts[k] > 0)
                   .map((k) => (
                     <span key={k} className={"ks-tag " + TAG_CLASS[k]}>
-                      {archSummary.counts[k]} {k}
+                      {archSummary.counts[k]} {k === "flagged" ? "merge planned" : k === "merged" ? "merge target" : k}
                     </span>
                   ))}
               </span>
@@ -1489,8 +1492,8 @@ export default function KnowledgeStudio() {
           {archSummary.counts.flagged > 0 && (
             <div className="ks-workflow-note">
               <span className="ms">account_tree</span>
-              Flagged solutions stay exactly where they are. Each one gets an internal comment
-              recording which solution its content was merged into.
+              Existing merge sources stay in place and receive a tracking comment after a successful merge.
+              New proposals contribute content without creating separate articles.
             </div>
           )}
         </div>

@@ -113,10 +113,10 @@ describe("ksComputeSubmitItems", () => {
     expect(items[0].editTarget).toBe("000000000000001");
   });
 
-  it("describes flagged candidates as kept in place", () => {
+  it("describes a new merge source without implying a stored article", () => {
     const c = candidate({ key: "c0", dupeGroup: 0 });
     const items = ksComputeSubmitItems([c], [group()], new Set(["c0"]), ["merged"]);
-    expect(items[0].change).toContain("stays in place");
+    expect(items[0].change).toContain("no separate article is created");
   });
 });
 
