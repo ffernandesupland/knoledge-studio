@@ -70,8 +70,8 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
     const description = describeOp(op);
     const base = { idempotencyKey: op.idempotencyKey, kind: op.kind, description };
     onProgress?.({ index, total: plan.length, description });
-    let state = getWriteState(op.idempotencyKey);
-    const prior = alreadySucceeded(op.idempotencyKey);
+    let state = (await getWriteState(op.idempotencyKey));
+    const prior = (await alreadySucceeded(op.idempotencyKey));
     let prepared = state?.prepared;
     let writing = false;
     let result: OpResult;
@@ -102,11 +102,11 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
           const survivorId = survivor?.kind === "revise" ? survivor.solutionId : landed.solutionId;
           const survivorTitle = landed.title ?? (survivor && survivor.kind !== "flag" ? survivor.title : op.survivorLabel);
           payload = { loserId: op.solutionId, survivor: { id: survivorId, title: survivorTitle } };
-          saveWriteState(runId, op.idempotencyKey, { status: "writing" });
+          (await saveWriteState(runId, op.idempotencyKey, { status: "writing" }));
           writing = true;
           const response = await ra.flagMergedInto(op.solutionId, { id: survivorId, title: survivorTitle }, ctx);
           result = { ...base, outcome: "ok", solutionId: op.solutionId };
-          recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, target: op.solutionId, request: payload, outcome: "ok", response });
+          (await recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, target: op.solutionId, request: payload, outcome: "ok", response }));
         }
       } else {
         if (!prepared) {
@@ -130,7 +130,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             prepared.summary = r.data.summary;
             prepared.keywords = [...new Set([...(op.keywords ?? []), ...r.data.keywords])];
           }
-          saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared });
+          (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
         }
         const review = args.reviews?.[op.idempotencyKey];
         if (review) {
@@ -155,7 +155,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             if (unknown.length) prepared.warnings.push(`Unmapped content requires placement: ${unknown.map((f) => `${f.fieldName}: ${f.fieldValue}`).join("\n")}`);
             prepared.fields = target.fields.map((f) => ({ fieldName: f.fieldName, fieldValue: prepared!.fields.find((v) => v.fieldName === f.fieldName)?.fieldValue ?? "" }));
             const reviewResult: OpResult = { ...base, outcome: "review", prepared, message: (e as Error).message };
-            saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult });
+            (await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult }));
             results.push(reviewResult);
             onProgress?.({ index, total: plan.length, description, outcome: "review" });
             continue;
@@ -164,13 +164,13 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             if (solutionVersion(await ra.getSolution(id, ctx)) !== version) throw new Error(`Source ${id} changed after preparation. Start a new analysis to include its current content.`);
           }
           if (!prepared.title.trim()) throw new Error("Article title must not be empty.");
-          saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared });
+          (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
           const changes = { title: prepared.title, summary: prepared.summary, keywords: prepared.keywords.join(","), fields: prepared.fields };
           let solutionId: string;
           let response: string;
           if (op.kind === "create") {
             payload = { ...changes, templateName: prepared.templateName, status: "review", collections: collection, language };
-            saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared });
+            (await saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared }));
             writing = true;
             response = await ra.manageSolution(payload as Parameters<typeof ra.manageSolution>[0], ctx);
             solutionId = response.match(/\b\d{15}\b/)?.[0] ?? "";
@@ -183,7 +183,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             // Do not overwrite someone else's pending editorial work.
             if (pending) throw new Error(`Article has pending revision ${pending}. Review it in RightAnswers before starting a new update.`);
             payload = { ...changes, templateName: parent.templateName, parentId: parent.id, sourceStatus: parent.status, collections: parent.collections, taxonomy: parent.taxonomy, language: parent.language };
-            saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared });
+            (await saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared }));
             writing = true;
             const updated = await ra.updateSolution(parent, changes, ctx);
             payload = updated.request;
@@ -192,17 +192,17 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             response = `${updated.mode} -> ${solutionId}`;
           }
           result = { ...base, outcome: "ok", solutionId, title: prepared.title, fields: prepared.fields, prepared };
-          recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, target: solutionId, request: payload, outcome: "ok", response });
+          (await recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, target: solutionId, request: payload, outcome: "ok", response }));
         }
       }
     } catch (err) {
       const definiteRejection = err instanceof RaError && ((err.status >= 400 && err.status < 500) || (err.status === 200 && err.message.startsWith("manageSolution rejected")));
       const uncertain = writing && !definiteRejection;
       result = { ...base, outcome: uncertain ? "uncertain" : "error", prepared, message: (err as Error).message };
-      recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, request: payload, outcome: "error", error: result.message });
+      (await recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, request: payload, outcome: "error", error: result.message }));
     }
     state = { status: result.outcome === "skipped" ? "error" : result.outcome, prepared, result };
-    saveWriteState(runId, op.idempotencyKey, state);
+    (await saveWriteState(runId, op.idempotencyKey, state));
     results.push(result);
     onProgress?.({ index, total: plan.length, description, outcome: result.outcome });
   }

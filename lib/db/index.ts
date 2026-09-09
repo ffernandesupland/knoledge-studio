@@ -1,115 +1,60 @@
-import Database from "better-sqlite3";
-import path from "node:path";
+import { createClient, type Client, type InArgs, type InValue, type Transaction } from "@libsql/client";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { SCHEMA } from "./schema";
 
-/**
- * SQLite rather than Postgres for the pilot: the architecture's original reason for Postgres
- * was pgvector, and the embedding index was dropped when dedupe moved to search-and-adjudicate.
- * What is left is ordinary relational state, so a file-backed database avoids standing up
- * infrastructure. The repository layer is the seam if this needs to become Postgres later.
- */
+let instance: ReturnType<typeof connect> | undefined;
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-
-let instance: Database.Database | null = null;
-
-/** Points the store at a different file; used by tests to avoid touching the dev database. */
-export function useDatabase(file: string): void {
-  instance?.close();
-  instance = null;
-  process.env.KS_DB_PATH = file;
+function connect() {
+  const remote = process.env.TURSO_DATABASE_URL?.trim();
+  if (process.env.VERCEL && !remote) throw new Error("Configure TURSO_DATABASE_URL and TURSO_AUTH_TOKEN before deploying to Vercel.");
+  if (remote && !/^(libsql|https):\/\//.test(remote)) throw new Error("TURSO_DATABASE_URL must use libsql:// or https://.");
+  if (remote && !process.env.TURSO_AUTH_TOKEN) throw new Error("TURSO_AUTH_TOKEN is required for the remote database.");
+  const file = process.env.KS_DB_PATH ?? path.join(process.cwd(), ".data/knowledge-studio.db");
+  if (!remote) mkdirSync(path.dirname(file), { recursive: true });
+  const client: Client = createClient({ url: remote || pathToFileURL(file).href, authToken: remote ? process.env.TURSO_AUTH_TOKEN : undefined });
+  const context = new AsyncLocalStorage<Transaction>();
+  // Serialize operations sharing one local connection, including whole transactions.
+  // Across serverless instances the database's write transaction provides isolation.
+  let tail: Promise<unknown> = Promise.resolve();
+  const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
+    const pending = tail.then(fn);
+    tail = pending.catch(() => undefined);
+    return pending;
+  };
+  let ready: Promise<void> | undefined;
+  const initialize = () => ready ??= client.executeMultiple("PRAGMA foreign_keys=ON;\n" + SCHEMA).catch((error) => { ready = undefined; throw error; });
+  const execute = (sql: string, values: (InValue | Record<string, InValue>)[]) => {
+    const args: InArgs = values.length === 1 && values[0] !== null && typeof values[0] === "object" && !ArrayBuffer.isView(values[0]) && !(values[0] instanceof ArrayBuffer)
+      ? values[0] as Record<string, InValue> : values as InValue[];
+    const tx = context.getStore();
+    if (tx) return tx.execute({ sql, args });
+    return enqueue(async () => { await initialize(); return client.execute({ sql, args }); });
+  };
+  return {
+    prepare(sql: string) {
+      return {
+        async get(...args: (InValue | Record<string, InValue>)[]): Promise<unknown> { return (await execute(sql, args)).rows[0]; },
+        async all(...args: (InValue | Record<string, InValue>)[]): Promise<unknown[]> { return (await execute(sql, args)).rows; },
+        async run(...args: (InValue | Record<string, InValue>)[]) { const result = await execute(sql, args); return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid }; },
+      };
+    },
+    transaction<T>(fn: () => Promise<T>) {
+      return () => enqueue(async () => {
+        await initialize();
+        const tx = await client.transaction("write");
+        try { const result = await context.run(tx, fn); await tx.commit(); return result; }
+        catch (error) { await tx.rollback(); throw error; }
+        finally { tx.close(); }
+      });
+    },
+    close() { client.close(); },
+  };
 }
 
-export function closeDatabase(): void {
-  instance?.close();
-  instance = null;
-}
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS runs (
-  id            TEXT PRIMARY KEY,
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL,
-  author        TEXT NOT NULL,
-  path          TEXT,
-  status        TEXT NOT NULL,
-  input_text    TEXT,
-  source_ids    TEXT NOT NULL DEFAULT '[]',
-  operations    TEXT NOT NULL DEFAULT '[]',
-  cost_usd      REAL NOT NULL DEFAULT 0,
-  candidates    TEXT NOT NULL DEFAULT '[]',
-  groups_json   TEXT NOT NULL DEFAULT '[]',
-  steps         TEXT NOT NULL DEFAULT '[]',
-  error         TEXT
-);
-
-CREATE TABLE IF NOT EXISTS run_decisions (
-  run_id        TEXT NOT NULL,
-  selected_keys TEXT NOT NULL DEFAULT '[]',
-  resolutions   TEXT NOT NULL DEFAULT '[]',
-  collection    TEXT,
-  language      TEXT,
-  updated_at    TEXT NOT NULL,
-  PRIMARY KEY (run_id),
-  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS write_audit (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts              TEXT NOT NULL,
-  run_id          TEXT NOT NULL,
-  user            TEXT NOT NULL,
-  op              TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL,
-  target          TEXT,
-  request         TEXT NOT NULL,
-  outcome         TEXT NOT NULL,
-  response        TEXT,
-  error           TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_audit_run ON write_audit(run_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_idem ON write_audit(idempotency_key, outcome)
-  WHERE outcome = 'ok';
-CREATE INDEX IF NOT EXISTS idx_runs_updated ON runs(updated_at DESC);
-CREATE TABLE IF NOT EXISTS run_sources (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS studio_decisions (
-  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-  snapshot TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS flow_executions (
-  run_id TEXT PRIMARY KEY REFERENCES runs(id),
-  saved_at TEXT NOT NULL,
-  payload TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS execution_plans (
-  run_id TEXT PRIMARY KEY REFERENCES runs(id), payload TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS run_locks (
-  run_id TEXT PRIMARY KEY, token TEXT NOT NULL, heartbeat INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS write_state (
-  key TEXT PRIMARY KEY, run_id TEXT NOT NULL,
-  status TEXT NOT NULL, prepared TEXT, result TEXT,
-  updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS ai_calls (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, phase TEXT NOT NULL,
-  ts TEXT NOT NULL, operation TEXT NOT NULL, model TEXT NOT NULL,
-  input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cost_usd REAL NOT NULL,
-  prompt_version TEXT NOT NULL, request TEXT NOT NULL, response TEXT NOT NULL
-);
-
-`;
-
-export function db(): Database.Database {
-  if (instance) return instance;
-  const file = process.env.KS_DB_PATH ?? path.join(DATA_DIR, "knowledge-studio.db");
-  mkdirSync(path.dirname(file), { recursive: true });
-  const conn = new Database(file);
-  conn.pragma("journal_mode = WAL");
-  conn.pragma("foreign_keys = ON");
-  conn.exec(SCHEMA);
-  instance = conn;
-  return conn;
-}
+export function db() { return instance ??= connect(); }
+export function closeDatabase() { instance?.close(); instance = undefined; }
+/** Test-only local database selection; never changes the remote configuration. */
+export function useDatabase(file: string) { closeDatabase(); process.env.KS_DB_PATH = file; }

@@ -9,15 +9,15 @@ export async function GET(request: Request) {
     const query = new URL(request.url).searchParams;
     const runId = query.get("runId");
     if (runId) {
-      const run = getRun(runId);
+      const run = (await getRun(runId));
       if (!run || run.author !== author) throw new ApiError("Run not found", 404);
-      const saved = readExecutedFlow(runId);
+      const saved = (await readExecutedFlow(runId));
       // Active/partial decisions can still change. Completed executions retain their saved tree.
-      const flow = saved && ["submitted", "discarded", "error"].includes(run.status) && saved.status === run.status ? saved : saveExecutedFlow(runId);
+      const flow = saved && ["submitted", "discarded", "error"].includes(run.status) && saved.status === run.status ? saved : (await saveExecutedFlow(runId));
       return Response.json(flow, { headers: { "cache-control": "no-store" } });
     }
     const offset = Number(query.get("offset") ?? 0);
     if (!Number.isSafeInteger(offset) || offset < 0) return Response.json({ error: "Invalid history offset" }, { status: 400 });
-    return Response.json(pastExecutions(author, offset), { headers: { "cache-control": "no-store" } });
+    return Response.json((await pastExecutions(author, offset)), { headers: { "cache-control": "no-store" } });
   } catch (e) { return apiError(e); }
 }

@@ -2,6 +2,8 @@ import { requireActor, apiError } from "@/lib/api/auth";
 import { fetchUrlSafely } from "@/lib/ingest/fetch-url";
 import { MAX_UPLOAD_BYTES, parseDocument } from "@/lib/ingest/parse-document";
 
+import { MAX_UPLOAD_MB } from "@/lib/ingest/limits";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
         return Response.json({ error: "No file provided" }, { status: 400 });
       }
       if (file.size > MAX_UPLOAD_BYTES) {
-        return Response.json({ error: `${file.name} is larger than the 10 MB limit` }, { status: 413 });
+        return Response.json({ error: `${file.name} is larger than the ${MAX_UPLOAD_MB} MB limit` }, { status: 413 });
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());

@@ -17,16 +17,16 @@ export async function POST(request: Request) {
   try {
     const user = await requireActor(request);
     const body = await readJson(request, schema);
-    const run = getRun(body.runId);
+    const run = (await getRun(body.runId));
     assertOwner(run, user);
     return await withRunLock(run.id, async () => {
-      const state = getWriteState(body.key);
-      const op = loadExecution<ExecuteArgs>(run.id)?.plan.find((p) => p.idempotencyKey === body.key);
+      const state = (await getWriteState(body.key));
+      const op = (await loadExecution<ExecuteArgs>(run.id))?.plan.find((p) => p.idempotencyKey === body.key);
       if (!op || !state || !["writing", "uncertain"].includes(state.status)) throw new Error("No uncertain write to reconcile");
       if (body.action === "retry") {
-        recordAudit({ ts: new Date().toISOString(), runId: run.id, user, op: "reconcile-retry", idempotencyKey: `${body.key}:verified-absent:${randomUUID()}`, request: body, outcome: "ok", response: "Author explicitly verified that the write did not occur" });
-        saveWriteState(run.id, body.key, { status: "error", prepared: state.prepared });
-        saveExecutedFlow(run.id);
+        (await recordAudit({ ts: new Date().toISOString(), runId: run.id, user, op: "reconcile-retry", idempotencyKey: `${body.key}:verified-absent:${randomUUID()}`, request: body, outcome: "ok", response: "Author explicitly verified that the write did not occur" }));
+        (await saveWriteState(run.id, body.key, { status: "error", prepared: state.prepared }));
+        (await saveExecutedFlow(run.id));
         return Response.json({ ok: true });
       }
       if (op.kind !== "flag") {
@@ -38,9 +38,9 @@ export async function POST(request: Request) {
       }
       const target = op.kind === "flag" ? op.solutionId : body.solutionId;
       const result: OpResult = { idempotencyKey: body.key, kind: op.kind, description: describeOp(op), outcome: "ok", solutionId: target, title: state.prepared?.title, fields: state.prepared?.fields, prepared: state.prepared, message: "Verified after an uncertain response" };
-      recordAudit({ ts: new Date().toISOString(), runId: run.id, user, op: op.kind, idempotencyKey: body.key, target, request: { reconciliation: body, prepared: state.prepared }, outcome: "ok", response: "Author verification; article content checked against RA when applicable" });
-      saveWriteState(run.id, body.key, { status: "ok", prepared: state.prepared, result });
-      saveExecutedFlow(run.id);
+      (await recordAudit({ ts: new Date().toISOString(), runId: run.id, user, op: op.kind, idempotencyKey: body.key, target, request: { reconciliation: body, prepared: state.prepared }, outcome: "ok", response: "Author verification; article content checked against RA when applicable" }));
+      (await saveWriteState(run.id, body.key, { status: "ok", prepared: state.prepared, result }));
+      (await saveExecutedFlow(run.id));
       return Response.json({ ok: true, result });
     });
   } catch (e) { return apiError(e); }

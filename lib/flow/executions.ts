@@ -14,13 +14,13 @@ interface AiRow { id: number; ts: string; phase: string; operation: string; mode
 interface AuditRow { id: number; ts: string; op: string; idempotency_key: string; outcome: string; request: string; response: string | null; error: string | null; target: string | null }
 
 /** A persisted projection of recorded facts. Never infers success or calls from scenario defaults. */
-export function saveExecutedFlow(runId: string): ExecutedFlow {
-  const run = getRun(runId);
+export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
+  const run = (await getRun(runId));
   if (!run) throw new Error("Run not found");
-  const execution = loadExecution<ExecuteArgs>(runId);
-  const results = executionResults(runId);
-  const calls = db().prepare("SELECT * FROM ai_calls WHERE run_id=? ORDER BY id").all(runId) as AiRow[];
-  const audits = db().prepare("SELECT * FROM write_audit WHERE run_id=? ORDER BY id").all(runId) as AuditRow[];
+  const execution = (await loadExecution<ExecuteArgs>(runId));
+  const results = (await executionResults(runId));
+  const calls = (await db().prepare("SELECT * FROM ai_calls WHERE run_id=? ORDER BY id").all(runId)) as AiRow[];
+  const audits = (await db().prepare("SELECT * FROM write_audit WHERE run_id=? ORDER BY id").all(runId)) as AuditRow[];
   const node = (id: string, title: string, kind: FlowNode["kind"], detail: string, record?: unknown, children?: ExecutedNode[]): ExecutedNode => ({ id, title, kind, detail, record, children, active: true });
   const aiNodes = (phase: string) => calls.filter((c) => c.phase === phase).map((c) => node(`call_${c.id}`, c.operation, "ai", `${c.ts} · ${c.model} · prompt ${c.prompt_version} · ${c.input_tokens} input / ${c.output_tokens} output tokens · $${c.cost_usd.toFixed(4)}`, { request: JSON.parse(c.request), response: JSON.parse(c.response) }));
   const choices = run.snapshot;
@@ -47,18 +47,18 @@ export function saveExecutedFlow(runId: string): ExecutedFlow {
     node("outcome", "7 · Saved run outcome", run.error ? "stop" : "logic", `${run.status} · total recorded AI cost $${run.costUsd.toFixed(4)}`, { error: run.error, outcomes: results.map((r) => ({ outcome: r.outcome, solutionId: r.solutionId, description: r.description, message: r.message })) }),
   ];
   const flow: ExecutedFlow = { version: 1, runId, createdAt: run.createdAt, savedAt: new Date().toISOString(), status: run.status, title: run.candidates[0]?.title ?? "Content analysis", costUsd: run.costUsd, tree };
-  db().prepare("INSERT INTO flow_executions(run_id,saved_at,payload) VALUES (?,?,?) ON CONFLICT(run_id) DO UPDATE SET saved_at=excluded.saved_at,payload=excluded.payload").run(runId, flow.savedAt, JSON.stringify(flow));
+  (await db().prepare("INSERT INTO flow_executions(run_id,saved_at,payload) VALUES (?,?,?) ON CONFLICT(run_id) DO UPDATE SET saved_at=excluded.saved_at,payload=excluded.payload").run(runId, flow.savedAt, JSON.stringify(flow)));
   return flow;
 }
-export function readExecutedFlow(runId: string): ExecutedFlow | undefined {
-  const row = db().prepare("SELECT payload FROM flow_executions WHERE run_id=?").get(runId) as { payload: string } | undefined;
+export async function readExecutedFlow(runId: string): Promise<ExecutedFlow | undefined> {
+  const row = (await db().prepare("SELECT payload FROM flow_executions WHERE run_id=?").get(runId)) as { payload: string } | undefined;
   return row ? JSON.parse(row.payload) : undefined;
 }
 /** Pagination and owner filtering happen before loading or backfilling any payload. */
-export function pastExecutions(author: string, offset = 0): { runs: PastExecution[]; hasMore: boolean } {
-  const rows = db().prepare("SELECT id, created_at, status, cost_usd FROM runs WHERE author=? AND status!='running' ORDER BY created_at DESC,id DESC LIMIT 21 OFFSET ?").all(author, offset) as { id: string; created_at: string; status: string; cost_usd: number }[];
-  return { hasMore: rows.length > 20, runs: rows.slice(0, 20).map((r) => {
-    const saved = readExecutedFlow(r.id) ?? saveExecutedFlow(r.id);
+export async function pastExecutions(author: string, offset = 0): Promise<{ runs: PastExecution[]; hasMore: boolean }> {
+  const rows = (await db().prepare("SELECT id, created_at, status, cost_usd FROM runs WHERE author=? AND status!='running' ORDER BY created_at DESC,id DESC LIMIT 21 OFFSET ?").all(author, offset)) as { id: string; created_at: string; status: string; cost_usd: number }[];
+  return { hasMore: rows.length > 20, runs: await Promise.all(rows.slice(0, 20).map(async (r) => {
+    const saved = (await readExecutedFlow(r.id)) ?? (await saveExecutedFlow(r.id));
     return { id: r.id, createdAt: r.created_at, status: r.status, costUsd: r.cost_usd, title: saved.title };
-  }) };
+  })) };
 }
