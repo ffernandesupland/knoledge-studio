@@ -1,0 +1,174 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { closeDatabase, useDatabase } from "@/lib/db";
+import {
+  completeRun,
+  createRun,
+  failRun,
+  getResumableRun,
+  getRun,
+  listRuns,
+  markSubmitted,
+  saveDecisions,
+} from "@/lib/db/runs";
+import { alreadySucceeded, auditForRun, recordAudit } from "@/lib/pipeline/audit";
+import type { ViewCandidate, ViewDupeGroup } from "@/lib/ks/model";
+
+let dir: string;
+
+beforeAll(() => {
+  dir = mkdtempSync(path.join(tmpdir(), "ks-db-"));
+  useDatabase(path.join(dir, "test.db"));
+});
+
+afterAll(() => {
+  closeDatabase();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const candidate: ViewCandidate = {
+  key: "c0",
+  title: "Printer offline",
+  subtitle: "New solution",
+  action: "New",
+  source: "Your content",
+  why: "Split rationale.",
+  templateName: "Problem (RA)",
+  fields: [{ fieldName: "Solution", fieldValue: "Restart the spooler." }],
+  rawContent: "Restart the spooler.",
+  duplicates: [],
+  dupeGroup: null,
+};
+
+const group: ViewDupeGroup = {
+  survivorId: "c0",
+  averageSimilarity: 85,
+  reason: "Same topic.",
+  members: [{ id: "c0", title: "Printer offline", stat: "New solution", retained: true }],
+};
+
+function seed(id: string) {
+  createRun({
+    id,
+    author: "sauser",
+    path: "create",
+    inputText: "printer notes",
+    sourceIds: [],
+    operations: ["Split topics"],
+  });
+}
+
+describe("run persistence", () => {
+  it("round-trips a completed run", () => {
+    seed("r1");
+    completeRun("r1", { candidates: [candidate], groups: [group], costUsd: 0.018, steps: [] });
+
+    const stored = getRun("r1")!;
+    expect(stored.status).toBe("done");
+    expect(stored.costUsd).toBeCloseTo(0.018);
+    expect(stored.candidates[0].title).toBe("Printer offline");
+    expect(stored.candidates[0].fields[0].fieldValue).toBe("Restart the spooler.");
+    expect(stored.groups[0].survivorId).toBe("c0");
+  });
+
+  it("selects everything by default so a restored run matches a fresh one", () => {
+    expect(getRun("r1")!.decisions?.selectedKeys).toEqual(["c0"]);
+    expect(getRun("r1")!.decisions?.resolutions).toEqual([null]);
+  });
+
+  it("updates decisions without clobbering the run", () => {
+    saveDecisions("r1", {
+      selectedKeys: [],
+      resolutions: ["merged"],
+      collection: "custom_x",
+      language: "English",
+    });
+    const stored = getRun("r1")!;
+    expect(stored.decisions).toMatchObject({
+      selectedKeys: [],
+      resolutions: ["merged"],
+      collection: "custom_x",
+    });
+    expect(stored.candidates).toHaveLength(1);
+  });
+
+  it("records a failed run with its reason", () => {
+    seed("r2");
+    failRun("r2", "Nothing to process");
+    const stored = getRun("r2")!;
+    expect(stored.status).toBe("error");
+    expect(stored.error).toBe("Nothing to process");
+  });
+
+  it("resumes the most recent completed run and ignores failed ones", () => {
+    const resumable = getResumableRun("sauser")!;
+    expect(resumable.id).toBe("r1");
+  });
+
+  it("stops offering a run once it has been submitted", () => {
+    markSubmitted("r1");
+    expect(getRun("r1")!.status).toBe("submitted");
+    expect(getResumableRun("sauser")).toBeNull();
+  });
+
+  it("returns null for an unknown run", () => {
+    expect(getRun("nope")).toBeNull();
+  });
+
+  it("lists runs newest first", () => {
+    expect(listRuns().map((r) => r.id)).toContain("r1");
+  });
+});
+
+describe("write audit", () => {
+  it("records successes and failures", () => {
+    seed("r3");
+    recordAudit({
+      ts: new Date().toISOString(),
+      runId: "r3",
+      user: "sauser",
+      op: "create",
+      idempotencyKey: "r3:create:c0",
+      target: "260903145019767",
+      request: { kind: "create" },
+      outcome: "ok",
+      response: "Successfully created",
+    });
+    recordAudit({
+      ts: new Date().toISOString(),
+      runId: "r3",
+      user: "sauser",
+      op: "revise",
+      idempotencyKey: "r3:revise:x",
+      request: { kind: "revise" },
+      outcome: "error",
+      error: "boom",
+    });
+    expect(auditForRun("r3")).toHaveLength(2);
+  });
+
+  it("reports an operation that already succeeded, so a retry can skip it", () => {
+    expect(alreadySucceeded("r3:create:c0")).toEqual({ target: "260903145019767" });
+  });
+
+  it("does not treat a failed operation as already done", () => {
+    expect(alreadySucceeded("r3:revise:x")).toBeNull();
+  });
+
+  it("never blocks a write when auditing fails", () => {
+    expect(() =>
+      recordAudit({
+        ts: new Date().toISOString(),
+        runId: "r3",
+        user: "sauser",
+        op: "create",
+        idempotencyKey: "r3:create:c0",
+        target: "dupe",
+        request: {},
+        outcome: "ok",
+      }),
+    ).not.toThrow();
+  });
+});

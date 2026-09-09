@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Knowledge Studio
 
-## Getting Started
+Create, improve and merge RightAnswers knowledge articles through Content → Check → Metadata → Submit.
 
-First, run the development server:
-
-```bash
+```sh
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Development binds to `127.0.0.1:3000`. RA credentials (`RA_BASE_URL`, `RA_COMPANY_CODE`, `RA_USERNAME`, `RA_PASSWORD`) and `OPENAI_API_KEY` come from `.env`. Run `npm run setup:ca` if the corporate certificate needs to be installed for this workspace.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open **http://127.0.0.1:3000/flow** for the interactive engine explorer. **Explore engine flow** in the wizard opens it with the current source/operation choices and run ID. It includes decision branches, exact prompt-builder examples, schemas, Mermaid export, and recorded AI activity. Exploring a scenario never calls AI or writes to the KB.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- [Engine behavior, diagram and recovery guide](docs/engine-guide.md)
+- [Complete Mermaid tree](docs/knowledge-studio-flow.mmd)
+- [Original implementation review](docs/implementation-review-2026-09-09.md)
+- [Fixes mapped to the review](docs/review-fixes-2026-09-09.md)
 
-## Learn More
+## Access
 
-To learn more about Next.js, take a look at the following resources:
+Sign in at `/login` using the server-only environment values:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```dotenv
+KS_AUTH_USERNAME=admin
+KS_AUTH_PASSWORD=your-long-unique-password
+AUTH_SECRET=your-random-secret-at-least-32-characters
+AUTH_TRUST_HOST=true
+KS_AUTH_RA_USER=sauser
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The local `.env` contains generated credentials. `.env.example` lists the required settings without secrets. Never prefix these settings with `NEXT_PUBLIC_`. Generate a session secret with `openssl rand -base64 48`.
 
-## Deploy on Vercel
+The [NextAuth Credentials provider](https://authjs.dev/getting-started/authentication/credentials) handles sign-in and sign-out with encrypted, HTTP-only cookie sessions lasting eight hours. Next.js `proxy.ts` protects app pages and API routes; APIs also verify the session themselves. Invalid or expired sessions receive an API 401 or a redirect to `/login`. Credentials stay out of browser storage. Changing the username, password, author mapping or session secret invalidates old sessions.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`KS_AUTH_RA_USER` is the RightAnswers impersonation identity and run owner; keeping `sauser` preserves access to existing pilot history. This shared login is not RightAnswers SSO. The legacy `KS_USERS_JSON` Basic API mode remains available only when no new login settings are configured; it cannot bypass a configured login.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Vercel environment
+
+Add the five variables above to the appropriate Vercel environments, together with the existing RA and OpenAI credentials. Keep `AUTH_SECRET` stable across instances of an environment. Set `AUTH_URL` and `KS_PUBLIC_ORIGIN` to your exact public HTTPS URL for a fixed custom domain; leave them unset for automatic Vercel preview-host handling. Redeploy after environment changes. No deployment was performed by this change.
+
+Authentication uses stateless sessions, but the rest of the app still uses local SQLite. [Vercel does not support persistent SQLite files](https://vercel.com/kb/guide/is-sqlite-supported-in-vercel): migrate run history, decisions, audit, locks and write state to a hosted database before deploying this app there. Moving SQLite into `/tmp` does not provide durable or shared storage.
+
+## Persistence and writes
+
+SQLite lives in `.data/knowledge-studio.db`; `KS_DB_PATH` selects another file. Keep it on persistent local storage. Schema additions preserve existing runs/audit rows. Runs predating the source-identity fix cannot be submitted; restore their sources and analyze them again.
+
+Selections, source provenance, templates, survivor choices, operation flags, standards, collection and language are saved as one snapshot. Submission freezes its plan. Conflicts and incomplete fields pause before the affected write. Retries reuse prepared content and successful operations. Uncertain responses require explicit reconciliation with RightAnswers before another write.
+
+New solutions use review status. Published parents use revisions; existing non-live drafts can be edited in place. An unrelated pending revision blocks an update. Merge losers receive internal comments after their own survivor succeeds. Nothing is archived or published by Knowledge Studio.
+
+AI traces store prompts, responses, models/tokens and estimated costs, including submit-time authoring. These contain source content and should be treated like drafts. Configured prices provide estimates, not billing reconciliation.
+
+## Verification
+
+```sh
+npm run check   # TypeScript and contract/unit tests
+npm run lint
+npm run build
+```
+
+Tests use isolated temporary databases and mocked external services. `submit-smoke` can write to the configured RA tenant; it is not a standard check. Browser automation is not used in this workspace.
+
+Completed and partial runs offer **Open executed engine flow**. Use **Past executions** in `/flow` to revisit saved decisions, exact prompts and write outcomes. Snapshots persist in SQLite’s `flow_executions` table; access is scoped to the run owner.

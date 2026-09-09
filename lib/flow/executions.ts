@@ -1,0 +1,64 @@
+import { db } from "../db";
+import { getRun } from "../db/runs";
+import { loadExecution, executionResults } from "../pipeline/state";
+import type { ExecuteArgs } from "../pipeline/execute";
+import type { FlowNode } from "./model";
+
+export interface ExecutedNode extends FlowNode { record?: unknown; children?: ExecutedNode[] }
+export interface ExecutedFlow {
+  version: 1; runId: string; createdAt: string; savedAt: string; status: string;
+  title: string; costUsd: number; tree: ExecutedNode[];
+}
+export interface PastExecution { id: string; createdAt: string; status: string; costUsd: number; title: string }
+interface AiRow { id: number; ts: string; phase: string; operation: string; model: string; prompt_version: string; input_tokens: number; output_tokens: number; cost_usd: number; request: string; response: string }
+interface AuditRow { id: number; ts: string; op: string; idempotency_key: string; outcome: string; request: string; response: string | null; error: string | null; target: string | null }
+
+/** A persisted projection of recorded facts. Never infers success or calls from scenario defaults. */
+export function saveExecutedFlow(runId: string): ExecutedFlow {
+  const run = getRun(runId);
+  if (!run) throw new Error("Run not found");
+  const execution = loadExecution<ExecuteArgs>(runId);
+  const results = executionResults(runId);
+  const calls = db().prepare("SELECT * FROM ai_calls WHERE run_id=? ORDER BY id").all(runId) as AiRow[];
+  const audits = db().prepare("SELECT * FROM write_audit WHERE run_id=? ORDER BY id").all(runId) as AuditRow[];
+  const node = (id: string, title: string, kind: FlowNode["kind"], detail: string, record?: unknown, children?: ExecutedNode[]): ExecutedNode => ({ id, title, kind, detail, record, children, active: true });
+  const aiNodes = (phase: string) => calls.filter((c) => c.phase === phase).map((c) => node(`call_${c.id}`, c.operation, "ai", `${c.ts} · ${c.model} · prompt ${c.prompt_version} · ${c.input_tokens} input / ${c.output_tokens} output tokens · $${c.cost_usd.toFixed(4)}`, { request: JSON.parse(c.request), response: JSON.parse(c.response) }));
+  const choices = run.snapshot;
+  const tree: ExecutedNode[] = [
+    node("sources", "1 · Sources and selected options", "input", `${run.path ?? "Content"} · ${run.candidates.length} analyzed proposals · Enabled: ${run.operations.join(", ") || "No optional operations"}`, {
+      pastedCharacters: run.inputText.length, attachments: run.attachments?.map((a) => ({ label: a.label, kind: a.kind ?? "not recorded", characters: a.text.length })), sourceSolutionIds: run.sourceIds, analysisOptions: run.operations,
+    }),
+    node("analysis", "2 · Recorded analysis", "logic", `${run.steps.length} completed tool steps · ${aiNodes("analysis").length} recorded AI calls. Tool steps and AI calls are separate records; not every API read has an individual event.`, undefined, [
+      node("steps", "Completed tool steps", "logic", "Durations and costs recorded by the analysis pipeline.", run.steps),
+      ...aiNodes("analysis"),
+    ]),
+    node("decisions", "3 · Proposals and author decisions", "human", choices ? `${choices.selectedKeys.length} selected · ${choices.resolutions.filter((r) => r === "merged").length} merge decisions · ${choices.resolutions.filter((r) => r === "separate").length} keep-separate decisions.` : "No full decision snapshot recorded; available analysis decisions shown.", {
+      proposals: (choices?.candidates ?? run.candidates).map((c) => ({ key: c.key, title: c.title, template: c.templateName, targetSolutionId: c.targetSolutionId, proposal: c.proposal, duplicates: c.duplicates, researchOnly: c.researchOnly })),
+      selectedKeys: choices?.selectedKeys ?? run.decisions?.selectedKeys,
+      groups: choices?.groups ?? run.groups, resolutions: choices?.resolutions ?? run.decisions?.resolutions,
+    }),
+    node("metadata", "4 · Final metadata and preparation options", "human", execution ? "Options frozen when submission started; item records below show any reviewed template changes." : "Submission has not started.", execution ? { collection: execution.collection, language: execution.language, rewriteEnabled: execution.restructureEnabled, standardsRules: execution.standardsRules } : choices ? { collection: choices.collection, language: choices.language, operations: choices.operations, standardsRules: choices.standardsRules } : undefined),
+    node("preparation", "5 · Recorded article preparation", "logic", `${aiNodes("submission").length} AI calls recorded during submission, including retries and regeneration. Zero calls means none were recorded, not that current prompts ran.`, undefined, aiNodes("submission")),
+    node("writes", "6 · Planned writes and actual outcomes", "logic", execution ? `${execution.plan.length} planned operations. Expand an item to inspect its saved preparation and attempt records.` : "No submission plan recorded; no writes are implied.", undefined, execution?.plan.map((op, i) => {
+      const result = results.find((r) => r.idempotencyKey === op.idempotencyKey);
+      const attempts = audits.filter((a) => a.idempotency_key === op.idempotencyKey || a.idempotency_key.startsWith(`${op.idempotencyKey}:`));
+      return node(`write_${i}`, `${op.kind}: ${op.kind === "flag" ? op.solutionId : result?.title ?? op.title}`, result?.outcome === "ok" ? "write" : "stop", `${result?.outcome ?? "No result recorded"}${result?.solutionId ? ` · Solution ${result.solutionId}` : ""}${result?.message ? ` · ${result.message}` : ""}`, { planned: op, result, attempts: attempts.map((a) => ({ ...a, request: JSON.parse(a.request) })) });
+    })),
+    node("outcome", "7 · Saved run outcome", run.error ? "stop" : "logic", `${run.status} · total recorded AI cost $${run.costUsd.toFixed(4)}`, { error: run.error, outcomes: results.map((r) => ({ outcome: r.outcome, solutionId: r.solutionId, description: r.description, message: r.message })) }),
+  ];
+  const flow: ExecutedFlow = { version: 1, runId, createdAt: run.createdAt, savedAt: new Date().toISOString(), status: run.status, title: run.candidates[0]?.title ?? "Content analysis", costUsd: run.costUsd, tree };
+  db().prepare("INSERT INTO flow_executions(run_id,saved_at,payload) VALUES (?,?,?) ON CONFLICT(run_id) DO UPDATE SET saved_at=excluded.saved_at,payload=excluded.payload").run(runId, flow.savedAt, JSON.stringify(flow));
+  return flow;
+}
+export function readExecutedFlow(runId: string): ExecutedFlow | undefined {
+  const row = db().prepare("SELECT payload FROM flow_executions WHERE run_id=?").get(runId) as { payload: string } | undefined;
+  return row ? JSON.parse(row.payload) : undefined;
+}
+/** Pagination and owner filtering happen before loading or backfilling any payload. */
+export function pastExecutions(author: string, offset = 0): { runs: PastExecution[]; hasMore: boolean } {
+  const rows = db().prepare("SELECT id, created_at, status, cost_usd FROM runs WHERE author=? AND status!='running' ORDER BY created_at DESC,id DESC LIMIT 21 OFFSET ?").all(author, offset) as { id: string; created_at: string; status: string; cost_usd: number }[];
+  return { hasMore: rows.length > 20, runs: rows.slice(0, 20).map((r) => {
+    const saved = readExecutedFlow(r.id) ?? saveExecutedFlow(r.id);
+    return { id: r.id, createdAt: r.created_at, status: r.status, costUsd: r.cost_usd, title: saved.title };
+  }) };
+}

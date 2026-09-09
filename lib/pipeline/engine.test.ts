@@ -1,0 +1,274 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { closeDatabase, db, useDatabase } from "../db";
+import { createRun, completeRun, getRun, saveSnapshot, type DecisionSnapshot } from "../db/runs";
+import { runPipeline } from "./run";
+import { executeWritePlan, type ExecuteArgs } from "./execute";
+import { buildWritePlan, type WriteOp } from "./submit";
+import { mapRunToView } from "../ks/model";
+import { freezeExecution, getWriteState, saveWriteState, withRunLock } from "./state";
+import { canonicalSnapshot } from "../api/validation";
+import { KS_OPS_DEFAULT } from "../ks/data";
+import { POST as reconcile } from "../../app/api/submit/reconcile/route";
+import { RaError } from "../ra/http";
+
+const mocks = vi.hoisted(() => ({
+  templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
+  plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
+}));
+vi.mock("../ra/client", () => ({ ra: { getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
+vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
+vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
+
+const template = { templateName: "How To (RA)", templateType: "standard", kbPrefix: "", fields: ["Solution", "Details"].map((fieldName) => ({ fieldName, required: false, description: "", searchable: true })) };
+const fields = [{ fieldName: "Solution", fieldValue: "<p>Original answer</p>" }, { fieldName: "Details", fieldValue: "" }];
+const source = { id: "260909000000002", title: "Existing article", templateName: template.templateName, status: "Published", fields: fields.map((f) => ({ name: f.fieldName, content: f.fieldValue })) };
+const result = <T>(data: T) => ({ data, model: "test", costUsd: 0.01, inputTokens: 10, outputTokens: 20 });
+let dir: string;
+let counter = 0;
+let runId: string;
+beforeAll(() => { dir = mkdtempSync(path.join(tmpdir(), "ks-engine-")); useDatabase(path.join(dir, "test.db")); });
+afterAll(() => { closeDatabase(); rmSync(dir, { recursive: true, force: true }); });
+beforeEach(() => {
+  vi.resetAllMocks();
+  runId = `engine-${++counter}`;
+  createRun({ id: runId, author: "sauser", path: "create", inputText: "source", sourceIds: [], operations: [] });
+  mocks.plan.mockImplementation(async (evidence) => result({ proposals: evidence.map((e: { key: string }) => ({ key: e.key, purpose: "Help the reader", coverage: ["Supported scope"], rationale: "A distinct supported user need", openQuestions: [] })) }));
+  mocks.templates.mockResolvedValue([template]); mocks.solution.mockImplementation(async (id) => ({ ...source, id }));
+  mocks.history.mockResolvedValue([]); mocks.search.mockResolvedValue({ solutions: [], totalHits: 0 });
+  mocks.write.mockResolvedValue("Successfully created solution with ID: 260909000000003");
+  mocks.update.mockResolvedValue({ solutionId: "260909000000004", mode: "revision", request: { revisionParentID: source.id } });
+  mocks.flag.mockResolvedValue("ok");
+  mocks.restructure.mockResolvedValue(result({ title: "Generated title", summary: "Generated summary", keywords: ["vpn"], fields: [{ fieldName: "Solution", fieldValue: "<ol><li>Authored answer</li></ol>" }, fields[1]] }));
+  mocks.standards.mockImplementation(async (f) => result({ fields: f, ruleResults: [{ rule: "Numbered steps", passedBefore: true, changed: false, note: "Already numbered" }] }));
+  mocks.merge.mockResolvedValue(result({ sections: fields.map((f) => ({ fieldName: f.fieldName, combined: f.fieldValue, contributions: [], noMatchNote: "", conflict: { present: false, optionA: { from: "", text: "" }, optionB: { from: "", text: "" }, mergedDefault: "" } })) }));
+});
+const newOp = (key = "c0"): Extract<WriteOp, { kind: "create" }> => ({ kind: "create", candidateKey: key, title: "Raw title", templateName: template.templateName, fields, rawContent: "Original answer", idempotencyKey: `${runId}:create:${key}` });
+const args = (plan: WriteOp[], extra: Partial<ExecuteArgs> = {}): ExecuteArgs => ({ runId, user: "sauser", plan, collection: "custom_kb", language: "English", ...extra });
+
+describe("analysis → view → plan contract", () => {
+  it("builds a plan from evidence without authoring, even with optional operations off", async () => {
+    const view = mapRunToView(await runPipeline({ text: "Source facts", attachments: [{ label: "Manual.txt", text: "Additional facts" }], operations: [] }));
+    expect(mocks.plan.mock.calls[0][0][0]).toMatchObject({ content: "Source facts\n\nAdditional facts", proposedAction: "create", sourceLabels: ["pasted text", "Manual.txt"], duplicateEvidence: { checked: false } });
+    expect(view.candidates[0].why).toBe("A distinct supported user need");
+    expect(view.candidates[0].proposal?.coverage).toEqual(["Supported scope"]);
+    expect(mocks.restructure).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+    const plan = buildWritePlan({ runId, ...view, selected: new Set(["c0"]), resolutions: [] });
+    await executeWritePlan(args(plan, { restructureEnabled: true }));
+    expect(mocks.restructure.mock.calls[0][2]).toEqual(view.candidates[0].proposal);
+  });
+  it("rejects invented topic keys from the planner", async () => {
+    mocks.plan.mockResolvedValue(result({ proposals: [{ key: "made-up", purpose: "x", coverage: ["x"], rationale: "x", openQuestions: [] }] }));
+    await expect(runPipeline({ text: "Source", operations: [] })).rejects.toThrow("does not match");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("preserves an existing update target all the way to the write plan", async () => {
+    const view = mapRunToView(await runPipeline({ text: "", sourceSolutionIds: [source.id], operations: [] }));
+    const plan = buildWritePlan({ runId, ...view, selected: new Set([source.id]), resolutions: [] });
+    expect(view.candidates[0]).toMatchObject({ key: source.id, targetSolutionId: source.id, templateName: source.templateName, action: "Update" });
+    expect(plan[0]).toMatchObject({ kind: "revise", solutionId: source.id });
+    expect(mocks.choose).not.toHaveBeenCalled();
+  });
+  it("retains original HTML if restructuring is disabled after analysis", async () => {
+    const markdown = { ...source, fields: [{ name: "Solution", content: "1. Restart\n2. Reconnect" }, { name: "Details", content: "" }] };
+    const html = { ...source, fields: [{ name: "Solution", content: "<ol><li>Restart</li><li>Reconnect</li></ol>" }, { name: "Details", content: "" }] };
+    mocks.solution.mockResolvedValueOnce(markdown).mockResolvedValueOnce(html).mockResolvedValue(markdown);
+    const view = mapRunToView(await runPipeline({ text: "", sourceSolutionIds: [source.id], operations: ["Restructure content"] }));
+    const plan = buildWritePlan({ runId, ...view, selected: new Set([source.id]), resolutions: [] });
+    const [written] = await executeWritePlan(args(plan, { restructureEnabled: false }));
+    expect(written.outcome).toBe("ok");
+    expect(mocks.update.mock.calls[0][1].fields[0].fieldValue).toBe(html.fields[0].content);
+    expect(mocks.restructure).not.toHaveBeenCalled();
+  });
+  it("keeps fresh material separate from picked sources", async () => {
+    const output = await runPipeline({ text: "A new topic", sourceSolutionIds: [source.id], operations: [] });
+    expect(output.solutions.map((s) => s.targetSolutionId)).toEqual([undefined, source.id]);
+  });
+  it("splits a source into new drafts without guessing a replacement", async () => {
+    mocks.split.mockResolvedValue(result({ topics: [{ title: "B", content: "Second topic", rationale: "Separate" }, { title: "A", content: "First topic", rationale: "Separate" }] }));
+    const output = await runPipeline({ text: "", sourceSolutionIds: [source.id], operations: ["Split topics"] });
+    expect(output.solutions).toHaveLength(2);
+    expect(output.solutions.every((s) => !s.targetSolutionId && s.sourceIds?.[0] === source.id)).toBe(true);
+  });
+  it("does not trigger template AI when all operations are off", async () => {
+    mocks.templates.mockResolvedValue([template, { ...template, templateName: "Other" }]);
+    await runPipeline({ text: "A useful answer", operations: [] });
+    expect(mocks.choose).not.toHaveBeenCalled();
+    expect(mocks.restructure).not.toHaveBeenCalled();
+  });
+  it("retains optimized keywords through view mapping and planning", async () => {
+    mocks.history.mockResolvedValue([{ description: "vpn setup" }]);
+    mocks.optimize.mockResolvedValue(result({ changed: true, title: "Search title", keywords: ["vpn setup"] }));
+    const view = mapRunToView(await runPipeline({ text: "Answer", operations: ["Optimize for search"] }));
+    expect(buildWritePlan({ runId, ...view, selected: new Set(["c0"]), resolutions: [] })[0]).toMatchObject({ title: "Search title", keywords: ["vpn setup"], titleLocked: true });
+  });
+  it("does not turn a failed search into gap evidence", async () => {
+    mocks.history.mockResolvedValue([{ description: "VPN" }]); mocks.search.mockRejectedValue(new Error("offline"));
+    const output = await runPipeline({ text: "", operations: ["Find gaps"] });
+    expect(mocks.gaps).not.toHaveBeenCalled(); expect(output.warnings?.[0]).toContain("omitted");
+  });
+  it("reads full articles for gaps and prevents research suggestions from being written", async () => {
+    mocks.history.mockResolvedValue([{ description: "VPN" }]); mocks.search.mockResolvedValue({ solutions: [source] });
+    mocks.gaps.mockResolvedValue(result({ gaps: [{ question: "VPN", suggestedTitle: "Missing VPN", confidence: 0.8, rationale: "Missing answer" }] }));
+    const view = mapRunToView(await runPipeline({ text: "", operations: ["Find gaps"] }));
+    expect(mocks.gaps.mock.calls[0][0][0].articles[0]).toContain("Original answer");
+    expect(view.candidates[0].researchOnly).toBe(true);
+    expect(() => buildWritePlan({ runId, ...view, selected: new Set(["g0"]), resolutions: [] })).toThrow("Research");
+  });
+});
+
+describe("submission contracts", () => {
+  it("passes reviewed scope and original source text into merges even before template fields are authored", async () => {
+    const proposal = { purpose: "Consolidate supported coverage", coverage: ["Shared problem", "Unique details"], rationale: "Same need", openQuestions: [] };
+    const op = { ...newOp(), fields: [], proposal, mergeSources: [{ id: "c1", title: "Other topic", fields: [], rawContent: "Unique verified source", proposal }] };
+    const [written] = await executeWritePlan(args([op]));
+    expect(written.outcome).toBe("ok");
+    expect(mocks.merge.mock.calls[0][0].map((b: { body: string }) => b.body)).toEqual(["Original answer", "Unique verified source"]);
+    expect(mocks.merge.mock.calls[0][2]).toEqual([proposal, proposal]);
+  });
+  it("maps new articles into the final template with rewriting disabled", async () => {
+    const op = { ...newOp(), fields: fields.map((f) => ({ ...f, fieldValue: "" })) };
+    const [written] = await executeWritePlan(args([op], { restructureEnabled: false }));
+    expect(written.outcome).toBe("ok");
+    expect(mocks.restructure.mock.calls[0][3]).toBe(true);
+    expect(mocks.write.mock.calls[0][0]).toMatchObject({ summary: "Generated summary", keywords: "vpn", templateName: template.templateName });
+    expect(mocks.write.mock.calls[0][0].fields[0].fieldValue).toContain("<ol>");
+  });
+  it("regenerates only the blocked item from saved sources and pauses without writes", async () => {
+    const op = newOp();
+    const prepared = { version: "old-version", title: op.title, summary: "", keywords: [], templateName: "AI Template", fields: [], warnings: [] };
+    saveWriteState(runId, op.idempotencyKey, { status: "review", prepared });
+    const reviews = { [op.idempotencyKey]: { version: prepared.version, fields: [], regenerate: true, templateName: template.templateName } };
+    const [regenerated] = await executeWritePlan(args([op, newOp("other")], { reviews }));
+    expect(regenerated.outcome).toBe("review");
+    expect(regenerated.prepared?.version).not.toBe(prepared.version);
+    expect(regenerated.prepared?.templateName).toBe(template.templateName);
+    expect(mocks.restructure.mock.calls[0][0][0].content).toBe("Original answer");
+    expect(mocks.write).not.toHaveBeenCalled();
+    const [submitted] = await executeWritePlan(args([op], { reviews: { [op.idempotencyKey]: { version: regenerated.prepared!.version, fields: regenerated.prepared!.fields } } }));
+    expect(submitted.outcome).toBe("ok");
+    expect(mocks.restructure).toHaveBeenCalledTimes(1);
+  });
+  it("writes generated metadata and audits the actual authored fields", async () => {
+    const [r] = await executeWritePlan(args([newOp()], { restructureEnabled: true }));
+    expect(r.outcome).toBe("ok");
+    expect(mocks.write.mock.calls[0][0]).toMatchObject({ title: "Generated title", summary: "Generated summary", keywords: "vpn", status: "review" });
+    const row = db().prepare("SELECT request FROM write_audit WHERE idempotency_key=?").get(r.idempotencyKey) as { request: string };
+    expect(JSON.parse(row.request).fields[0].fieldValue).toContain("Authored answer");
+  });
+  it("preserves an explicitly optimized or edited title", async () => {
+    const [r] = await executeWritePlan(args([{ ...newOp(), title: "User title", titleLocked: true }], { restructureEnabled: true }));
+    expect(r.title).toBe("User title");
+  });
+  it("pauses on conflicts, persists preparation, then applies standards after human resolution", async () => {
+    mocks.merge.mockResolvedValue(result({ sections: fields.map((f, i) => ({ fieldName: f.fieldName, combined: i ? "" : "", contributions: [], noMatchNote: "", conflict: { present: i === 0, optionA: { from: "A", text: "Cause A" }, optionB: { from: "B", text: "Cause B" }, mergedDefault: "" } })) }));
+    const op = { ...newOp(), mergeSources: [{ id: "c1", title: "Other draft", fields, templateName: template.templateName }] };
+    const execution = args([op], { standardsRules: ["Numbered steps"] });
+    const [first] = await executeWritePlan(execution);
+    expect(first.outcome).toBe("review"); expect(mocks.write).not.toHaveBeenCalled();
+    expect(getWriteState(op.idempotencyKey)?.status).toBe("review");
+    const [second] = await executeWritePlan({ ...execution, reviews: { [op.idempotencyKey]: { version: first.prepared!.version, fields } } });
+    expect(second.outcome).toBe("ok"); expect(mocks.merge).toHaveBeenCalledTimes(1); expect(mocks.standards).toHaveBeenCalledTimes(1);
+  });
+  it("rejects stale conflict resolutions", async () => {
+    const op = newOp();
+    const [r] = await executeWritePlan(args([op], { reviews: { [op.idempotencyKey]: { version: "wrong", fields } } }));
+    expect(r.outcome).toBe("error"); expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("flags existing losers with the actual new survivor ID", async () => {
+    const op = { ...newOp(), mergeSources: [{ id: source.id, title: source.title }] };
+    const flag: WriteOp = { kind: "flag", solutionId: source.id, survivorKey: "c0", survivorLabel: "New survivor (c0)", idempotencyKey: `${runId}:flag:${source.id}` };
+    const output = await executeWritePlan(args([op, flag]));
+    expect(output.every((r) => r.outcome === "ok")).toBe(true);
+    expect(mocks.flag).toHaveBeenCalledWith(source.id, { id: "260909000000003", title: "Raw title" }, { impUser: "sauser" });
+  });
+  it("does not let an unrelated failure block a successful group's flag", async () => {
+    mocks.write.mockRejectedValueOnce(new RaError("Denied", 403, "manageSolution", ""));
+    const good = { ...newOp("c1"), mergeSources: [{ id: source.id, title: source.title }] };
+    const flag: WriteOp = { kind: "flag", solutionId: source.id, survivorKey: "c1", survivorLabel: "Survivor", idempotencyKey: `${runId}:flag:x` };
+    const output = await executeWritePlan(args([newOp(), good, flag]));
+    expect(output.map((r) => r.outcome)).toEqual(["error", "ok", "ok"]);
+  });
+  it("replays saved successes without making another write", async () => {
+    const execution = args([newOp()]);
+    const first = await executeWritePlan(execution), second = await executeWritePlan(execution);
+    expect(second).toEqual(first); expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+  it("blocks automatic retry after an uncertain response", async () => {
+    mocks.write.mockRejectedValue(new Error("socket closed after sending"));
+    const execution = args([newOp()]);
+    expect((await executeWritePlan(execution))[0].outcome).toBe("uncertain");
+    expect((await executeWritePlan(execution))[0].outcome).toBe("uncertain");
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+  it("serializes submissions across callers", async () => {
+    let finish!: () => void;
+    const first = withRunLock(runId, () => new Promise<void>((resolve) => { finish = resolve; }));
+    await expect(withRunLock(runId, async () => undefined)).rejects.toThrow("already being submitted");
+    finish(); await first;
+    await expect(withRunLock(runId, async () => "released")).resolves.toBe("released");
+  });
+  it("pauses for missing required content rather than inventing it", async () => {
+    mocks.templates.mockResolvedValue([{ ...template, fields: template.fields.map((f) => ({ ...f, required: true })) }]);
+    const [r] = await executeWritePlan(args([newOp()]));
+    expect(r.outcome).toBe("review"); expect(r.message).toContain("Required field"); expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("will not overwrite an unrelated pending revision", async () => {
+    mocks.solution.mockResolvedValue({ ...source, revisionID: "child260909000000009" });
+    const op: WriteOp = { kind: "revise", candidateKey: source.id, solutionId: source.id, title: source.title, templateName: template.templateName, fields, fromMerge: false, idempotencyKey: `${runId}:revise:x` };
+    expect((await executeWritePlan(args([op])))[0].message).toContain("pending revision"); expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("decision ownership and persistence", () => {
+  it("round-trips survivor, empty selection, standards, templates and disabled AI", async () => {
+    const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] }));
+    view.groups = [{ survivorId: "c0", averageSimilarity: 90, reason: "Overlap", members: [{ id: "c0", title: "Draft", stat: "New", retained: true }, { id: source.id, title: source.title, stat: "Existing", retained: false }] }];
+    completeRun(runId, view);
+    const snapshot: DecisionSnapshot = { ...view, groups: [{ ...view.groups[0], survivorId: source.id }], selectedKeys: [], resolutions: ["merged"], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "French", standard: "Custom", standardsRules: ["Active voice"], newSolutionTemplate: template.templateName, templateOverrides: ["c0"] };
+    saveSnapshot(runId, canonicalSnapshot(getRun(runId)!, snapshot));
+    expect(getRun(runId)!.snapshot).toMatchObject({ selectedKeys: [], resolutions: ["merged"], groups: [{ survivorId: source.id }], standardsRules: ["Active voice"], language: "French", templateOverrides: ["c0"] });
+    expect(getRun(runId)!.snapshot!.operations.every((o) => !o.on)).toBe(true);
+  });
+  it("does not accept invented write targets from the browser", async () => {
+    const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] })); completeRun(runId, view);
+    const snapshot = { ...view, candidates: [{ ...view.candidates[0], targetSolutionId: source.id, proposal: { purpose: "Forged", coverage: ["Invented"], rationale: "Forged", openQuestions: [] } }], selectedKeys: ["c0"], resolutions: [], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "English", standard: "Default", standardsRules: [], newSolutionTemplate: null, templateOverrides: [] };
+    expect(canonicalSnapshot(getRun(runId)!, snapshot).candidates[0].targetSolutionId).toBeUndefined();
+    expect(canonicalSnapshot(getRun(runId)!, snapshot).candidates[0].proposal).toEqual(view.candidates[0].proposal);
+  });
+});
+
+
+describe("uncertain-write reconciliation", () => {
+  const request = (body: unknown) => new Request("http://localhost/api/submit/reconcile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  it("confirms a matching actual article and never repeats the write", async () => {
+    const op = newOp(), execution = args([op]);
+    freezeExecution(runId, execution);
+    mocks.write.mockRejectedValueOnce(new Error("response lost"));
+    await executeWritePlan(execution);
+    const prepared = getWriteState(op.idempotencyKey)!.prepared!;
+    mocks.solution.mockResolvedValue({ ...source, id: "260909000000003", title: prepared.title, fields: prepared.fields.map((f) => ({ name: f.fieldName, content: f.fieldValue })) });
+    const response = await reconcile(request({ runId, key: op.idempotencyKey, action: "confirm", solutionId: "260909000000003", verified: true }));
+    expect(response.status).toBe(200);
+    expect((await executeWritePlan(execution))[0].outcome).toBe("ok");
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+  it("refuses to confirm a different article", async () => {
+    const op = newOp(), execution = args([op]); freezeExecution(runId, execution);
+    mocks.write.mockRejectedValueOnce(new Error("response lost")); await executeWritePlan(execution);
+    const response = await reconcile(request({ runId, key: op.idempotencyKey, action: "confirm", solutionId: source.id, verified: true }));
+    expect(response.status).toBe(400);
+    expect(getWriteState(op.idempotencyKey)?.status).toBe("uncertain");
+  });
+  it("requires explicit verified absence before reopening an uncertain write", async () => {
+    const op = newOp(), execution = args([op]); freezeExecution(runId, execution);
+    mocks.write.mockRejectedValueOnce(new Error("response lost")); await executeWritePlan(execution);
+    expect((await reconcile(request({ runId, key: op.idempotencyKey, action: "retry", verified: false }))).status).toBe(400);
+    expect((await reconcile(request({ runId, key: op.idempotencyKey, action: "retry", verified: true }))).status).toBe(200);
+    expect((await executeWritePlan(execution))[0].outcome).toBe("ok");
+    expect(mocks.write).toHaveBeenCalledTimes(2);
+  });
+});
