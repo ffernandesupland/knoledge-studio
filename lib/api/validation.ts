@@ -23,7 +23,7 @@ export const snapshotSchema = z.object({
   collection: z.string().max(200), language: z.string().max(100), standard: z.string().max(100),
   standardsRules: z.array(z.string().min(1).max(500)).max(20), newSolutionTemplate: z.string().max(200).nullable(), templateOverrides: z.array(z.string().max(100)).max(60),
 });
-export const reviewSchema = z.record(z.string().max(200), z.object({ version: z.string().uuid(), fields, regenerate: z.boolean().optional(), templateName: z.string().max(200).optional() }));
+export const reviewSchema = z.record(z.string().max(200), z.object({ version: z.string().uuid(), fields, title: z.string().min(1).max(500).optional(), summary: z.string().max(4000).optional(), keywords: z.array(z.string().max(100)).max(30).optional(), regenerate: z.boolean().optional(), templateName: z.string().max(200).optional() }));
 
 export async function readJson<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
   const reader = request.body?.getReader();

@@ -61,19 +61,22 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
       n("deselect", "Deselect a candidate", "human", true, "No write for that candidate. A deselected candidate is also omitted from its merge."),
     ]),
     n("metadata", "4 · Metadata and draft editing", "human", submit, "Set collection, language classification, standards and new-draft templates. Save a coherent decision snapshot; reload restores survivor choices and toggles. Source/title edits persist. No AI call at this stage."),
-    n("submit", "5 · Submit → prepare final content", "logic", submit, "Server validates ownership and the stored candidate/group identities. Freeze the write plan and acquire a per-run lock.", [
+    n("submit", "5 · Prepare drafts without KB writes", "logic", submit, "Server validates ownership and candidate/group identities, then saves a mutable preparation plan under a run lock. Changing sources, decisions or metadata invalidates its prepared drafts. No KB writes or comments are allowed here.", [
       n("merge_ai", "Merge selected source content", "ai", merge, "Read current existing sources; combine against the survivor's template. Retain conflicts, contributions and template warnings. Detect source changes before writing.", undefined, "mergeSections"),
       n("author", "Restructure an unmerged article", "ai", !merge && o.restructure, "Original source + reviewed scope plan (guidance, not facts) → final template fields, title, summary and keywords. Preserve user/optimized title choices. Never guess missing technical facts.", undefined, "restructure"),
       n("compose", "New article → populate final template", "ai", !merge && !o.restructure && (o.text || o.file || o.url || splitExisting), "Even with rewriting disabled, map source passages to every relevant final-template field, generate summary and keywords, and convert source formatting to HTML. Preserve source wording. Never invent missing facts.", undefined, "compose"),
       n("raw", "Existing article, rewriting disabled", "logic", !merge && !o.restructure && o.existing && !splitExisting, "Retain original template fields and metadata. Validate HTML and the template contract."),
       n("conflicts", "Conflicting claims found", "human", conflict, "Persist the prepared content and pause this article before writing. Show competing source claims and editable fields.", [
-        n("unresolved", "Wait for a resolution", "stop", !o.resolved, "No write for the conflicted article. Other independent articles may finish; merge flags wait for their own survivor."),
+        n("unresolved", "Wait for a resolution", "stop", !o.resolved, "No write for the conflicted article. Other independent drafts may finish preparing. Submission is blocked until all remaining articles have valid reviewed preparations."),
         n("resolved", "Author resolves and continues", "human", o.resolved, "Apply version-matched field edits to the saved preparation. Do not regenerate the merge or lose the decision."),
       ]),
       n("standards", "Apply selected content standards", "ai", ready && o.standards, "Runs on BOTH merged and ordinary final fields. Edit wording/formatting only; retain the per-rule results.", undefined, "standards"),
       n("validate", "Validate final article", "logic", ready, "Exact field names/count, required supported content, nonempty answer, title, HTML allowlist and source version. Convert plain Markdown to HTML; reject Markdown syntax embedded in HTML prose. Invalid content pauses for editing; never silently discard unknown fields."),
     ]),
-    n("write", "6 · Write to RightAnswers", "write", ready, "Journal intent before a write. Never automatically retry non-idempotent POSTs.", [
+    n("review_drafts", "6 · Review the resulting articles", "human", submit, "Sources → Actions → Results graph comes from the real write plan, including external survivors and dependent comments. Inspect HTML title, summary, keywords, all template fields and source contributions. Edit final fields and save a newly validated version before submitting.", [
+      n("prepare_invalidated", "Plan or metadata changes", "logic", true, "Prepare again before submission. A stale or missing prepared version blocks the entire write request before the first write."),
+    ]),
+    n("write", "7 · Submit reviewed drafts to RightAnswers", "write", ready, "Require a matching reviewed version for every remaining article before any write. Freeze the prepared plan. Reuse the exact reviewed drafts without authoring or standards AI calls. Recheck source versions and journal intent; never automatically retry non-idempotent POSTs.", [
       n("create", "New survivor or new topic → create", "write", (merge ? !existingSurvivor : o.text || o.file || o.url || splitExisting), "manageSolution without solutionID; status=review; final title, summary, keywords, fields, collection and language."),
       n("revise", "Existing survivor/update → revision or draft edit", "write", (merge ? existingSurvivor : o.existing && !splitExisting), "Published parent: revisionParentID leaves live content untouched. Existing draft: direct draft edit. An unrelated pending revision blocks the update."),
       n("flags", "Survivor succeeded → flag existing losers", "write", merge && o.failure === "none", "Post internal comments with the actual retained parent/new article ID. Do not archive or move analytics. New losing drafts were never created and need no flag."),
@@ -83,7 +86,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
     ]),
     n("analysis_error", "Analysis fails or connection is interrupted", "stop", false, "No KB writes occurred. An incomplete connection is shown as an error. Reload retrieves a run if the server completed it; otherwise repeat analysis with the saved sources."),
     n("regenerate", "Unwritten new article needs different template", "human", false, "On a review item, choose a template and regenerate from saved sources. Version-check the review, prepare fields and metadata, then pause for review. No writes occur during regeneration; completed articles remain saved."),
-    n("result", "7 · Results, preview and recovery", "human", submit, "View final formatted content, saved outcomes and total recorded AI cost. Reload resumes partial work; completed operations remain idempotent. Approval and publication happen in RightAnswers, outside Knowledge Studio."),
+    n("result", "8 · Results, preview and recovery", "human", submit, "The same graph shows recorded outcomes and persists with source content, prepared drafts and total recorded AI cost. Reload resumes partial work; completed operations remain idempotent. Approval and publication happen in RightAnswers, outside Knowledge Studio."),
   ];
 }
 

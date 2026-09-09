@@ -33,6 +33,7 @@ export interface MergeGroupResult {
   templateWarning: string | null;
   costUsd: number;
   sourceVersions?: Record<string, string>;
+  sourceDocuments?: { id: string; title: string; templateName: string; body: string }[];
   sections?: MergeWorkspaceResult["sections"];
   templateName?: string;
 }
@@ -106,5 +107,5 @@ export async function mergeGroupFields(args: MergeGroupArgs): Promise<MergeGroup
   const fields = result.data.sections
     .map((s) => ({ fieldName: s.fieldName, fieldValue: s.combined }));
 
-  return { title: result.data.title, summary: result.data.summary, keywords: result.data.keywords, sourceVersions, fields, templateWarning, costUsd: result.costUsd, sections: result.data.sections, templateName: target.templateName };
+  return { sourceDocuments: blocks.map((b, i) => ({ id: i === 0 ? survivorId : sources[i - 1].id, title: b.label, templateName: b.templateName, body: b.body })), title: result.data.title, summary: result.data.summary, keywords: result.data.keywords, sourceVersions, fields, templateWarning, costUsd: result.costUsd, sections: result.data.sections, templateName: target.templateName };
 }

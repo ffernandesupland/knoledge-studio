@@ -13,7 +13,9 @@ import { getWriteState, saveWriteState } from "./state";
 
 export interface PreparedContent {
   version: string;
+  readyForSubmission?: boolean;
   sourceVersions?: Record<string, string>;
+  sourceDocuments?: { id: string; title: string; templateName: string; body: string }[];
   title: string;
   summary: string;
   keywords: string[];
@@ -26,12 +28,20 @@ export interface PreparedContent {
   standardsApplied?: boolean;
 }
 export interface ContentReview {
+  title?: string;
+  summary?: string;
+  keywords?: string[];
   regenerate?: boolean;
   templateName?: string;
   version: string;
   fields: WSDisplayField[];
 }
 export interface ExecuteArgs {
+  stage?: "preparation" | "submission";
+  reviewIdentity?: string;
+  prepareOnly?: boolean;
+  requirePrepared?: boolean;
+  approvals?: Record<string, string>;
   runId: string;
   user: string;
   plan: WriteOp[];
@@ -45,7 +55,7 @@ export interface OpResult {
   idempotencyKey: string;
   kind: WriteOp["kind"];
   description: string;
-  outcome: "ok" | "error" | "skipped" | "review" | "uncertain";
+  outcome: "ok" | "error" | "skipped" | "review" | "uncertain" | "ready";
   solutionId?: string;
   message?: string;
   fields?: WSDisplayField[];
@@ -57,11 +67,26 @@ export interface ExecuteProgress {
   total: number;
   description: string;
   outcome?: OpResult["outcome"];
+  result?: OpResult;
+}
+
+/** Check every remaining article before the first possible write. */
+export async function assertPreparedPlan(args: ExecuteArgs) {
+  if (args.reviews && Object.keys(args.reviews).length) throw new Error("Save draft edits with Prepare drafts before submitting.");
+  for (const op of args.plan) {
+    if (op.kind === "flag") continue;
+    const state = await getWriteState(op.idempotencyKey);
+    if (state?.status === "ok" || await alreadySucceeded(op.idempotencyKey)) continue;
+    if (!state?.prepared?.readyForSubmission || args.approvals?.[op.idempotencyKey] !== state.prepared.version) {
+      throw new Error("Prepare and review every draft before submitting. A draft is missing, unresolved, or has changed.");
+    }
+  }
 }
 
 /** Caller holds a durable run lock. Each write is journaled before contacting RA. */
 export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void): Promise<OpResult[]> {
   const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [] } = args;
+  if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
   const ctx = { impUser: user };
   const templates = await ra.getTemplates(ctx);
@@ -93,6 +118,8 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
         prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
         try { prepared.fields = validateFields(prepared.fields, target); } catch (e) { prepared.warnings.push((e as Error).message); }
         result = { ...base, outcome: "review", prepared, message: "Regenerated from saved sources. Review the fields below, then submit. No write has occurred for this item." };
+      } else if (op.kind === "flag" && args.prepareOnly) {
+        result = { ...base, outcome: "skipped", message: "Planned tracking comment; waits for a successful merge submission." };
       } else if (op.kind === "flag") {
         const survivor = plan.find((p) => p.kind !== "flag" && p.candidateKey === op.survivorKey);
         const landed = survivor ? results.find((r) => r.idempotencyKey === survivor.idempotencyKey && r.outcome === "ok") : undefined;
@@ -110,6 +137,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
         }
       } else {
         if (!prepared) {
+          if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare this draft before submitting.");
           prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [] };
           if (op.mergeSources?.length) {
             const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion });
@@ -120,6 +148,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             prepared.templateName = merged.templateName ?? prepared.templateName;
             prepared.sections = merged.sections;
             prepared.sourceVersions = merged.sourceVersions;
+            prepared.sourceDocuments = merged.sourceDocuments;
             if (merged.templateWarning) prepared.warnings.push(merged.templateWarning);
           } else if ((op.kind === "create" || restructureEnabled) && op.rawContent) {
             const target = templates.find((t) => t.templateName === op.templateName);
@@ -130,12 +159,13 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             prepared.summary = r.data.summary;
             prepared.keywords = [...new Set([...(op.keywords ?? []), ...r.data.keywords])];
           }
+          prepared.sourceDocuments ??= [{ id: op.kind === "revise" ? op.solutionId : op.candidateKey, title: op.title, templateName: op.templateName ?? "", body: op.rawContent ?? (op.fields ?? []).map((f) => `${f.fieldName}\n${f.fieldValue}`).join("\n\n") }];
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
         }
         const review = args.reviews?.[op.idempotencyKey];
         if (review) {
           if (review.version !== prepared.version) throw new Error("Review is stale. Reload the current prepared content.");
-          prepared = { ...prepared, fields: review.fields, reviewed: true, standardsApplied: false };
+          prepared = { ...prepared, version: randomUUID(), title: review.title ?? prepared.title, summary: review.summary ?? prepared.summary, keywords: review.keywords ?? prepared.keywords, fields: review.fields, reviewed: true, standardsApplied: false, readyForSubmission: false };
         }
         const target = templates.find((t) => t.templateName === prepared!.templateName);
         if (!target) throw new Error("The prepared template is no longer available.");
@@ -145,6 +175,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
           try {
             prepared.fields = validateFields(prepared.fields, target);
             if (standardsRules.length && !prepared.standardsApplied) {
+              if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare standards changes before submitting.");
               const standards = await applyStandards(prepared.fields, standardsRules);
               prepared.fields = validateFields(standards.data.fields, target);
               prepared.ruleResults = standards.data.ruleResults;
@@ -154,17 +185,33 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             const unknown = prepared.fields.filter((f) => !target.fields.some((t) => t.fieldName === f.fieldName));
             if (unknown.length) prepared.warnings.push(`Unmapped content requires placement: ${unknown.map((f) => `${f.fieldName}: ${f.fieldValue}`).join("\n")}`);
             prepared.fields = target.fields.map((f) => ({ fieldName: f.fieldName, fieldValue: prepared!.fields.find((v) => v.fieldName === f.fieldName)?.fieldValue ?? "" }));
+            prepared.readyForSubmission = false;
             const reviewResult: OpResult = { ...base, outcome: "review", prepared, message: (e as Error).message };
             (await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult }));
             results.push(reviewResult);
-            onProgress?.({ index, total: plan.length, description, outcome: "review" });
+            onProgress?.({ index, total: plan.length, description, outcome: "review", result: reviewResult });
             continue;
           }
           for (const [id, version] of Object.entries(prepared.sourceVersions ?? {})) {
             if (solutionVersion(await ra.getSolution(id, ctx)) !== version) throw new Error(`Source ${id} changed after preparation. Start a new analysis to include its current content.`);
           }
+          if (op.kind === "revise" && args.prepareOnly) {
+            const parent = await ra.getSolution(op.solutionId, ctx);
+            const version = solutionVersion(parent);
+            if (op.sourceVersion && !op.mergeSources?.length && version !== op.sourceVersion) throw new Error("Source changed since analysis. Analyze the latest content before updating.");
+            if (parent.templateName !== prepared.templateName) throw new Error("Source template changed; analyze it again before writing.");
+            prepared.sourceVersions = { ...prepared.sourceVersions, [parent.id]: version };
+          }
           if (!prepared.title.trim()) throw new Error("Article title must not be empty.");
+          prepared.readyForSubmission = true;
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
+          if (args.prepareOnly) {
+            result = { ...base, outcome: "ready", title: prepared.title, fields: prepared.fields, prepared, message: "Draft prepared for your review. No RightAnswers write has occurred." };
+            await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared, result });
+            results.push(result);
+            onProgress?.({ index, total: plan.length, description, outcome: "ready", result });
+            continue;
+          }
           const changes = { title: prepared.title, summary: prepared.summary, keywords: prepared.keywords.join(","), fields: prepared.fields };
           let solutionId: string;
           let response: string;
@@ -198,13 +245,14 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
     } catch (err) {
       const definiteRejection = err instanceof RaError && ((err.status >= 400 && err.status < 500) || (err.status === 200 && err.message.startsWith("manageSolution rejected")));
       const uncertain = writing && !definiteRejection;
+      if (!writing && prepared) prepared.readyForSubmission = false;
       result = { ...base, outcome: uncertain ? "uncertain" : "error", prepared, message: (err as Error).message };
       (await recordAudit({ ts: new Date().toISOString(), runId, user, op: op.kind, idempotencyKey: op.idempotencyKey, request: payload, outcome: "error", error: result.message }));
     }
-    state = { status: result.outcome === "skipped" ? "error" : result.outcome, prepared, result };
+    state = { status: result.outcome === "skipped" ? "error" : result.outcome === "ready" ? "prepared" : result.outcome, prepared, result };
     (await saveWriteState(runId, op.idempotencyKey, state));
     results.push(result);
-    onProgress?.({ index, total: plan.length, description, outcome: result.outcome });
+    onProgress?.({ index, total: plan.length, description, outcome: result.outcome, result });
   }
   return results;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { SignOutButton } from "@/components/auth/SignOutButton";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DsDropdown, IdChip, Snackbar, useActionToast } from "@/components/ds";
 import {
   KsAddRuleMenu,
@@ -12,6 +12,9 @@ import {
 } from "./parts";
 import { usePipelineRun } from "./usePipelineRun";
 import { useSubmitRun } from "./useSubmitRun";
+import { SubmissionGraph } from "./SubmissionGraph";
+import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
+import { submissionIdentity } from "@/lib/ks/submission-plan";
 import { SubmissionReview } from "./SubmissionReview";
 import { ProposalPreview } from "./ProposalPreview";
 import { ArticlePreview } from "./ArticlePreview";
@@ -29,14 +32,11 @@ import {
   type StepId,
 } from "@/lib/ks/data";
 import {
-  ksArchSummary,
   ksCheckGate,
-  ksComputeSubmitItems,
   ksDupTier,
   type DupeResolution,
 } from "@/lib/ks/helpers";
-import type { SubmitStatus } from "@/lib/ks/model";
-import { describeOp, isSolutionId, type WriteOp } from "@/lib/pipeline/submit";
+import { buildWritePlan, isSolutionId } from "@/lib/pipeline/submit";
 import { T } from "@/lib/ks/theme";
 import type { MetadataOptions } from "@/app/api/metadata/route";
 
@@ -49,14 +49,7 @@ function remapFieldsToTemplate(
   return templateFieldNames.map((name) => ({ fieldName: name, fieldValue: byName.get(name.toLowerCase()) ?? "" }));
 }
 
-type Screen = StepId | "focus";
-
-const TAG_CLASS: Record<SubmitStatus, string> = {
-  new: "ks-tag-new",
-  updated: "ks-tag-upd",
-  merged: "ks-tag-mrg",
-  flagged: "ks-tag-arch",
-};
+type Screen = StepId;
 
 const ACTION_CLASS: Record<string, string> = {
   New: "ks-tag-new",
@@ -113,7 +106,6 @@ export default function KnowledgeStudio() {
 
   const restored = useRef(false);
   const [sessionReady, setSessionReady] = useState(false);
-  const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
@@ -145,7 +137,7 @@ export default function KnowledgeStudio() {
         setPath(stored.path ?? null); setContentText(stored.inputText ?? "");
         setAttachments((stored.attachments ?? []).map((a: { label: string; text: string; kind?: string }) => ({ name: a.label, text: a.text, icon: a.kind === "url" ? "link" : "description" })));
         setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, { id, title: `Solution ${id}`, meta: "Selected source" }])));
-        if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? []); setScreen("submit"); }
+        if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? [], d.execution.stage, d.execution.reviewIdentity); setScreen("submit"); }
         else setScreen("check");
         showToast({ message: "Resumed your last session — use Reset to start clean instead.", icon: "history" });
       })
@@ -279,7 +271,6 @@ export default function KnowledgeStudio() {
     setTemplateOverrides(new Set());
     setTemplateEditOpen({});
 
-    setFocusTarget(null);
     setPreview(null);
 
     void fetch("/api/runs/latest", { method: "DELETE" }).catch(() => undefined);
@@ -346,31 +337,38 @@ export default function KnowledgeStudio() {
     newSolutionTemplate, templateOverrides: [...templateOverrides],
   }), [candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides]);
   useEffect(() => {
-    if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || submitRun.phase !== "idle") return;
+    if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || (submitRun.locked || submitRun.phase === "preparing" || submitRun.phase === "submitting")) return;
     const t = setTimeout(() => {
       void fetch("/api/runs/latest", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: pipeline.runId, snapshot }) })
         .then((r) => { if (!r.ok) throw new Error("Could not save session decisions"); })
         .catch((e: Error) => showToast({ message: e.message, icon: "error" }));
     }, 400);
     return () => clearTimeout(t);
-  }, [sessionReady, pipeline.phase, pipeline.runId, submitRun.phase, snapshot, showToast]);
-  function submitCurrent(reviews?: Record<string, ContentReview>) {
-    void submitRun.submit({ runId: pipeline.runId ?? "", snapshot, reviews });
+  }, [sessionReady, pipeline.phase, pipeline.runId, submitRun.phase, submitRun.locked, snapshot, showToast]);
+  function prepareCurrent(reviews?: Record<string, ContentReview>) {
+    void submitRun.prepare({ runId: pipeline.runId ?? "", snapshot, reviews });
   }
+  function submitCurrent() {
+    void submitRun.submit({ runId: pipeline.runId ?? "", snapshot, approvals: Object.fromEntries(submitRun.results.filter((r) => r.prepared).map((r) => [r.idempotencyKey, r.prepared!.version])) });
+  }
+  const [draftEditing, setDraftEditing] = useState(false);
 
   const gate = ksCheckGate(candidates, effectiveGroups, selected, resolutions);
+  const proposedWritePlan = useMemo(() => {
+    try { return { plan: buildWritePlan({ runId: pipeline.runId ?? "", candidates, groups: effectiveGroups, selected, resolutions }), error: "" }; }
+    catch (e) { return { plan: [], error: (e as Error).message }; }
+  }, [pipeline.runId, candidates, effectiveGroups, selected, resolutions]);
+  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot);
+  const preparedMatches = submitRun.identity === currentIdentity;
+  const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
+  const displayResults = preparedMatches || submitRun.locked ? submitRun.results : [];
+  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groups: effectiveGroups, restructureEnabled: ops.some((o) => o.name === "Restructure content" && o.on), standardsRules: ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : [] });
+  const submissionBusy = submitRun.phase === "preparing" || submitRun.phase === "submitting";
+  const draftsReady = displayPlan.some((op) => op.kind !== "flag") && (preparedMatches || submitRun.locked) && displayPlan.every((op) => op.kind === "flag" || displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && (r.outcome === "ok" || (r.prepared?.readyForSubmission && r.outcome !== "uncertain"))));
+  const allWritten = displayPlan.length > 0 && displayPlan.every((op) => displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && r.outcome === "ok"));
 
-  const submitItems = useMemo(
-    () => ksComputeSubmitItems(candidates, effectiveGroups, selected, resolutions),
-    [candidates, effectiveGroups, selected, resolutions],
-  );
-  const archSummary = useMemo(
-    () => ksArchSummary(candidates, selected, submitItems),
-    [candidates, selected, submitItems],
-  );
 
-
-  const stepperActiveId: StepId = screen === "focus" ? "submit" : screen;
+  const stepperActiveId: StepId = screen;
   const doneIds = KS_STEPS.slice(
     0,
     KS_STEPS.findIndex((s) => s.id === stepperActiveId),
@@ -1116,389 +1114,25 @@ export default function KnowledgeStudio() {
     );
   }
 
-  /* ── Focus editor ── */
-  function renderFocusStep() {
-    const c = candidates.find((x) => x.key === focusTarget);
-    return (
-      <div className="ks-wizard" style={{ minHeight: 0 }}>
-        <div className="ks-focus-crumb">
-          <span>
-            Editing source: <strong>{c?.title ?? "proposal"}</strong>
-          </span>
-        </div>
-        <div className="ks-focus-body">
-          <div className="ks-focus-surface">
-            {c && <>
-              {c.dupeGroup != null && resolutions[c.dupeGroup] === "merged" && (
-                <p>This is one source in a planned merge. The final article will combine the included sources with the retained solution on submit.</p>
-              )}
-              <label className="form-label">Source title</label>
-              <input className="form-input" value={c.title} onChange={(e) => pipeline.updateCandidate(c.key, { title: e.target.value, titleLocked: true })} />
-              <label className="form-label" style={{ marginTop: 16 }}>Source content for authoring</label>
-              <textarea className="form-input" style={{ width: "100%", minHeight: 360 }} value={c.rawContent}
-                onChange={(e) => {
-                  const rawContent = e.target.value;
-                  const bodyName = c.fields.find((f) => /^(solution|resolution|answer|body|content|definition|details|description)$/i.test(f.fieldName))?.fieldName;
-                  pipeline.updateCandidate(c.key, { rawContent, edited: true, fields: c.fields.map((f) => ({ ...f, fieldValue: f.fieldName === bodyName ? rawContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>") : f.fieldValue })) });
-                }} />
-              <p>These edits are saved with the run. Enabled authoring options transform this source on submit.</p>
-            </>}
-          </div>
-        </div>
-        <div className="ks-sticky-footer">
-          <span className="ks-foot-status">
-            <span className="ms">info</span>Edits save automatically with your run.
-          </span>
-          <div className="ks-foot-actions">
-            <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setScreen("submit")}>
-              <span className="ms" style={{ fontSize: 18 }}>
-                arrow_back
-              </span>
-              Back
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   /* ── Submit ── */
   function renderSubmitStep() {
-    const orderedGroups: [SubmitStatus, string][] = [
-      ["merged", "Merge targets"],
-      ["new", "New"],
-      ["updated", "Updated"],
-      ["flagged", "Merge planned"],
-    ];
-
-    if (submitRun.phase === "submitting") {
-      return (
-        <div className="ks-scroll">
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
-              Submitting…
-            </div>
-            <div
-              style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}
-            >
-              {submitRun.current}
-            </div>
-            <div className="ks-card">
-              {submitRun.plan.map((row, i) => (
-                <div
-                  key={i}
-                  style={{ display: "flex", gap: 10, padding: "8px 0", fontSize: 13, alignItems: "flex-start" }}
-                >
-                  <span className="ms" style={{ fontSize: 18, color: T.accent, flexShrink: 0 }}>
-                    progress_activity
-                  </span>
-                  <div style={{ color: T.textPrimary }}>{describeOp(row)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (submitRun.phase === "done") {
-      const failures = submitRun.results.filter((r) => r.outcome !== "ok");
-      const skipped = submitRun.results.filter((r) => r.outcome === "skipped");
-
-      const planByKey = new Map(submitRun.plan.map((op) => [op.idempotencyKey, op] as const));
-      const resultByKey = new Map(submitRun.results.map((r) => [r.idempotencyKey, r] as const));
-
-      // Solutions that took on merged content, each shown as its own "what happened" card.
-      const mergeOps = submitRun.plan.filter(
-        (op): op is Extract<WriteOp, { kind: "create" | "revise" }> =>
-          (op.kind === "create" || op.kind === "revise") && !!op.mergeSources?.length,
-      );
-      const handledKeys = new Set(mergeOps.map((op) => op.idempotencyKey));
-      const flagsByMerge = new Map<string, WriteOp[]>();
-      for (const op of mergeOps) {
-        const sourceIds = new Set(op.mergeSources!.map((s) => s.id));
-        const flags = submitRun.plan.filter((o) => o.kind === "flag" && sourceIds.has(o.solutionId));
-        flags.forEach((f) => handledKeys.add(f.idempotencyKey));
-        flagsByMerge.set(op.idempotencyKey, flags);
-      }
-      const restResults = submitRun.results.filter((r) => !handledKeys.has(r.idempotencyKey));
-
-      return (
-        <div className="ks-scroll">
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
-              {failures.length ? "Submission needs attention" : "Submitted"}
-            </div>
-            <div
-              style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}
-            >
-              Successful writes are saved in RightAnswers. Resolve pending items below; retries keep completed writes.
-            </div>
-
-            {pipeline.runId && <p><Link className="ds-btn ds-btn-secondary" href={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}`} target="_blank">Open executed engine flow</Link></p>}
-            {submitRun.costUsd != null && <p>Total recorded AI cost: ${submitRun.costUsd.toFixed(4)}</p>}
-            <SubmissionReview templates={templateOptions} runId={pipeline.runId ?? ""} results={submitRun.results} onRetry={submitCurrent} />
-            {failures.length > 0 && (
-              <div className="ks-merge-warn" style={{ marginBottom: 16 }}>
-                <span className="ms">error</span>
-                {failures.length} item{failures.length === 1 ? "" : "s"} need attention
-                {skipped.length > 0
-                  ? `, and ${skipped.length} merge flag${skipped.length === 1 ? " was" : "s were"} skipped so nothing is marked as merged into content that was not written.`
-                  : "."}
-              </div>
-            )}
-
-            {mergeOps.map((op) => {
-              const result = resultByKey.get(op.idempotencyKey);
-              const flags = flagsByMerge.get(op.idempotencyKey) ?? [];
-              const outcome = result?.outcome;
-              const icon =
-                outcome === "ok" ? "check_circle" : outcome === "error" ? "error" : "block";
-              const color =
-                outcome === "ok" ? T.success : outcome === "error" ? T.error : T.warningDark;
-              const survivorId = op.kind === "revise" ? op.solutionId : result?.solutionId;
-              const survivorStat =
-                outcome === "ok"
-                  ? op.kind === "create"
-                    ? "Created as a new draft for review"
-                    : "Added as a new revision"
-                  : (result?.message ?? "Write failed");
-              const sources = op.mergeSources ?? [];
-
-              return (
-                <div className="ks-card" key={op.idempotencyKey}>
-                  <div className="ks-merge-head">
-                    <span className="ks-tag ks-tag-mrg">Merged</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>
-                      {op.title}
-                    </span>
-                    <span style={{ flex: 1 }} />
-                    <span className="ms" style={{ fontSize: 20, color }}>
-                      {icon}
-                    </span>
-                  </div>
-                  <div className="ks-sankey" style={{ height: Math.max(100, sources.length * 48) }}>
-                    <div className="ks-sankey-col left">
-                      {sources.map((src) => {
-                        const flagOp = flags.find(
-                          (f): f is Extract<WriteOp, { kind: "flag" }> =>
-                            f.kind === "flag" && f.solutionId === src.id,
-                        );
-                        const flagResult = flagOp ? resultByKey.get(flagOp.idempotencyKey) : undefined;
-                        const flagStat = !flagOp
-                          ? "New draft, never published — no flag needed"
-                          : flagResult?.outcome === "ok"
-                            ? "Comment added"
-                            : (flagResult?.message ?? "Pending");
-                        return (
-                          <div key={src.id} className="ks-merge-side archive">
-                            <div className="role">
-                              <span className="ms">label</span>
-                              Merge source
-                            </div>
-                            <div className="nm">{src.title}</div>
-                            <IdChip id={src.id} copyable={isSolutionId(src.id)} />
-                            <div className="stat">{flagStat}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <svg
-                      className="ks-sankey-links"
-                      viewBox="0 0 100 100"
-                      preserveAspectRatio="none"
-                      aria-hidden="true"
-                    >
-                      {sources.map((src, i) => {
-                        const y = ((i + 0.5) / sources.length) * 100;
-                        return <path key={src.id} d={`M0,${y} C50,${y} 50,50 100,50`} />;
-                      })}
-                    </svg>
-                    <div className="ks-sankey-col right">
-                      <div className="ks-merge-side retain">
-                        <div className="role">
-                          <span className="ms">star</span>
-                          Kept
-                        </div>
-                        <div className="nm">{op.title}</div>
-                        <IdChip id={survivorId ?? ""} copyable={isSolutionId(survivorId ?? "")} />
-                        <div className="stat">{survivorStat}</div>
-                      </div>
-                    </div>
-                  </div>
-                  {outcome === "ok" && (
-                    <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        className="ds-btn ds-btn-secondary"
-                        onClick={() =>
-                          setPreview({ title: result?.title ?? op.title, article: result?.prepared ?? { fields: result?.fields } })
-                        }
-                      >
-                        <span className="ms" style={{ fontSize: 18 }}>
-                          visibility
-                        </span>
-                        Preview merged content
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {restResults.length > 0 && (
-              <div className="ks-card">
-                {restResults.map((row) => {
-                  const op = planByKey.get(row.idempotencyKey);
-                  const icon =
-                    row.outcome === "ok"
-                      ? "check_circle"
-                      : row.outcome === "error"
-                        ? "error"
-                        : "block";
-                  const color =
-                    row.outcome === "ok"
-                      ? T.success
-                      : row.outcome === "error"
-                        ? T.error
-                        : T.warningDark;
-                  const canPreview =
-                    row.outcome === "ok" && row.kind !== "flag" && (row.fields?.length ?? 0) > 0;
-                  return (
-                    <div
-                      key={row.idempotencyKey}
-                      style={{ display: "flex", gap: 10, padding: "8px 0", fontSize: 13, alignItems: "flex-start" }}
-                    >
-                      <span className="ms" style={{ fontSize: 18, color, flexShrink: 0 }}>
-                        {icon}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ color: T.textPrimary }}>{row.description}</div>
-                        {row.solutionId && (
-                          <div style={{ fontSize: 12, color: T.textSecondary }}>
-                            Solution {row.solutionId}
-                          </div>
-                        )}
-                        {row.message && (
-                          <div style={{ fontSize: 12, color: T.error }}>{row.message}</div>
-                        )}
-                      </div>
-                      {canPreview && (
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Preview"
-                          onClick={() =>
-                            setPreview({
-                              title: row.title ?? (op && op.kind !== "flag" ? op.title : row.description),
-                              article: row.prepared ?? { fields: row.fields },
-                            })
-                          }
-                        >
-                          <span className="ms">visibility</span>
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="ks-scroll">
-        <div style={{ maxWidth: 880, margin: "0 auto" }}>
-          <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
-            Review planned submission
-          </div>
-          <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
-            Submitting sends these to your approval workflow. Nothing publishes until approved.
-          </div>
-          <div className="ks-submit-summary">
-            <div className="ks-submit-summary-row">
-              <span className="ks-submit-summary-title">
-                {submitItems.length} selected proposal{submitItems.length === 1 ? "" : "s"} in this plan
-              </span>
-              <span className="ks-submit-summary-badges">
-                {(Object.keys(archSummary.counts) as SubmitStatus[])
-                  .filter((k) => archSummary.counts[k] > 0)
-                  .map((k) => (
-                    <span key={k} className={"ks-tag " + TAG_CLASS[k]}>
-                      {archSummary.counts[k]} {k === "flagged" ? "merge planned" : k === "merged" ? "merge target" : k}
-                    </span>
-                  ))}
-              </span>
-            </div>
-            {archSummary.caption && (
-              <div className="ks-submit-summary-caption">{archSummary.caption}</div>
-            )}
-          </div>
-
-          {submitRun.phase === "error" && (
-            <div className="ks-merge-warn" style={{ marginBottom: 16 }}>
-              <span className="ms">error</span>
-              {submitRun.error}
-            </div>
-          )}
-
-          {submitItems.length === 0 && (
-            <div className="list-empty">
-              <span className="ms">rule</span>
-              <div className="list-empty-title">Nothing selected</div>
-              <div className="list-empty-desc">
-                Go back to Check and select at least one solution to submit.
-              </div>
-            </div>
-          )}
-
-          {orderedGroups.map(([status, label]) => {
-            const items = submitItems.filter((i) => i.status === status);
-            if (!items.length) return null;
-            return (
-              <Fragment key={status}>
-                <div className="ks-grp-head">
-                  {label} <span className="ks-grp-count">({items.length})</span>
-                </div>
-                {items.map((it) => (
-                  <div className="ks-res" key={it.id}>
-                    <div className="ks-res-top">
-                      <span className={"ks-tag " + TAG_CLASS[it.status]}>{it.label}</span>
-                      <span className="ks-res-name">{it.name}</span>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Edit"
-                        onClick={() => {
-                          setFocusTarget(it.id);
-                          setScreen("focus");
-                        }}
-                      >
-                        <span className="ms">edit</span>
-                      </button>
-                    </div>
-                    <div className="ks-res-change">
-                      <span className="ms">auto_awesome</span>
-                      {it.change}
-                    </div>
-                  </div>
-                ))}
-              </Fragment>
-            );
-          })}
-
-          {archSummary.counts.flagged > 0 && (
-            <div className="ks-workflow-note">
-              <span className="ms">account_tree</span>
-              Existing merge sources stay in place and receive a tracking comment after a successful merge.
-              New proposals contribute content without creating separate articles.
-            </div>
-          )}
-        </div>
+    return <div className="ks-scroll sg-page">
+      <div className="sg-page-heading"><div><span className="sg-eyebrow">Review and submit</span><h1>{allWritten ? "Submission complete" : "See what your content becomes"}</h1>
+        <p>{allWritten ? "The saved results below show what was written to RightAnswers." : "Follow each source to its destination. Prepare the drafts, review the final articles, then submit for approval."}</p></div>
+        {pipeline.runId && <Link className="ds-btn ds-btn-secondary" href={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}`} target="_blank">Open recorded engine flow</Link>}
       </div>
-    );
+      <div className="sg-phase-strip" aria-live="polite"><span className={submitRun.phase === "idle" ? "active" : ""}>1 · Review plan</span><span className={submitRun.phase === "preparing" ? "active" : ""}>2 · Prepare drafts</span><span className={draftsReady && !allWritten ? "active" : ""}>3 · Review final articles</span><span className={submitRun.phase === "submitting" || allWritten ? "active" : ""}>4 · Submit</span></div>
+      {submitRun.error && <p className="sg-warning" role="alert">{submitRun.error}</p>}
+      {proposedWritePlan.error && !submitRun.locked && <p role="alert">{proposedWritePlan.error}</p>}
+      {submitRun.identity && !preparedMatches && !submitRun.locked && <p className="sg-warning">The plan or metadata changed. Prepare the updated drafts before submitting.</p>}
+      {draftEditing && <p className="sg-warning">Save or cancel your article edits before changing the plan or submitting.</p>}
+      {submissionBusy && <p role="status">{submitRun.phase === "preparing" ? "Preparing drafts — no articles are being written to RightAnswers." : "Writing the reviewed drafts to RightAnswers…"}</p>}
+      <SubmissionGraph templates={templateOptions} model={submissionGraph} busy={submissionBusy} currentKey={submitRun.currentKey} mode={submitRun.phase === "preparing" ? "preparation" : submitRun.locked ? "submission" : "preparation"}
+        onSave={(key, review) => prepareCurrent({ [key]: review })} onDirtyChange={setDraftEditing}
+        onChangePlan={!submitRun.locked ? () => setScreen("check") : undefined} flowHref={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId ?? "")}`} />
+      {displayResults.some((r) => r.outcome === "uncertain") && <SubmissionReview runId={pipeline.runId ?? ""} results={displayResults.filter((r) => r.outcome === "uncertain")} onRetry={() => prepareCurrent()} />}
+      {submitRun.costUsd != null && <p className="sg-cost">Recorded AI cost: ${submitRun.costUsd.toFixed(4)}</p>}
+    </div>;
   }
 
   function renderPreviewModal() {
@@ -1620,75 +1254,19 @@ export default function KnowledgeStudio() {
     );
   } else if (screen === "submit") {
     bodyNode = renderSubmitStep();
-    const canSubmit =
-      (submitRun.phase === "idle" || submitRun.phase === "error") && gate.ok && submitItems.length > 0 && !!metaFields.Collection;
-    footer = (
-      <div className="ks-sticky-footer">
-        <span className="ks-foot-status">
-          <span className="ms" style={{ color: T.textSecondary }}>
-            {submitRun.phase === "done" ? "check_circle" : "info"}
-          </span>
-          {submitRun.phase === "done"
-            ? (submitRun.results.every((r) => r.outcome === "ok") ? "Writes completed — nothing published" : "Some items still need attention")
-            : "Creates drafts and revisions only. Nothing publishes until approved."}
-        </span>
-        <div className="ks-foot-actions">
-          <button
-            type="button"
-            className="ds-btn ds-btn-secondary"
-            disabled={submitRun.phase === "submitting"}
-            onClick={() => { if (submitRun.phase === "done") showToast({ message: "This submission is saved. Use Start Over for a different plan." }); else setScreen("metadata"); }}
-          >
-            <span className="ms" style={{ fontSize: 18 }}>
-              arrow_back
-            </span>
-            Back
-          </button>
-          {submitRun.phase !== "done" && (
-            <button
-              type="button"
-              className="ds-btn ds-btn-primary"
-              disabled={!canSubmit}
-              style={{ opacity: canSubmit ? 1 : 0.5 }}
-              onClick={() =>
-                submitCurrent()
-              }
-            >
-              <span className="ms" style={{ fontSize: 18 }}>
-                send
-              </span>
-              {submitRun.phase === "submitting" ? "Submitting…" : "Submit for review"}
-            </button>
-          )}
-        </div>
+    const canPrepare = gate.ok && displayPlan.length > 0 && !!metaFields.Collection && !submissionBusy && !draftEditing && !allWritten;
+    footer = <div className="ks-sticky-footer">
+      <span className="ks-foot-status">{allWritten ? "Writes completed — nothing published" : draftEditing ? "Unsaved article edits" : draftsReady ? "Review the final articles before sending them for approval." : "Preparing drafts saves them here; it does not write to RightAnswers."}</span>
+      <div className="ks-foot-actions">
+        {!submitRun.locked && <button type="button" className="ds-btn ds-btn-secondary" disabled={submissionBusy || draftEditing} onClick={() => setScreen("metadata")}>Back to metadata</button>}
+        {!allWritten && <>
+          <button type="button" className="ds-btn ds-btn-secondary" disabled={!canPrepare} onClick={() => prepareCurrent()}>{submitRun.phase === "preparing" ? "Preparing…" : draftsReady ? "Refresh draft status" : "Prepare drafts"}</button>
+          <button type="button" className="ds-btn ds-btn-primary" disabled={!draftsReady || submissionBusy || draftEditing} onClick={submitCurrent}>{submitRun.phase === "submitting" ? "Submitting…" : "Submit reviewed drafts"}</button>
+        </>}
       </div>
-    );
+    </div>;
   }
 
-  if (screen === "focus") {
-    return (
-      <div className="ks-wizard">
-        <div id="page-hdr">
-          <div className="page-title">Knowledge Studio</div>
-          <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submitRun.phase === "submitting"} onClick={resetAll}>
-            <span className="ms" style={{ fontSize: 18 }}>
-              restart_alt
-            </span>
-            Start over
-          </button>
-        </div>
-        <Link className="ds-btn ds-btn-secondary" href={flowHref} target="_blank">Explore engine flow</Link>
-        <SignOutButton />
-        <KsStepper activeId="submit" doneIds={doneIds} onJump={(id) => setScreen(id)} />
-        {renderFocusStep()}
-        {toast && (
-          <Snackbar onDismiss={dismissToast} icon={toast.icon}>
-            {toast.message}
-          </Snackbar>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div className="ks-wizard">
@@ -1696,7 +1274,7 @@ export default function KnowledgeStudio() {
         <div className="page-title">Knowledge Studio</div>
         <Link className="ds-btn ds-btn-secondary" href={flowHref} target="_blank">Explore engine flow</Link>
         <SignOutButton />
-        <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submitRun.phase === "submitting"} onClick={resetAll}>
+        <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submissionBusy || draftEditing} onClick={resetAll}>
           <span className="ms" style={{ fontSize: 18 }}>
             restart_alt
           </span>
@@ -1710,8 +1288,8 @@ export default function KnowledgeStudio() {
           check: candidates.length ? `${selected.size} of ${candidates.length} proposals` : undefined,
         }}
         onJump={(id) => {
-          if (pipeline.phase === "running" || submitRun.phase === "submitting") return;
-          if (submitRun.phase !== "idle") { setScreen("submit"); return; }
+          if (pipeline.phase === "running" || submissionBusy || draftEditing) return;
+          if (submitRun.locked) { setScreen("submit"); return; }
           // Later steps only make sense once a plan exists.
           if (id !== "input" && pipeline.phase !== "done") return;
           setScreen(id);

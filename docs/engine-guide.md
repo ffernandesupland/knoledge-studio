@@ -16,7 +16,7 @@ Analysis ends with the `plan` prompt (reasoning model): source text, selected op
 
 Check shows these proposals and the actual source labels. Duplicate evidence is separate from the overall rationale; disabled detection says “Not checked.” Merge suggestions still require a human decision. Old saved runs show a notice to analyze again to obtain detailed proposals.
 
-Approved scope accompanies source evidence into restructure/merge at submission. Plans are guidance, not factual sources; edited content and final templates take precedence. With restructuring disabled, existing articles retain their fields. New articles still run `compose`: map source wording into every relevant final-template field, generate summary and keywords, and format as HTML without stylistic rewriting. Final article previews appear in submission results. Every planning call is included in the recorded trace and cost.
+Approved scope accompanies source evidence into restructure/merge when the author clicks **Prepare drafts** after Metadata. Plans are guidance, not factual sources; edited content and final templates take precedence. With restructuring disabled, existing articles retain their fields. New articles still run `compose`: map source wording into every relevant final-template field, generate summary and keywords, and format as HTML without stylistic rewriting. Final article previews appear before submission, with title, summary, keywords and every final-template field. **Submit reviewed drafts** sends the reviewed preparation without rerunning the authoring prompts. Every planning call is included in the recorded trace and cost.
 
 ## Duplicate detection, step by step
 
@@ -29,7 +29,7 @@ Approved scope accompanies source evidence into restructure/merge at submission.
 7. Links require the same primary reader need AND a score of 80 or above to form connected review groups. Shared background, prerequisites or product terminology alone do not qualify. The default survivor prefers an existing article, then the highest view count. Groups can be transitive; the human decides whether to merge.
 8. At Check, deselect candidates, keep groups separate, or choose a survivor and confirm. Unresolved selected groups block submission on the server too.
 9. Keeping separate plans individual creates/updates. Merging plans a survivor write plus comments for existing losers. Deselected owned candidates contribute no content.
-10. The merge prompt runs on Submit against current sources and the final template. Conflicts and contributions persist. Incompatible claims pause the affected article for a human choice or edit.
+10. The merge prompt runs on Prepare drafts against current sources and the final template. Conflicts and contributions persist. Incompatible claims pause the affected article for a human choice or edit.
 11. Selected standards apply after resolution, to merged and ordinary articles. Exact template fields, required/nonempty content and HTML must validate.
 12. A survivor's success unlocks its own loser comments, pointing to the actual retained ID. Other groups can finish independently. Nothing is archived; analytics do not migrate.
 
@@ -57,8 +57,8 @@ flowchart TD
   Dup -->|No| Individual
   Individual --> Metadata[Metadata, standards and draft edits]
   Survivor --> Metadata
-  Metadata --> Freeze[Validate decisions / freeze plan / lock run]
-  Freeze --> Kind{Merge?}
+  Metadata --> Prepare[Validate decisions / save preparation plan / lock run]
+  Prepare --> Kind{Merge?}
   Kind -->|Yes| MergeAI[AI merge into final template]
   MergeAI --> Conflict{Conflicting claims?}
   Conflict -->|Yes| Resolve[Persist and wait for human resolution]
@@ -77,14 +77,17 @@ flowchart TD
   Edit --> Standards
   Validate -->|Source changed| Reanalyze[Analyze current sources again]
   Reanalyze --> Ingest
-  Validate -->|Valid| Journal[Persist write intent]
+  Validate -->|Valid| DraftReview[Review and edit all prepared articles]
+  DraftReview -->|Plan or metadata changed| Metadata
+  DraftReview -->|Submit reviewed versions| Freeze[Check all versions / freeze plan]
+  Freeze --> Journal[Persist write intent]
   Journal --> Write[Create review draft / parent revision / draft edit]
   Write --> Outcome{Outcome}
   Outcome -->|Success| Save[Save actual payload and target ID]
   Save --> Flags[Flag this survivor's existing losers]
   Flags --> Results[Results / formatted preview / trace / cost]
   Outcome -->|Rejected| Partial[Partial run: retry unfinished work]
-  Partial --> Freeze
+  Partial --> DraftReview
   Outcome -->|Uncertain| Verify[Author verifies RightAnswers]
   Verify -->|Matching article exists| Save
   Verify -->|Explicitly verified absent| Journal
@@ -103,11 +106,11 @@ flowchart TD
 
 ## Review and recovery
 
-Submission freezes its plan. For a different plan afterward, start a new run. Retrying cannot silently change work already written.
+Preparation saves a mutable plan and persists each draft independently. Changing the plan before submission invalidates its prepared drafts. Submission checks every reviewed version before the first possible write and then freezes the plan. For a different plan afterward, start a new run. Retrying cannot silently change work already written.
 
-Conflicts and validation errors persist as prepared content. Review shows competing versions, editable fields and unmapped-content warnings. Continuing uses a version-matched resolution, not a regenerated merge. Missing required facts need human-supported content, not invention.
+Conflicts and validation errors persist as prepared content. Review shows competing versions, editable fields and unmapped-content warnings. Save and validate edits with Prepare drafts. This creates a new review version; submission consumes that exact version without regenerating the merge. Missing required facts need human-supported content, not invention.
 
-Each write is journaled before HTTP transmission. No automatic non-idempotent POST retries occur. Saved successes return without another write; a durable run lock serializes concurrent submissions.
+The Sources → Actions → Results graph counts actual output articles, includes external survivors and displays tracking comments separately. It remains available in Past executions. Each write is journaled before HTTP transmission. No automatic non-idempotent POST retries occur. Saved successes return without another write; a durable run lock serializes concurrent submissions.
 
 After a lost response, the outcome is uncertain, not failed. Check RightAnswers. Either supply the actual draft/revision ID (the server verifies its content) or explicitly verify the write did not occur before permitting a retry. For comments, the author checks the internal comment. No automatic duplicate-prone resend occurs.
 
@@ -117,7 +120,7 @@ Each group's flags depend on its own survivor. Prepared fields, outcomes and par
 
 ## Verification boundaries
 
-Contract tests use mocked services and temporary databases. They verify data flow, gates, retries, persistence, prompt construction and payloads, not every model's factual output or the live availability/pricing of configured models. The duplicate-detection correction was additionally checked against live read-only RA retrieval and paid model comparisons of known MCP duplicates. No RA writes were made during those checks. Publication remains in RightAnswers' approval workflow.
+Contract tests use mocked services and temporary databases. They verify data flow, gates, retries, persistence, prompt construction and payloads, not every model's factual output or the live availability/pricing of configured models. The prepare/review boundary and graph are covered by route, engine and server-rendering tests. The duplicate-detection correction was additionally checked against live read-only RA retrieval and paid model comparisons of known MCP duplicates. No RA writes were made during those checks. Publication remains in RightAnswers' approval workflow.
 
 
 ## Article structure and HTML

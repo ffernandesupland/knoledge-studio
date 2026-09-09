@@ -1,8 +1,8 @@
 # Proposed submission review
 
-Status: design proposal. The graph and draft preparation workflow below are not implemented yet. The six-result retrieval limit and clearer merge labels are separate changes.
+Status: implemented. Sources → Actions → Results now uses the actual write plan. Prepare drafts persists full articles without KB writes; Submit reviewed drafts requires their current review versions. Graphs and outcomes are saved in execution history. The six-result retrieval limit remains in place.
 
-The current screen lists selected proposals rather than the actual operations from `buildWritePlan`. When an existing KB article is the merge destination, it can be absent from the list entirely. Editing a row opens only that proposal's source material, not the combined article. Counting these rows as output solutions is misleading.
+The previous screen listed selected proposals rather than the actual operations from `buildWritePlan`. When an existing KB article is the merge destination, it could be absent from the list entirely. Editing a row opened only that proposal's source material, not the combined article. Counting these rows as output solutions is misleading.
 
 ## Recommended screen
 
