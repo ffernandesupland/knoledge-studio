@@ -85,7 +85,7 @@ export default function KnowledgeStudio() {
   const [kbQuery, setKbQuery] = useState("");
   const [kbRows, setKbRows] = useState<KbRow[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
-  const [kbSelected, setKbSelected] = useState<Record<string, boolean>>({});
+  const [kbSelected, setKbSelected] = useState<Record<string, KbRow>>({});
 
   const [ops, setOps] = useState(() => KS_OPS_DEFAULT.map((o) => ({ ...o })));
 
@@ -144,7 +144,7 @@ export default function KnowledgeStudio() {
         }
         setPath(stored.path ?? null); setContentText(stored.inputText ?? "");
         setAttachments((stored.attachments ?? []).map((a: { label: string; text: string; kind?: string }) => ({ name: a.label, text: a.text, icon: a.kind === "url" ? "link" : "description" })));
-        setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, true])));
+        setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, { id, title: `Solution ${id}`, meta: "Selected source" }])));
         if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? []); setScreen("submit"); }
         else setScreen("check");
         showToast({ message: "Resumed your last session — use Reset to start clean instead.", icon: "history" });
@@ -497,11 +497,19 @@ export default function KnowledgeStudio() {
               kbOpen={kbSearchOpen}
               onToggleKb={() => setKbSearchOpen((o) => !o)}
               kbQuery={kbQuery}
-              onKbQuery={setKbQuery}
+              onKbQuery={(query) => { setKbQuery(query); setKbRows([]); setKbLoading(!!query.trim()); }}
               kbRows={kbRows}
               kbLoading={kbLoading}
               kbSelected={kbSelected}
-              onToggleKbRow={(id) => setKbSelected((p) => ({ ...p, [id]: !p[id] }))}
+              onToggleKbRow={(id) => setKbSelected((previous) => {
+                const next = { ...previous };
+                if (next[id]) delete next[id];
+                else {
+                  const row = kbRows.find((item) => item.id === id);
+                  if (row) next[id] = row;
+                }
+                return next;
+              })}
               showToast={showToast}
             />
           </div>

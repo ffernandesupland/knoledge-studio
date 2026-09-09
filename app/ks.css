@@ -360,3 +360,21 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .ks-preview-modal { width: 720px; max-height: 90dvh; display: flex; flex-direction: column; }
 .ks-preview-modal .entity-modal-body { overflow-y: auto; min-height: 0; }
 .ks-preview-modal .entity-modal-hdr, .ks-preview-modal .entity-modal-footer { flex-shrink: 0; }
+
+/* Selected KB sources remain in the search field across query changes. */
+.ks-kb-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid #838FA0; border-radius: 4px; background: #fff; }
+.ks-kb-search:focus-within { border-color: #2574DB; outline: 2px solid #2574DB; outline-offset: 1px; }
+.ks-kb-query { flex: 1 1 220px; min-width: 0; width: 100%; padding: 6px 2px; border: 0; outline: 0; font: inherit; color: #252B31; background: transparent; }
+.ks-kb-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 4px 6px 4px 10px; border: 1px solid #B8D3F5; border-radius: 18px; background: #F0F6FE; color: #1558AD; font-size: 13px; }
+.ks-kb-chip > .ms { font-size: 17px; flex-shrink: 0; }
+.ks-kb-chip-title { min-width: 0; overflow-wrap: anywhere; }
+.ks-kb-chip button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.ks-kb-chip button:hover { background: #DCEBFD; }
+.ks-kb-chip button .ms { font-size: 17px; }
+.ks-kb-chip button:focus-visible, .ks-kb-result:focus-visible { outline: 2px solid #2574DB; outline-offset: -2px; }
+.ks-kb-results { border: 1px solid #E0E3E6; border-radius: 4px; overflow: hidden; }
+.ks-kb-result { width: 100%; border: 0; border-bottom: 1px solid #E0E3E6; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.ks-kb-result:hover { background: #F0F6FE; }
+.ks-kb-result .ks-si-name, .ks-kb-result .ks-si-meta { display: block; }
+.ks-kb-message { padding: 16px; font-size: 13px; color: #6B7786; text-align: center; }
+.ks-kb-count { font-size: 13px; font-weight: 600; color: #525C69; margin-top: 8px; }
