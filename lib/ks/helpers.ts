@@ -70,11 +70,14 @@ export function ksSubmitChange(
       .filter((m) => m.id !== candidate.key)
       .map((m) => m.title)
       .join(" + ");
-    return `Combined ${group.members.length} solutions into one${others ? ` · ${others} folded in` : ""}`;
+    return `Will combine ${group.members.length} solutions into one${others ? ` · Sources: ${others}` : ""}`;
   }
   if (status === "flagged" && g != null) {
     const survivor = groups[g].members.find((m) => m.retained);
-    return `Flagged as merged into ${survivor ? survivor.title : "the retained solution"}. The solution stays in place for tracking.`;
+    const tracking = candidate.targetSolutionId || /^\d{15}$/.test(candidate.key)
+      ? "The existing source stays in place and receives a tracking comment after the merge succeeds."
+      : "This proposal contributes content; no separate article is created for it.";
+    return `Will be merged into ${survivor ? survivor.title : "the retained solution"}. ${tracking}`;
   }
   if (status === "updated") {
     return `Prepared for update using ${candidate.templateName}; selected authoring options apply on submit.`;
@@ -98,8 +101,8 @@ export interface SubmitItem {
 const LABELS: Record<SubmitStatus, string> = {
   new: "New",
   updated: "Updated",
-  merged: "Merged",
-  flagged: "Flagged",
+  merged: "Merge target",
+  flagged: "Merge planned",
 };
 
 export function ksComputeSubmitItems(

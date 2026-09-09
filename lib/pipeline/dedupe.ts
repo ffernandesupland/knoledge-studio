@@ -163,7 +163,6 @@ export async function findDuplicatesFor(
   const requests = [
     { queryText: query, searchType: "Hybrid", page: 1, weight: 1 },
     { queryText: anchorQuery, searchType: "Keyword", page: 1, weight: 1 },
-    { queryText: anchorQuery, searchType: "Keyword", page: 2, weight: 1 },
     { queryText: query, searchType: "Neural", page: 1, weight: 0.25 },
   ] as const;
   const searches = await Promise.allSettled(requests.map((request) => ra.search({
@@ -179,9 +178,9 @@ export async function findDuplicatesFor(
   const scores = new Map<string, number>();
   const evidence = searches.map((result, i) => {
     const rows = result.status === "fulfilled" ? result.value.solutions : [];
-    const unique = [...new Set(rows.map((row) => row.id).filter((id) => id && !exclude?.has(id)))];
-    unique.forEach((id, rank) => scores.set(id, (scores.get(id) ?? 0) + requests[i].weight / (60 + rank + (requests[i].page - 1) * 12)));
-    return { query: requests[i].queryText, searchType: requests[i].searchType, page: requests[i].page, returnedIds: rows.map((row) => row.id) };
+    const unique = [...new Set(rows.map((row) => row.id).filter((id) => id && !exclude?.has(id)))].slice(0, 6);
+    unique.forEach((id, rank) => scores.set(id, (scores.get(id) ?? 0) + requests[i].weight / (60 + rank)));
+    return { query: requests[i].queryText, searchType: requests[i].searchType, page: requests[i].page, returnedIds: rows.map((row) => row.id), consideredIds: unique, resultLimit: 6 };
   });
   const ids = [...scores.keys()].sort((a, b) => scores.get(b)! - scores.get(a)!).slice(0, recallLimit).slice(0, fetchLimit);
   const retrieval = { searches: evidence, comparedIds: ids, availableCount: scores.size, limit: fetchLimit, excludedIds: [...(exclude ?? [])] };
