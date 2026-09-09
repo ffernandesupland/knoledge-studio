@@ -67,7 +67,7 @@ export interface RunOutput {
   groups: DuplicateGroup[];
   costUsd: number;
   warnings?: string[];
-  steps: { name: string; ms: number; costUsd: number; model?: string }[];
+  steps: { name: string; ms: number; costUsd: number; model?: string; details?: unknown }[];
 }
 
 export interface ProgressEvent {
@@ -82,12 +82,12 @@ async function step<T>(
   name: string,
   onProgress: OnProgress | undefined,
   steps: RunOutput["steps"],
-  fn: () => Promise<{ value: T; costUsd: number; model?: string }>,
+  fn: () => Promise<{ value: T; costUsd: number; model?: string; details?: unknown }>,
 ): Promise<T> {
   onProgress?.({ step: name, status: "start" });
   const t0 = Date.now();
-  const { value, costUsd, model } = await fn();
-  steps.push({ name, ms: Date.now() - t0, costUsd, model });
+  const { value, costUsd, model, details } = await fn();
+  steps.push({ name, ms: Date.now() - t0, costUsd, model, ...(details ? { details } : {}) });
   onProgress?.({ step: name, status: "done" });
   return value;
 }
@@ -207,7 +207,7 @@ export async function runPipeline(input: RunInput, onProgress?: OnProgress): Pro
     for (const c of candidates) {
       const matches = await step(`Duplicates: ${c.title}`, onProgress, steps, async () => {
         const m = await findDuplicatesFor(c, { cache, exclude, collection: input.collection, language: input.language });
-        return { value: m.matches, costUsd: m.costUsd, model: m.model };
+        return { value: m.matches, costUsd: m.costUsd, model: m.model, details: m.retrieval };
       });
       matchesByCandidate[c.key] = matches;
       const sol = planned.find((p) => p.key === c.key);

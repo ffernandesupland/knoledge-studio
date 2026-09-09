@@ -42,15 +42,15 @@ click optimize "#prompt-optimizeSearch" "Inspect optimizeSearch"
 style optimize fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
 dedupe["Find duplicates"]
 analysis --> dedupe
-query["Generate a retrieval query"]
+query["Generate focused and keyword queries"]
 dedupe --> query
 click query "#prompt-dedupeQuery" "Inspect dedupeQuery"
-search["Search the RightAnswers knowledge base"]
+search["Search Hybrid, Keyword and Neural"]
 dedupe --> search
 no_match["No neighbours returned"]
 dedupe --> no_match
 style no_match fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
-compare["Compare full articles"]
+compare["Compare full articles in required slots"]
 dedupe --> compare
 click compare "#prompt-dedupeAdjudicate" "Inspect dedupeAdjudicate"
 batch["Compare drafts within this batch"]

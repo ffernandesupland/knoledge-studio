@@ -21,11 +21,11 @@ Approved scope accompanies source evidence into restructure/merge at submission.
 ## Duplicate detection, step by step
 
 1. Enable a content source and **Find duplicates**. Set two or more topics to explore within-batch comparison.
-2. **Generate a retrieval query** uses `dedupeQuery`: title and full topic body → distinctive technical terms. Titles alone do not drive retrieval.
-3. **Search RightAnswers** executes Neural search without logging the generated query as a user search. Picked source IDs are excluded. Up to eight full neighbours are fetched and cached.
-4. With no neighbours, external adjudication is skipped. Otherwise `dedupeAdjudicate` reads the candidate and full article content, returning one verdict per neighbour plus a reason and score.
+2. **Generate retrieval queries** uses `dedupeQuery`: title and full topic body → a focused task query (3–8 terms) and a broad product/protocol/error query (1–3 terms). Titles alone do not drive retrieval.
+3. **Search RightAnswers** combines Hybrid search for the task, two Keyword pages for the broad query, and lower-weight Neural results. Reciprocal-rank fusion weights Hybrid/Keyword equally and Neural at 0.25, with a rank constant of 60. IDs are deduplicated and picked source IDs excluded. Up to 16 full articles are fetched and cached. Generated searches do not enter user search history. The executed flow records each query, returned IDs, compared IDs and limits. These are bounded searches within the author’s access, not an exhaustive scan of the KB. A failed search stops analysis instead of reporting no duplicates.
+4. With no neighbours, external adjudication is skipped. Otherwise `dedupeAdjudicate` reads full articles in batches of four, with at most two calls in parallel. The response schema requires one verdict per application-assigned slot, including distinct articles. Server code maps slots to the original IDs; article text cannot replace them. Invalid structured output retries once for that batch; a second failure stops analysis with an explicit incomplete-check message.
 5. Duplicate means the same problem AND resolution. Overlapping means shared coverage plus unique details. Shared vocabulary alone is distinct. The 0–100 score is model judgment, not a calibrated probability or an RA relevance score.
-6. Multiple drafts receive a separate within-batch comparison using the same rubric, detecting content not yet in the KB.
+6. Multiple proposals receive a separate within-batch comparison using the same rubric, detecting content not yet in the KB. Every pair receives a required verdict, including distinct pairs, in batches of 12 comparisons.
 7. Links require the same primary reader need AND a score of 80 or above to form connected review groups. Shared background, prerequisites or product terminology alone do not qualify. The default survivor prefers an existing article, then the highest view count. Groups can be transitive; the human decides whether to merge.
 8. At Check, deselect candidates, keep groups separate, or choose a survivor and confirm. Unresolved selected groups block submission on the server too.
 9. Keeping separate plans individual creates/updates. Merging plans a survivor write plus comments for existing losers. Deselected owned candidates contribute no content.
@@ -117,7 +117,7 @@ Each group's flags depend on its own survivor. Prepared fields, outcomes and par
 
 ## Verification boundaries
 
-Contract tests use mocked services and temporary databases. They verify data flow, gates, retries, persistence, prompt construction and payloads, not every model's factual output or the live availability/pricing of configured models. No live RA writes or paid model calls were used to implement these fixes. Publication remains in RightAnswers' approval workflow.
+Contract tests use mocked services and temporary databases. They verify data flow, gates, retries, persistence, prompt construction and payloads, not every model's factual output or the live availability/pricing of configured models. The duplicate-detection correction was additionally checked against live read-only RA retrieval and paid model comparisons of known MCP duplicates. No RA writes were made during those checks. Publication remains in RightAnswers' approval workflow.
 
 
 ## Article structure and HTML

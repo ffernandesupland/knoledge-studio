@@ -63,9 +63,14 @@ export async function runOperation<T>(args: RunArgs<T>): Promise<RunResult<T>> {
   const usage = { model, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) };
   // Record charged responses even if refusal/schema validation prevents authoring.
   (await auditAi(args as RunArgs<unknown>, { ...usage, data: parsed ?? { error: "No parseable output", output: response.output } }, input));
-  if (!parsed) throw new Error(`${args.operation}: model returned no parseable output`);
-  const result: RunResult<T> = { ...usage, data: args.schema.parse(parsed) };
-  return result;
+  try {
+    if (!parsed) throw new Error(`${args.operation}: model returned no parseable output`);
+    return { ...usage, data: args.schema.parse(parsed) };
+  } catch (error) {
+    // A local structured-output retry must retain the cost of the charged response.
+    if (error instanceof Error) Object.assign(error, { costUsd: usage.costUsd });
+    throw error;
+  }
 }
 
 const inspection = new AsyncLocalStorage<boolean>();

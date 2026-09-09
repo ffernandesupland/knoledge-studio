@@ -1561,7 +1561,7 @@ export default function KnowledgeStudio() {
               {gate.msg}
             </>
           ) : (
-            "Analysing your content…"
+            pipeline.phase === "error" ? "Analysis stopped — return to content to retry" : "Analysing your content…"
           )}
         </span>
         <div className="ks-foot-actions">
