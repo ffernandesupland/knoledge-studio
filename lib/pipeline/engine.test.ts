@@ -11,6 +11,10 @@ import { mapRunToView } from "../ks/model";
 import { freezeExecution, getWriteState, saveWriteState, withRunLock } from "./state";
 import { canonicalSnapshot } from "../api/validation";
 import { KS_OPS_DEFAULT } from "../ks/data";
+import { POST as submitRoute } from "../../app/api/submit/route";
+import { submissionIdentity } from "../ks/submission-plan";
+import { readExecutedFlow } from "../flow/executions";
+import { loadExecution, savePreparationPlan, freezePreparedPlan } from "./state";
 import { POST as reconcile } from "../../app/api/submit/reconcile/route";
 import { RaError } from "../ra/http";
 
@@ -18,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
   plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
 }));
-vi.mock("../ra/client", () => ({ ra: { getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
+vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
 vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
 vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
 
@@ -207,7 +211,7 @@ describe("submission contracts", () => {
   it("serializes submissions across callers", async () => {
     let finish!: () => void;
     const first = withRunLock(runId, () => new Promise<void>((resolve) => { finish = resolve; }));
-    await expect(withRunLock(runId, async () => undefined)).rejects.toThrow("already being submitted");
+    await expect(withRunLock(runId, async () => undefined)).rejects.toThrow("already being processed");
     finish(); await first;
     await expect(withRunLock(runId, async () => "released")).resolves.toBe("released");
   });
@@ -270,5 +274,114 @@ describe("uncertain-write reconciliation", () => {
     expect((await reconcile(request({ runId, key: op.idempotencyKey, action: "retry", verified: true }))).status).toBe(200);
     expect((await executeWritePlan(execution))[0].outcome).toBe("ok");
     expect(mocks.write).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("prepare, review, then write", () => {
+  it("prepares all draft metadata and fields without any KB write or merge comment", async () => {
+    const op = newOp();
+    const [prepared] = await executeWritePlan(args([op], { prepareOnly: true, standardsRules: ["Numbered steps"] }));
+    expect(prepared.outcome).toBe("ready");
+    expect(prepared.prepared).toMatchObject({ readyForSubmission: true, title: "Generated title", summary: "Generated summary", keywords: ["vpn"], standardsApplied: true });
+    expect(mocks.write).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.flag).not.toHaveBeenCalled();
+    const [written] = await executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: prepared.prepared!.version }, standardsRules: ["Numbered steps"] }));
+    expect(written.outcome).toBe("ok");
+    expect(mocks.write.mock.calls[0][0]).toMatchObject({ title: prepared.prepared!.title, summary: prepared.prepared!.summary, fields: prepared.prepared!.fields });
+    expect(mocks.restructure).toHaveBeenCalledTimes(1); expect(mocks.standards).toHaveBeenCalledTimes(1);
+  });
+  it("preflights every article and refuses missing or stale review versions before any write", async () => {
+    const a = newOp("a"), b = newOp("b");
+    const [ready] = await executeWritePlan(args([a], { prepareOnly: true }));
+    await expect(executeWritePlan(args([a, b], { requirePrepared: true, approvals: { [a.idempotencyKey]: ready.prepared!.version } }))).rejects.toThrow("every draft");
+    await expect(executeWritePlan(args([a], { requirePrepared: true, approvals: { [a.idempotencyKey]: "old-version" } }))).rejects.toThrow("every draft");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("saves reviewed title, summary, keywords and HTML fields with a new version", async () => {
+    const op = newOp();
+    const [first] = await executeWritePlan(args([op], { prepareOnly: true }));
+    const review = { version: first.prepared!.version, title: "Edited title", summary: "Edited summary", keywords: ["edited"], fields: [{ fieldName: "Solution", fieldValue: "<p>Reviewed answer</p>" }, fields[1]] };
+    const [second] = await executeWritePlan(args([op], { prepareOnly: true, reviews: { [op.idempotencyKey]: review } }));
+    expect(second.prepared!.version).not.toBe(first.prepared!.version);
+    expect(second.prepared).toMatchObject({ title: review.title, summary: review.summary, keywords: review.keywords, fields: review.fields });
+    expect(mocks.write).not.toHaveBeenCalled();
+    await executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: second.prepared!.version } }));
+    expect(mocks.write.mock.calls[0][0]).toMatchObject({ title: review.title, summary: review.summary, keywords: "edited", fields: review.fields });
+    expect(mocks.restructure).toHaveBeenCalledTimes(1);
+  });
+  it("prepares a merge with an external survivor and defers the tracking comment until submission", async () => {
+    const op: WriteOp = { kind: "revise", candidateKey: source.id, solutionId: source.id, title: source.title, fromMerge: true, mergeSources: [{ id: "260909000000006", title: "Other article" }], idempotencyKey: `${runId}:revise:${source.id}` };
+    const flag: WriteOp = { kind: "flag", solutionId: "260909000000006", survivorKey: source.id, survivorLabel: source.title, idempotencyKey: `${runId}:flag:other` };
+    const prepared = await executeWritePlan(args([op, flag], { prepareOnly: true }));
+    expect(prepared.map((r) => r.outcome)).toEqual(["ready", "skipped"]);
+    expect(prepared[0].prepared!.sourceDocuments?.map((d) => d.id)).toEqual([source.id, "260909000000006"]);
+    expect(mocks.flag).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+    const written = await executeWritePlan(args([op, flag], { requirePrepared: true, approvals: { [op.idempotencyKey]: prepared[0].prepared!.version } }));
+    expect(written.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(mocks.update).toHaveBeenCalledTimes(1); expect(mocks.flag).toHaveBeenCalledTimes(1); expect(mocks.merge).toHaveBeenCalledTimes(1);
+  });
+  it("requires resolving merge conflicts during preparation and never writes unresolved articles", async () => {
+    mocks.merge.mockResolvedValueOnce(result({ sections: [{ fieldName: "Solution", combined: "<p>Default</p>", contributions: [], conflict: { present: true, optionA: { from: "A", text: "x" }, optionB: { from: "B", text: "y" }, mergedDefault: "x" } }, { fieldName: "Details", combined: "", contributions: [], conflict: { present: false } }] }));
+    const op = { ...newOp(), mergeSources: [{ id: "c1", title: "Other", fields }] };
+    const [review] = await executeWritePlan(args([op], { prepareOnly: true }));
+    expect(review.outcome).toBe("review");
+    await expect(executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: review.prepared!.version } }))).rejects.toThrow("every draft");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("checks source versions again before writing reviewed revisions", async () => {
+    const op: WriteOp = { kind: "revise", candidateKey: source.id, solutionId: source.id, title: source.title, templateName: template.templateName, fields, fromMerge: false, idempotencyKey: `${runId}:revise:source` };
+    const [prepared] = await executeWritePlan(args([op], { prepareOnly: true }));
+    mocks.solution.mockResolvedValue({ ...source, title: "Changed externally" });
+    const [rejected] = await executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: prepared.prepared!.version } }));
+    expect(rejected.outcome).toBe("error"); expect(rejected.message).toContain("changed after preparation"); expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("review route and plan invalidation", () => {
+  async function fixture() {
+    const view = mapRunToView(await runPipeline({ text: "A supported answer", operations: [] }));
+    await completeRun(runId, view);
+    const snapshot: DecisionSnapshot = { candidates: view.candidates, groups: view.groups, selectedKeys: view.candidates.map((c) => c.key), resolutions: [], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "English", standard: "Default", standardsRules: [], newSolutionTemplate: null, templateOverrides: [] };
+    return snapshot;
+  }
+  async function post(body: unknown) {
+    const response = await submitRoute(new Request("http://localhost/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+    const text = await response.text();
+    return { status: response.status, events: text.trim().split("\n").map((line) => JSON.parse(line)) };
+  }
+  it("enforces preparation at the route, preserves client/server identity, and saves the graph", async () => {
+    const snapshot = await fixture();
+    const denied = await post({ runId, snapshot, action: "submit" });
+    expect(denied.events.some((e) => e.type === "error")).toBe(true); expect(mocks.write).not.toHaveBeenCalled();
+    const response = await post({ runId, snapshot, action: "prepare" });
+    const event = response.events.find((e) => e.type === "result");
+    expect(event).toBeDefined();
+    const plan = buildWritePlan({ runId, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: [] });
+    expect(event.reviewIdentity).toBe(submissionIdentity(plan, snapshot));
+    expect((await readExecutedFlow(runId))!.graph!.counts.created).toBe(1);
+    expect(mocks.write).not.toHaveBeenCalled(); expect(mocks.flag).not.toHaveBeenCalled();
+    const approvals = Object.fromEntries(event.results.map((r: { idempotencyKey: string; prepared: { version: string } }) => [r.idempotencyKey, r.prepared.version]));
+    const submitted = await post({ runId, snapshot, action: "submit", approvals });
+    expect(submitted.events.find((e) => e.type === "result")!.results[0].outcome).toBe("ok");
+    expect(mocks.restructure).toHaveBeenCalledTimes(1);
+  });
+  it("invalidates prepared drafts when metadata changes and rejects stale submission", async () => {
+    const snapshot = await fixture();
+    const first = await post({ runId, snapshot, action: "prepare" });
+    const old = first.events.find((e) => e.type === "result")!.results[0];
+    const changed = { ...snapshot, language: "French" };
+    const rejected = await post({ runId, snapshot: changed, action: "submit", approvals: { [old.idempotencyKey]: old.prepared.version } });
+    expect(rejected.events.find((e) => e.type === "error").message).toContain("plan changed"); expect(mocks.write).not.toHaveBeenCalled();
+    const second = await post({ runId, snapshot: changed, action: "prepare" });
+    expect(second.events.find((e) => e.type === "result")!.results[0].prepared.version).not.toBe(old.prepared.version);
+  });
+  it("keeps submitted plans immutable and preserves completed writes", async () => {
+    const execution: ExecuteArgs = { ...args([newOp()]), stage: "preparation", reviewIdentity: "first" };
+    await savePreparationPlan(runId, execution);
+    const [ready] = await executeWritePlan({ ...execution, prepareOnly: true });
+    await freezePreparedPlan(runId, execution);
+    await executeWritePlan({ ...execution, requirePrepared: true, approvals: { [ready.idempotencyKey]: ready.prepared!.version } });
+    await expect(savePreparationPlan(runId, { ...execution, reviewIdentity: "different" })).rejects.toThrow("Submission has started");
+    expect((await loadExecution<ExecuteArgs>(runId))!.reviewIdentity).toBe("first");
+    expect((await getWriteState(ready.idempotencyKey))!.status).toBe("ok");
   });
 });

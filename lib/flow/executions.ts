@@ -1,3 +1,4 @@
+import { buildSubmissionGraph, type SubmissionGraphModel } from "../ks/submission-graph";
 import { db } from "../db";
 import { getRun } from "../db/runs";
 import { loadExecution, executionResults } from "../pipeline/state";
@@ -6,6 +7,7 @@ import type { FlowNode } from "./model";
 
 export interface ExecutedNode extends FlowNode { record?: unknown; children?: ExecutedNode[] }
 export interface ExecutedFlow {
+  graph?: SubmissionGraphModel;
   version: 1; runId: string; createdAt: string; savedAt: string; status: string;
   title: string; costUsd: number; tree: ExecutedNode[];
 }
@@ -37,8 +39,8 @@ export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
       selectedKeys: choices?.selectedKeys ?? run.decisions?.selectedKeys,
       groups: choices?.groups ?? run.groups, resolutions: choices?.resolutions ?? run.decisions?.resolutions,
     }),
-    node("metadata", "4 · Final metadata and preparation options", "human", execution ? "Options frozen when submission started; item records below show any reviewed template changes." : "Submission has not started.", execution ? { collection: execution.collection, language: execution.language, rewriteEnabled: execution.restructureEnabled, standardsRules: execution.standardsRules } : choices ? { collection: choices.collection, language: choices.language, operations: choices.operations, standardsRules: choices.standardsRules } : undefined),
-    node("preparation", "5 · Recorded article preparation", "logic", `${aiNodes("submission").length} AI calls recorded during submission, including retries and regeneration. Zero calls means none were recorded, not that current prompts ran.`, undefined, aiNodes("submission")),
+    node("metadata", "4 · Final metadata and preparation options", "human", execution ? execution.stage === "preparation" ? "Preparation options saved; changing the plan requires preparing drafts again." : "Options frozen when submission started; item records below show any reviewed template changes." : "Submission has not started.", execution ? { collection: execution.collection, language: execution.language, rewriteEnabled: execution.restructureEnabled, standardsRules: execution.standardsRules } : choices ? { collection: choices.collection, language: choices.language, operations: choices.operations, standardsRules: choices.standardsRules } : undefined),
+    node("preparation", "5 · Recorded article preparation", "logic", `${aiNodes("preparation").length} preparation calls · ${aiNodes("submission").length} submission calls. Prepared drafts are saved before RightAnswers writes.`, undefined, [...aiNodes("preparation"), ...aiNodes("submission")]),
     node("writes", "6 · Planned writes and actual outcomes", "logic", execution ? `${execution.plan.length} planned operations. Expand an item to inspect its saved preparation and attempt records.` : "No submission plan recorded; no writes are implied.", undefined, execution?.plan.map((op, i) => {
       const result = results.find((r) => r.idempotencyKey === op.idempotencyKey);
       const attempts = audits.filter((a) => a.idempotency_key === op.idempotencyKey || a.idempotency_key.startsWith(`${op.idempotencyKey}:`));
@@ -46,7 +48,7 @@ export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
     })),
     node("outcome", "7 · Saved run outcome", run.error ? "stop" : "logic", `${run.status} · total recorded AI cost $${run.costUsd.toFixed(4)}`, { error: run.error, outcomes: results.map((r) => ({ outcome: r.outcome, solutionId: r.solutionId, description: r.description, message: r.message })) }),
   ];
-  const flow: ExecutedFlow = { version: 1, runId, createdAt: run.createdAt, savedAt: new Date().toISOString(), status: run.status, title: run.candidates[0]?.title ?? "Content analysis", costUsd: run.costUsd, tree };
+  const flow: ExecutedFlow = { version: 1, runId, createdAt: run.createdAt, savedAt: new Date().toISOString(), status: run.status, title: run.candidates[0]?.title ?? "Content analysis", costUsd: run.costUsd, tree, graph: execution ? buildSubmissionGraph(execution.plan, choices?.candidates ?? run.candidates, results, { ...execution, groups: choices?.groups ?? run.groups }) : undefined };
   (await db().prepare("INSERT INTO flow_executions(run_id,saved_at,payload) VALUES (?,?,?) ON CONFLICT(run_id) DO UPDATE SET saved_at=excluded.saved_at,payload=excluded.payload").run(runId, flow.savedAt, JSON.stringify(flow)));
   return flow;
 }

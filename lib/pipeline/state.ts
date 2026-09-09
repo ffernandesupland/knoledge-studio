@@ -40,7 +40,7 @@ export async function withRunLock<T>(runId: string, fn: () => Promise<T>): Promi
     (await db().prepare("DELETE FROM run_locks WHERE run_id=? AND heartbeat<?").run(runId, Date.now() - 15 * 60_000));
     return (await db().prepare("INSERT INTO run_locks(run_id,token,heartbeat) VALUES (?,?,?) ON CONFLICT DO NOTHING").run(runId, token, Date.now())).changes;
   })());
-  if (!acquired) throw new Error("This run is already being submitted. Wait for it to finish before retrying.");
+  if (!acquired) throw new Error("This run is already being processed. Wait for it to finish before retrying.");
   const timer = setInterval(() => {
     void db().prepare("UPDATE run_locks SET heartbeat=? WHERE run_id=? AND token=?").run(Date.now(), runId, token).catch(() => {
       console.error("Could not renew submission lock", runId);
@@ -51,4 +51,28 @@ export async function withRunLock<T>(runId: string, fn: () => Promise<T>): Promi
     clearInterval(timer);
     (await db().prepare("DELETE FROM run_locks WHERE run_id=? AND token=?").run(runId, token));
   }
+}
+
+/** Caller holds the run lock. Preparation can change until submission is frozen. */
+export async function savePreparationPlan<T extends { stage?: string; reviewIdentity?: string }>(runId: string, payload: T): Promise<T> {
+  return db().transaction(async () => {
+    const existing = await loadExecution<T>(runId);
+    if (existing && existing.stage !== "preparation") {
+      if (existing.reviewIdentity && existing.reviewIdentity !== payload.reviewIdentity) throw new Error("Submission has started. Start a new run for a different plan.");
+      return existing;
+    }
+    if (existing && existing.reviewIdentity !== payload.reviewIdentity) {
+      const written = await db().prepare("SELECT key FROM write_state WHERE run_id=? AND status IN ('writing','ok','uncertain') LIMIT 1").get(runId);
+      if (written) throw new Error("This run has write attempts and cannot change its plan.");
+      await db().prepare("DELETE FROM write_state WHERE run_id=?").run(runId);
+    }
+    await db().prepare("INSERT INTO execution_plans(run_id,payload) VALUES (?,?) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload").run(runId, JSON.stringify(payload));
+    return payload;
+  })();
+}
+
+export async function freezePreparedPlan<T extends { stage?: string }>(runId: string, payload: T): Promise<T> {
+  const frozen = { ...payload, stage: "submission" };
+  await db().prepare("UPDATE execution_plans SET payload=? WHERE run_id=?").run(JSON.stringify(frozen), runId);
+  return frozen;
 }

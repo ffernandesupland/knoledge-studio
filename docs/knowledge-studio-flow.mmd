@@ -89,7 +89,7 @@ check --> deselect
 metadata["4 · Metadata and draft editing"]
 root --> metadata
 style metadata fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
-submit["5 · Submit → prepare final content"]
+submit["5 · Prepare drafts without KB writes"]
 root --> submit
 style submit fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
 merge_ai["Merge selected source content"]
@@ -123,7 +123,13 @@ style standards fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
 validate["Validate final article"]
 submit --> validate
 style validate fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
-write["6 · Write to RightAnswers"]
+review_drafts["6 · Review the resulting articles"]
+root --> review_drafts
+style review_drafts fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+prepare_invalidated["Plan or metadata changes"]
+review_drafts --> prepare_invalidated
+style prepare_invalidated fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+write["7 · Submit reviewed drafts to RightAnswers"]
 root --> write
 style write fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
 create["New survivor or new topic → create"]
@@ -150,6 +156,6 @@ style analysis_error fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
 regenerate["Unwritten new article needs different template"]
 root --> regenerate
 style regenerate fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
-result["7 · Results, preview and recovery"]
+result["8 · Results, preview and recovery"]
 root --> result
 style result fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
