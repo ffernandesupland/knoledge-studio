@@ -159,11 +159,12 @@ export function KsSmartInput({
   onKbQuery: (v: string) => void;
   kbRows: KbRow[];
   kbLoading: boolean;
-  kbSelected: Record<string, boolean>;
+  kbSelected: Record<string, KbRow>;
   onToggleKbRow: (id: string) => void;
   showToast: (t: ToastState) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const kbSearchInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function ingestFile(file: File) {
@@ -223,7 +224,9 @@ export function KsSmartInput({
     if (file) void ingestFile(file);
   }
 
-  const kbCount = Object.values(kbSelected).filter(Boolean).length;
+  const selectedSolutions = Object.values(kbSelected);
+  const kbCount = selectedSolutions.length;
+  const availableSolutions = kbRows.filter((row) => !kbSelected[row.id]);
 
   return (
     <div
@@ -296,51 +299,64 @@ export function KsSmartInput({
           {busy ?? "Type, paste a link, or drop a PDF, Word or text file."}
         </span>
       </div>
-      {kbOpen && (
+      {(kbOpen || kbCount > 0) && (
         <div className="ks-si-kb">
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <div className="ks-kb-search">
+            {selectedSolutions.map((solution) => (
+              <span className="ks-kb-chip" key={solution.id} title={`${solution.title} · ${solution.id}`}>
+                <span className="ms" aria-hidden="true">description</span>
+                <span className="ks-kb-chip-title">{solution.title}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${solution.title}`}
+                  onClick={() => {
+                    onToggleKbRow(solution.id);
+                    kbSearchInput.current?.focus();
+                  }}
+                >
+                  <span className="ms" aria-hidden="true">close</span>
+                </button>
+              </span>
+            ))}
             <input
-              className="form-input"
-              placeholder="Search your knowledge base…"
+              ref={kbSearchInput}
+              className="ks-kb-query"
+              aria-label="Search your knowledge base"
+              placeholder={kbCount ? "Search for another solution…" : "Search your knowledge base…"}
               value={kbQuery}
+              onFocus={() => { if (!kbOpen) onToggleKb(); }}
               onChange={(e) => onKbQuery(e.target.value)}
             />
           </div>
-          <div
-            className="ks-si-list"
-            style={{ border: "1px solid #E0E3E6", borderRadius: 4 }}
-          >
-            {kbLoading && (
-              <div style={{ padding: 16, fontSize: 13, color: "#6B7786", textAlign: "center" }}>
-                Searching…
-              </div>
-            )}
-            {!kbLoading && kbRows.length === 0 && (
-              <div style={{ padding: 16, fontSize: 13, color: "#6B7786", textAlign: "center" }}>
-                No solutions match that search
-              </div>
-            )}
-            {!kbLoading &&
-              kbRows.map((r) => (
-                <div
-                  className="ks-si-row"
-                  key={r.id}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => onToggleKbRow(r.id)}
-                >
-                  <div className={"ks-cbx" + (kbSelected[r.id] ? " on" : "")}>
-                    <span className="ms">check</span>
-                  </div>
-                  <div className="ks-si-main">
-                    <div className="ks-si-name">{r.title}</div>
-                    <div className="ks-si-meta">{r.meta}</div>
-                  </div>
+          {kbOpen && (
+            <div className="ks-si-list ks-kb-results">
+              {kbLoading ? (
+                <div className="ks-kb-message" role="status">Searching…</div>
+              ) : availableSolutions.length === 0 ? (
+                <div className="ks-kb-message" role="status">
+                  {!kbQuery.trim() ? "Type to search your knowledge base" : kbRows.length ? "All matching solutions are selected" : "No solutions match that search"}
                 </div>
+              ) : availableSolutions.map((row) => (
+                <button
+                  type="button"
+                  className="ks-si-row ks-kb-result"
+                  key={row.id}
+                  aria-label={`Select ${row.title}`}
+                  onClick={() => {
+                    onToggleKbRow(row.id);
+                    kbSearchInput.current?.focus();
+                  }}
+                >
+                  <span className="ms" aria-hidden="true">add</span>
+                  <span className="ks-si-main">
+                    <span className="ks-si-name">{row.title}</span>
+                    <span className="ks-si-meta">{row.meta}</span>
+                  </span>
+                </button>
               ))}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#525C69", marginTop: 8 }}>
-            {kbCount} selected
-          </div>
+            </div>
+          )}
+          <div className="ks-kb-count" role="status">{kbCount} selected</div>
         </div>
       )}
       <div className="ks-si-overlay">
