@@ -118,7 +118,7 @@ Rules:
 - Write each field as HTML. Use <p> for prose, <ol> for sequential steps or instructions, <ul> for
   unordered lists, and <strong>/<code> where they aid scanning. Never dump plain unformatted
   paragraphs when the content is actually a list or a procedure.
-- "title" is a specific, searchable headline. "summary" is one sentence.
+- "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
 - "keywords" are 3-8 search terms a user would actually type.`,
     blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : [])],
   });
@@ -171,7 +171,7 @@ export function mergeSections(
     schema: MergeWorkspaceSchema,
     role: "You combine several knowledge-base articles into one, field by field.",
     task: `Combine the solutions above into the "${target.templateName}" template.
-Return a specific title, one-sentence summary and 3–8 relevant keywords for the combined article.
+Return a specific title, one-sentence summary and 3–8 relevant keywords for the combined article. Title, summary and keywords MUST be plain text without HTML tags; HTML is only for template field content.
 Populate every relevant field from supported source evidence, including optional fields.
 All combined field values MUST be HTML, never Markdown. Convert headings, lists, links and code to HTML; do not emit Markdown fences or literal ##, ** or backtick formatting.
 

@@ -101,7 +101,7 @@ export async function runPipeline(input: RunInput, onProgress?: OnProgress): Pro
   const warnings: string[] = [];
   const has = (op: OperationName) => input.operations.includes(op);
 
-  const templates = await ra.getTemplates();
+  const templates = await step("Loading article templates", onProgress, steps, async () => ({ value: await ra.getTemplates(), costUsd: 0 }));
   const forced: WSTemplate | undefined = input.templateName
     ? templates.find((t) => t.templateName === input.templateName)
     : undefined;
@@ -113,9 +113,9 @@ export async function runPipeline(input: RunInput, onProgress?: OnProgress): Pro
 
   /* Source material: pasted text plus any KB solutions the author picked. */
   const cache = new SolutionCache();
-  const sourceSolutions = await Promise.all(
-    (input.sourceSolutionIds ?? []).map((id) => cache.get(id)),
-  );
+  const sourceSolutions = input.sourceSolutionIds?.length
+    ? await step("Reading selected knowledge articles", onProgress, steps, async () => ({ value: await Promise.all(input.sourceSolutionIds!.map((id) => cache.get(id))), costUsd: 0 }))
+    : [];
 
   // Preserve KB boundaries deterministically. New material may be split together; KB
   // articles are processed separately so model output order never determines a write target.
