@@ -344,12 +344,12 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .ks-workflow-note .ms { font-size: 16px; flex-shrink: 0; }
 /* Wizard shell — the stepper mounts everything else inside this frame (build sequence
      step 1). Scroll region + sticky bottom action bar, matching Hritik's source layout. */
-  .ks-wizard { height: 100vh; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-.ks-scroll { flex: 1; overflow-y: auto; padding: 24px; }
-.ks-sticky-footer { min-height: 56px; background: #fff; border-top: 1px solid #BFC6CE; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; gap: 16px; }
+  .ks-wizard { width: 100%; max-width: 100%; min-width: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.ks-scroll { flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: auto; padding: 24px; }
+.ks-sticky-footer { min-height: 56px; background: #fff; border-top: 1px solid #BFC6CE; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 24px; flex-shrink: 0; gap: 10px 16px; }
 .ks-foot-status { font-size: 13px; color: #6B7786; display: flex; align-items: center; gap: 6px; }
 .ks-foot-status .ms { font-size: 16px; }
-.ks-foot-actions { display: flex; gap: 12px; align-items: center; }
+.ks-foot-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; align-items: center; margin-left: auto; min-width: 0; max-width: 100%; }
 
 .ks-proposal { font-size: 14px; line-height: 1.6; }
 .ks-proposal h3 { font-size: 14px; margin: 20px 0 6px; }
@@ -444,3 +444,27 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .sg-toolbar > button,.sg-regenerate button { border:1px solid #c5d1df; border-radius:6px; padding:8px 12px; background:white; color:#35516f; cursor:pointer; font:inherit; font-size:12px; }
 .sg-regenerate { margin-top:20px; padding:14px; border:1px solid #dce3eb; border-radius:8px; }
 .sg-regenerate select { display:block; width:100%; margin-top:8px; padding:8px; background:white; border:1px solid #b5c3d3; border-radius:5px; }
+
+/* Keep the page in the viewport; wide graphs and tables scroll inside their panels. */
+.ks-wizard > * { min-width: 0; max-width: 100%; }
+#page-hdr { height: auto; min-height: 52px; flex-wrap: wrap; gap: 10px 16px; padding-block: 8px; }
+.ks-wizard .ds-btn { max-width: 100%; height: auto; min-height: 36px; padding-block: 8px; white-space: normal; overflow-wrap: anywhere; text-align: center; justify-content: center; }
+.ks-wizard .ds-btn:disabled { opacity: .45; cursor: not-allowed; }
+.ks-foot-status { min-width: 0; overflow-wrap: anywhere; }
+.ks-foot-status .ms { flex-shrink: 0; }
+.ks-stepbar { justify-content: safe center; }
+.sg-studio, .sg-page-heading > *, .sg-layout, .sg-summary, .sg-viewport { min-width: 0; max-width: 100%; }
+.sg-page-heading { flex-wrap: wrap; }
+.sg-page-heading > div { flex: 1 1 420px; }
+.sg-page-heading > .ds-btn { flex: 0 1 auto; }
+.sg-toolbar, .sg-editor-actions { flex-wrap: wrap; }
+.sg-inspector { overflow-wrap: anywhere; }
+.sg-inspector iframe { max-width: 100%; }
+.ks-loading { display: flex; align-items: center; gap: 12px; color: #252B31; font-size: 14px; }
+.ks-loading p { margin: 6px 0 0; color: #6B7786; font-size: 13px; line-height: 1.6; }
+.ks-loading-time { display: block; margin-top: 8px; font-size: 12px; color: #6B7786; font-variant-numeric: tabular-nums; }
+.ks-spinner { display: inline-block; flex-shrink: 0; width: 22px; height: 22px; border: 3px solid #C5DDFB; border-top-color: #2574DB; border-radius: 50%; animation: ks-spin 1s linear infinite; }
+@keyframes ks-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ks-spinner { animation: none; } }
+@media(max-width:1100px) { .sg-page-heading > div { flex-basis: auto; } }
+@media(max-width:600px) { .ks-foot-actions { width: 100%; } .ks-scroll { padding: 16px; } #page-hdr { padding-inline: 16px; } }

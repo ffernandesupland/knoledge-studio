@@ -53,6 +53,26 @@ const newOp = (key = "c0"): Extract<WriteOp, { kind: "create" }> => ({ kind: "cr
 const args = (plan: WriteOp[], extra: Partial<ExecuteArgs> = {}): ExecuteArgs => ({ runId, user: "sauser", plan, collection: "custom_kb", language: "English", ...extra });
 
 describe("analysis → view → plan contract", () => {
+  it("reports template loading before waiting for RightAnswers", async () => {
+    const progress = vi.fn();
+    mocks.templates.mockImplementation(async () => {
+      expect(progress).toHaveBeenCalledWith({ step: "Loading article templates", status: "start" });
+      return [template];
+    });
+    await runPipeline({ text: "Source facts", operations: [] }, progress);
+    expect(progress).toHaveBeenCalledWith({ step: "Loading article templates", status: "done" });
+  });
+  it("blocks HTML summaries before writing and allows a plain-text correction", async () => {
+    mocks.restructure.mockResolvedValue(result({ title: "Article", summary: "<p>Summary</p>", keywords: [], fields }));
+    const plan = [newOp()];
+    const first = await executeWritePlan(args(plan, { prepareOnly: true }));
+    expect(first[0]).toMatchObject({ outcome: "review", message: expect.stringContaining("Summary must be plain text") });
+    expect(mocks.write).not.toHaveBeenCalled();
+    const prepared = first[0].prepared!;
+    const corrected = await executeWritePlan(args(plan, { prepareOnly: true, reviews: { [plan[0].idempotencyKey]: { version: prepared.version, summary: "Summary", fields } } }));
+    expect(corrected[0]).toMatchObject({ outcome: "ready", prepared: { summary: "Summary" } });
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
   it("builds a plan from evidence without authoring, even with optional operations off", async () => {
     const view = mapRunToView(await runPipeline({ text: "Source facts", attachments: [{ label: "Manual.txt", text: "Additional facts" }], operations: [] }));
     expect(mocks.plan.mock.calls[0][0][0]).toMatchObject({ content: "Source facts\n\nAdditional facts", proposedAction: "create", sourceLabels: ["pasted text", "Manual.txt"], duplicateEvidence: { checked: false } });

@@ -12,6 +12,8 @@ import {
 } from "./parts";
 import { usePipelineRun } from "./usePipelineRun";
 import { useSubmitRun } from "./useSubmitRun";
+import { LoadingProgress } from "./LoadingProgress";
+import { submissionStatus } from "@/lib/ks/submission-status";
 import { SubmissionGraph } from "./SubmissionGraph";
 import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
 import { submissionIdentity } from "@/lib/ks/submission-plan";
@@ -233,11 +235,11 @@ export default function KnowledgeStudio() {
   }
 
   /** "Start over": clears every screen's state and stops the server from offering this run back. */
-  function resetAll() {
+  function resetAll(finished = false) {
     setGapQuestion("");
     const hasProgress =
       path != null || contentText.trim().length > 0 || attachments.length > 0 || pipeline.phase !== "idle";
-    if (hasProgress && !window.confirm("Start over? This clears your current content, selections and analysis.")) {
+    if (!finished && hasProgress && !window.confirm("Start over? This clears your current content, selections and analysis.")) {
       return;
     }
 
@@ -273,8 +275,8 @@ export default function KnowledgeStudio() {
 
     setPreview(null);
 
-    void fetch("/api/runs/latest", { method: "DELETE" }).catch(() => undefined);
-    showToast({ message: "Started over" });
+    if (!finished) void fetch("/api/runs/latest", { method: "DELETE" }).catch(() => undefined);
+    showToast({ message: finished ? "Finished. Your execution is saved in Explore engine flow → Past executions." : "Started over" });
   }
 
   function resolveGroup(idx: number, value: DupeResolution, message: string) {
@@ -365,7 +367,8 @@ export default function KnowledgeStudio() {
   const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groups: effectiveGroups, restructureEnabled: ops.some((o) => o.name === "Restructure content" && o.on), standardsRules: ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : [] });
   const submissionBusy = submitRun.phase === "preparing" || submitRun.phase === "submitting";
   const draftsReady = displayPlan.some((op) => op.kind !== "flag") && (preparedMatches || submitRun.locked) && displayPlan.every((op) => op.kind === "flag" || displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && (r.outcome === "ok" || (r.prepared?.readyForSubmission && r.outcome !== "uncertain"))));
-  const allWritten = displayPlan.length > 0 && displayPlan.every((op) => displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && r.outcome === "ok"));
+  const completion = submissionStatus(displayPlan, displayResults);
+  const allWritten = completion.complete;
 
 
   const stepperActiveId: StepId = screen;
@@ -558,9 +561,7 @@ export default function KnowledgeStudio() {
               </div>
             </div>
             <div className="ks-card">
-              {pipeline.steps.length === 0 && (
-                <div style={{ fontSize: 13, color: T.textSecondary }}>Starting…</div>
-              )}
+              <LoadingProgress label={pipeline.steps.findLast((s) => s.status === "running")?.name ?? (pipeline.steps.length ? "Saving your plan…" : "Starting your analysis…")} />
               {pipeline.steps.map((s) => (
                 <div
                   key={s.name}
@@ -1122,15 +1123,16 @@ export default function KnowledgeStudio() {
         {pipeline.runId && <Link className="ds-btn ds-btn-secondary" href={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}`} target="_blank">Open recorded engine flow</Link>}
       </div>
       <div className="sg-phase-strip" aria-live="polite"><span className={submitRun.phase === "idle" ? "active" : ""}>1 · Review plan</span><span className={submitRun.phase === "preparing" ? "active" : ""}>2 · Prepare drafts</span><span className={draftsReady && !allWritten ? "active" : ""}>3 · Review final articles</span><span className={submitRun.phase === "submitting" || allWritten ? "active" : ""}>4 · Submit</span></div>
+      {submitRun.locked && <p className={allWritten ? "ks-card" : "sg-warning"} role="status">{completion.message} {allWritten ? "Your execution is saved in Past executions. You can finish now." : completion.uncertain ? "A write needs verification in RightAnswers before continuing. See the verification section below; completed writes will not be sent again." : "Only unfinished operations will be retried."}</p>}
       {submitRun.error && <p className="sg-warning" role="alert">{submitRun.error}</p>}
       {proposedWritePlan.error && !submitRun.locked && <p role="alert">{proposedWritePlan.error}</p>}
       {submitRun.identity && !preparedMatches && !submitRun.locked && <p className="sg-warning">The plan or metadata changed. Prepare the updated drafts before submitting.</p>}
       {draftEditing && <p className="sg-warning">Save or cancel your article edits before changing the plan or submitting.</p>}
-      {submissionBusy && <p role="status">{submitRun.phase === "preparing" ? "Preparing drafts — no articles are being written to RightAnswers." : "Writing the reviewed drafts to RightAnswers…"}</p>}
+      {submissionBusy && <div className="ks-card"><LoadingProgress key={submitRun.phase} label={submitRun.phase === "preparing" ? "Preparing drafts — no articles are being written to RightAnswers." : "Writing the reviewed drafts to RightAnswers…"} /></div>}
       <SubmissionGraph templates={templateOptions} model={submissionGraph} busy={submissionBusy} currentKey={submitRun.currentKey} mode={submitRun.phase === "preparing" ? "preparation" : submitRun.locked ? "submission" : "preparation"}
         onSave={(key, review) => prepareCurrent({ [key]: review })} onDirtyChange={setDraftEditing}
         onChangePlan={!submitRun.locked ? () => setScreen("check") : undefined} flowHref={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId ?? "")}`} />
-      {displayResults.some((r) => r.outcome === "uncertain") && <SubmissionReview runId={pipeline.runId ?? ""} results={displayResults.filter((r) => r.outcome === "uncertain")} onRetry={() => prepareCurrent()} />}
+      {displayResults.some((r) => r.outcome === "uncertain") && <section id="pending-write-verification"><SubmissionReview runId={pipeline.runId ?? ""} results={displayResults.filter((r) => r.outcome === "uncertain")} onRetry={() => prepareCurrent()} /></section>}
       {submitRun.costUsd != null && <p className="sg-cost">Recorded AI cost: ${submitRun.costUsd.toFixed(4)}</p>}
     </div>;
   }
@@ -1256,12 +1258,13 @@ export default function KnowledgeStudio() {
     bodyNode = renderSubmitStep();
     const canPrepare = gate.ok && displayPlan.length > 0 && !!metaFields.Collection && !submissionBusy && !draftEditing && !allWritten;
     footer = <div className="ks-sticky-footer">
-      <span className="ks-foot-status">{allWritten ? "Writes completed — nothing published" : draftEditing ? "Unsaved article edits" : draftsReady ? "Review the final articles before sending them for approval." : "Preparing drafts saves them here; it does not write to RightAnswers."}</span>
+      <span className="ks-foot-status">{allWritten ? "Submission complete — nothing published" : completion.uncertain ? "Verify the pending write below before continuing." : submitRun.locked ? completion.message : draftEditing ? "Unsaved article edits" : draftsReady ? "Review the final articles before sending them for approval." : "Preparing drafts saves them here; it does not write to RightAnswers."}</span>
       <div className="ks-foot-actions">
         {!submitRun.locked && <button type="button" className="ds-btn ds-btn-secondary" disabled={submissionBusy || draftEditing} onClick={() => setScreen("metadata")}>Back to metadata</button>}
+        {allWritten && <button type="button" className="ds-btn ds-btn-primary" disabled={submissionBusy} onClick={() => resetAll(true)}>Finish</button>}
         {!allWritten && <>
           <button type="button" className="ds-btn ds-btn-secondary" disabled={!canPrepare} onClick={() => prepareCurrent()}>{submitRun.phase === "preparing" ? "Preparing…" : draftsReady ? "Refresh draft status" : "Prepare drafts"}</button>
-          <button type="button" className="ds-btn ds-btn-primary" disabled={!draftsReady || submissionBusy || draftEditing} onClick={submitCurrent}>{submitRun.phase === "submitting" ? "Submitting…" : "Submit reviewed drafts"}</button>
+          {completion.uncertain ? <button type="button" className="ds-btn ds-btn-primary" disabled={submissionBusy || draftEditing} onClick={() => document.getElementById("pending-write-verification")?.scrollIntoView({ block: "start" })}>Verify pending writes</button> : <button type="button" className="ds-btn ds-btn-primary" disabled={!draftsReady || submissionBusy || draftEditing} onClick={submitCurrent}>{submitRun.phase === "submitting" ? "Submitting…" : completion.submitLabel}</button>}
         </>}
       </div>
     </div>;
@@ -1274,7 +1277,7 @@ export default function KnowledgeStudio() {
         <div className="page-title">Knowledge Studio</div>
         <Link className="ds-btn ds-btn-secondary" href={flowHref} target="_blank">Explore engine flow</Link>
         <SignOutButton />
-        <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submissionBusy || draftEditing} onClick={resetAll}>
+        <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submissionBusy || draftEditing} onClick={() => resetAll()}>
           <span className="ms" style={{ fontSize: 18 }}>
             restart_alt
           </span>
@@ -1285,7 +1288,7 @@ export default function KnowledgeStudio() {
         activeId={stepperActiveId}
         doneIds={doneIds}
         helpers={{
-          check: candidates.length ? `${selected.size} of ${candidates.length} proposals` : undefined,
+          check: candidates.length ? `${selected.size} of ${candidates.length} proposals` : pipeline.phase === "running" ? "Building plan" : "Review plan",
         }}
         onJump={(id) => {
           if (pipeline.phase === "running" || submissionBusy || draftEditing) return;

@@ -81,9 +81,11 @@ export async function raFetch(
       }
       if (!res.ok) {
         // RA puts the actual reason in the body; a bare status code is not diagnosable.
-        const detail = text.trim().slice(0, 200);
+        const detail = text.trim().startsWith("<") ? "" : text.trim().slice(0, 200);
         throw new RaError(
-          `RA ${res.status} on ${opts.path}${detail ? `: ${detail}` : ""}`,
+          res.status >= 500 && (!opts.method || opts.method === "GET")
+            ? `RightAnswers is temporarily unavailable (HTTP ${res.status}) while ${opts.path === "/api/rest/templates" ? "loading article templates" : "reading knowledge-base data"}. Please try again shortly.`
+            : `RA ${res.status} on ${opts.path}${detail ? `: ${detail}` : ""}`,
           res.status,
           url,
           text.slice(0, 500),

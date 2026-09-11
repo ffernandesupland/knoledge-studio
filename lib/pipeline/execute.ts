@@ -8,7 +8,7 @@ import { RaError } from "../ra/http";
 import { alreadySucceeded, recordAudit } from "./audit";
 import { mergeGroupFields } from "./merge";
 import { describeOp, type WriteOp } from "./submit";
-import { validateFields } from "./content";
+import { validateFields, validateSummary } from "./content";
 import { getWriteState, saveWriteState } from "./state";
 
 export interface PreparedContent {
@@ -173,6 +173,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
           result = { ...base, outcome: "review", prepared, message: "Resolve the conflicting claims below. No write has occurred for this article." };
         } else {
           try {
+            validateSummary(prepared.summary);
             prepared.fields = validateFields(prepared.fields, target);
             if (standardsRules.length && !prepared.standardsApplied) {
               if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare standards changes before submitting.");

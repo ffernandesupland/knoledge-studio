@@ -54,3 +54,10 @@ function toHtml(value: string): string {
   }
   return value;
 }
+
+/** Metadata is plain text; only template body fields accept HTML. */
+export function validateSummary(summary: string): void {
+  if (/<\/?[a-z][^>]*>/i.test(summary)) {
+    throw new Error("Summary must be plain text. Remove HTML tags from the summary; keep HTML formatting in the template content fields.");
+  }
+}

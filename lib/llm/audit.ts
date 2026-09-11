@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { db } from "../db";
 import type { RunArgs, RunResult } from "./client";
 
-export const PROMPT_VERSION = "2026-09-09.5";
+export const PROMPT_VERSION = "2026-09-10.1";
 const context = new AsyncLocalStorage<{ runId: string; phase: string }>();
 export function withAiAudit<T>(runId: string, phase: string, fn: () => Promise<T>) {
   return context.run({ runId, phase }, fn);

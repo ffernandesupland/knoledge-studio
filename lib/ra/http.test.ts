@@ -17,4 +17,13 @@ describe("RA retry boundaries", () => {
     await expect(raFetch("https://example.test", { path: "/solution/1", retries: 1 })).resolves.toMatchObject({ text: "ok" });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+  it("explains template outages without exposing the HTML error page", async () => {
+    const body = "<html><h1>503 Service Temporarily Unavailable</h1></html>";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 503 })));
+    const error = await raFetch("https://example.test", { path: "/api/rest/templates", retries: 0 }).catch((e) => e);
+    expect(error.message).toContain("loading article templates");
+    expect(error.message).not.toContain("<html>");
+    expect(error.status).toBe(503);
+    expect(error.responseBody).toBe(body);
+  });
 });

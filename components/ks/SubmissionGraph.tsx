@@ -4,7 +4,7 @@ import { submissionMermaid, type SubmissionGraphModel, type SubmissionRow, type 
 import type { ContentReview, OpResult } from "@/lib/pipeline/execute";
 import { ArticlePreview } from "./ArticlePreview";
 
-const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Completed", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
+const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
 export function SubmissionGraph({ model, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, templates = [] }: {
   templates?: string[]; model: SubmissionGraphModel; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
   onSave?: (key: string, review: ContentReview) => void; onChangePlan?: () => void; onDirtyChange?: (dirty: boolean) => void; flowHref?: string;
@@ -80,7 +80,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
               onSave(row.key, { version: prepared.version, title: String(data.get("title")), summary: String(data.get("summary")), keywords: String(data.get("keywords")).split(",").map((s) => s.trim()).filter(Boolean), fields: prepared.fields.map((f, i) => ({ fieldName: f.fieldName, fieldValue: String(data.get(`field-${i}`)) })) }); edit(false);
             }}>
               <label>Title<input name="title" required maxLength={500} defaultValue={prepared.title} /></label>
-              <label>Summary<textarea name="summary" maxLength={4000} defaultValue={prepared.summary} /></label>
+              <label>Summary · plain text<textarea name="summary" maxLength={4000} defaultValue={prepared.summary} /></label>
               <label>Keywords, separated by commas<input name="keywords" defaultValue={prepared.keywords.join(", ")} /></label>
               {prepared.fields.map((f, i) => <label key={f.fieldName}>{f.fieldName} · HTML<textarea name={`field-${i}`} defaultValue={f.fieldValue} rows={7} /></label>)}
               {prepared.sections?.some((s) => s.conflict.present) && <label><input type="checkbox" required /> I resolved the conflicting claims using supported source content.</label>}
