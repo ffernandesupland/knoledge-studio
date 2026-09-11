@@ -34,10 +34,10 @@ export async function loadExecution<T>(runId: string): Promise<T | undefined> {
 }
 
 /** Cross-request/process lock; an expired worker's uncertain writes remain blocked separately. */
-export async function withRunLock<T>(runId: string, fn: () => Promise<T>): Promise<T> {
+export async function withRunLock<T>(runId: string, fn: () => Promise<T>, leaseMs = 15 * 60_000): Promise<T> {
   const token = randomUUID();
   const acquired = (await db().transaction(async () => {
-    (await db().prepare("DELETE FROM run_locks WHERE run_id=? AND heartbeat<?").run(runId, Date.now() - 15 * 60_000));
+    (await db().prepare("DELETE FROM run_locks WHERE run_id=? AND heartbeat<?").run(runId, Date.now() - leaseMs));
     return (await db().prepare("INSERT INTO run_locks(run_id,token,heartbeat) VALUES (?,?,?) ON CONFLICT DO NOTHING").run(runId, token, Date.now())).changes;
   })());
   if (!acquired) throw new Error("This run is already being processed. Wait for it to finish before retrying.");

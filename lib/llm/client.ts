@@ -1,5 +1,6 @@
+import { tracked } from "../autonomous/telemetry";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { auditAi } from "./audit";
+import { auditAi, PROMPT_VERSION } from "./audit";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { ZodType } from "zod";
@@ -51,26 +52,28 @@ export async function runOperation<T>(args: RunArgs<T>): Promise<RunResult<T>> {
     { role: "user" as const, content: buildUserPrompt(args.task, args.blocks ?? []) },
   ];
 
-  const response = await openai().responses.parse({
-    model,
-    input,
-    text: { format: zodTextFormat(args.schema, args.schemaName) },
-  });
+  return tracked("model", args.operation, { model, input, schemaName: args.schemaName }, async () => {
+    const response = await openai().responses.parse({
+      model,
+      input,
+      text: { format: zodTextFormat(args.schema, args.schemaName) },
+    });
 
-  const parsed = response.output_parsed;
-  const inputTokens = response.usage?.input_tokens ?? 0;
-  const outputTokens = response.usage?.output_tokens ?? 0;
-  const usage = { model, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) };
-  // Record charged responses even if refusal/schema validation prevents authoring.
-  (await auditAi(args as RunArgs<unknown>, { ...usage, data: parsed ?? { error: "No parseable output", output: response.output } }, input));
-  try {
-    if (!parsed) throw new Error(`${args.operation}: model returned no parseable output`);
-    return { ...usage, data: args.schema.parse(parsed) };
-  } catch (error) {
-    // A local structured-output retry must retain the cost of the charged response.
-    if (error instanceof Error) Object.assign(error, { costUsd: usage.costUsd });
-    throw error;
-  }
+    const parsed = response.output_parsed;
+    const inputTokens = response.usage?.input_tokens ?? 0;
+    const outputTokens = response.usage?.output_tokens ?? 0;
+    const usage = { model, inputTokens, outputTokens, costUsd: estimateCostUsd(model, inputTokens, outputTokens) };
+    // Record charged responses even if refusal/schema validation prevents authoring.
+    (await auditAi(args as RunArgs<unknown>, { ...usage, data: parsed ?? { error: "No parseable output", output: response.output } }, input));
+    try {
+      if (!parsed) throw new Error(`${args.operation}: model returned no parseable output`);
+      return { ...usage, data: args.schema.parse(parsed) };
+    } catch (error) {
+      // A local structured-output retry must retain the cost of the charged response.
+      if (error instanceof Error) Object.assign(error, { costUsd: usage.costUsd });
+      throw error;
+    }
+  }, true, undefined, { model, role: args.role, task: args.task, blocks: args.blocks, schemaName: args.schemaName, promptVersion: PROMPT_VERSION });
 }
 
 const inspection = new AsyncLocalStorage<boolean>();

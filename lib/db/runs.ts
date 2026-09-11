@@ -213,7 +213,7 @@ export async function getRun(id: string): Promise<StoredRun | null> {
 /** "Start over": drops the resumable run so a reload does not bring the discarded content back. */
 export async function discardResumableRun(author: string): Promise<void> {
   (await db()
-    .prepare(`UPDATE runs SET status='discarded', updated_at=@ts WHERE author=@author AND status IN ('done','partial')`)
+    .prepare(`UPDATE runs SET status='discarded', updated_at=@ts WHERE author=@author AND status IN ('done','partial') AND NOT EXISTS (SELECT 1 FROM autonomous_jobs WHERE run_id=runs.id)`)
     .run({ author, ts: now() }));
 }
 
@@ -221,7 +221,7 @@ export async function discardResumableRun(author: string): Promise<void> {
 export async function getResumableRun(author: string): Promise<StoredRun | null> {
   const row = (await db()
     .prepare(
-      `SELECT * FROM runs WHERE author=? AND status IN ('done','partial') ORDER BY updated_at DESC LIMIT 1`,
+      `SELECT * FROM runs WHERE author=? AND status IN ('done','partial') AND NOT EXISTS (SELECT 1 FROM autonomous_jobs WHERE run_id=runs.id) ORDER BY updated_at DESC LIMIT 1`,
     )
     .get(author)) as RunRow | undefined;
   if (!row) return null;

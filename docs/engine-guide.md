@@ -130,3 +130,7 @@ Final previews show saved title, summary, keywords, template name and every fiel
 Authoring and standards prompts explicitly require HTML field values. Markdown source is converted with Marked and sanitized before writes. Validation rejects Markdown left inside HTML prose, preventing literal heading/list/code syntax from silently reaching Solution Manager. Plain metadata (title, summary, keywords) stays plain text.
 
 An unwritten new article paused for review can be regenerated from its saved source with a newly selected template. Regeneration validates the saved review version and performs no writes. The author reviews the new preparation before submitting; successful prior writes remain unchanged.
+
+## Optional autonomous mode
+
+The guided flow above remains the default. The first-step autonomous switch delegates plan, merge and metadata choices and final quality review to the existing AI models. The app automatically advances saved steps to create approved review drafts/revisions, logs explicit decision explanations and tool/model inputs and outputs, and ends on the same result graph. See [Autonomous pipeline](autonomous-pipeline.md) for setup, recovery boundaries and the full flow tree. No Vercel orchestration service or provider migration is required.
