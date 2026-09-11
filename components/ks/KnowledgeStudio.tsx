@@ -73,7 +73,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   const [autoMode, setAutoMode] = useState(false);
   const [autoJob, setAutoJob] = useState<string | null>(initialAutonomousRun ?? null);
   const [autoStarting, setAutoStarting] = useState(false);
-  const [autoCapability, setAutoCapability] = useState<{ enabled: boolean; workerOnline: boolean; latest?: { runId: string; status: string } } | null>(null);
+  const [autoCapability, setAutoCapability] = useState<{ latest?: { runId: string; status: string } } | null>(null);
   const autoRequest = useRef<{ fingerprint: string; id: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -239,7 +239,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       try {
         const response = await fetch("/api/autonomous", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: autoRequest.current.id, autonomous: true, input }) });
         const data = await response.json(); if (!response.ok) throw new Error(data.error);
-        setAutoCapability(previous => previous ? { ...previous, latest: { runId: data.runId, status: data.status } } : previous);
+        setAutoCapability({ latest: { runId: data.runId, status: data.status } });
         openAuto(data.runId);
       } catch (e) { showToast({ message: e instanceof Error ? e.message : "Could not start autonomous run" }); }
       finally { setAutoStarting(false); }
@@ -282,6 +282,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       return;
     }
 
+    setAutoMode(false); autoRequest.current = null;
     setScreen("input");
     setPath(null);
     setContentText("");
@@ -553,12 +554,12 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               showToast={showToast}
             />
           </div>
-          {autoCapability?.enabled && <div className="ks-card auto-option">
+          <div className="ks-card auto-option">
             <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
-            {!autoCapability.workerOnline && <small>The worker is currently offline. It must be running to start a new execution.</small>}</div>
+            </div>
             <button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode(value => !value)} />
-            {autoCapability.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
-          </div>}
+            {autoCapability?.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
+          </div>
           <div className="ks-card">
             <div className="ks-card-head">
               <span className="ms">tune</span>Choose what to do

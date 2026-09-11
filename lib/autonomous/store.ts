@@ -3,9 +3,8 @@ import { db } from "../db";
 import { ApiError } from "../api/auth";
 import { AUTONOMOUS_POLICY_VERSION, type AutonomousEvent, type AutonomousInput, type AutonomousJob, type AutonomousStage, type AutonomousStatus } from "./types";
 
-const LEASE_MS = 5 * 60_000;
+const LEASE_MS = 60_000;
 const now = () => new Date().toISOString();
-export const enabled = () => process.env.KS_AUTONOMOUS_ENABLED === "true";
 type Row = { run_id: string; author: string; input: string; authorization: string; status: AutonomousStatus; stage: AutonomousStage; created_at: string; updated_at: string; error: string | null };
 const decode = (r: Row): AutonomousJob => ({ runId: r.run_id, author: r.author, input: JSON.parse(r.input), authorization: JSON.parse(r.authorization), status: r.status, stage: r.stage, createdAt: r.created_at, updatedAt: r.updated_at, error: r.error ?? undefined });
 export async function getJob(id: string): Promise<AutonomousJob | undefined> {
@@ -44,23 +43,23 @@ export async function checkpoint<T>(runId: string, key: string): Promise<T | und
 export async function saveCheckpoint(runId: string, key: string, payload: unknown) {
   await db().prepare("INSERT INTO autonomous_checkpoints(run_id,key,payload,saved_at) VALUES (?,?,?,?) ON CONFLICT(run_id,key) DO UPDATE SET payload=excluded.payload,saved_at=excluded.saved_at").run(runId, key, JSON.stringify(payload), now());
 }
-export async function claim(): Promise<{ job: AutonomousJob; token: string } | undefined> {
+export async function claim(runId?: string): Promise<{ job: AutonomousJob; token: string } | undefined> {
   return db().transaction(async () => {
-    const row = await db().prepare("SELECT * FROM autonomous_jobs WHERE status IN ('queued','running') AND lease_until<? ORDER BY created_at LIMIT 1").get(Date.now()) as Row | undefined;
+    const row = await db().prepare("SELECT * FROM autonomous_jobs WHERE status IN ('queued','running') AND lease_until<? AND (? IS NULL OR run_id=?) ORDER BY created_at LIMIT 1").get(Date.now(), runId ?? null, runId ?? null) as Row | undefined;
     if (!row) return;
     const token = randomUUID();
     await db().prepare("UPDATE autonomous_jobs SET status='running',lease_token=?,lease_until=?,updated_at=? WHERE run_id=?").run(token, Date.now() + LEASE_MS, now(), row.run_id);
-    await event(row.run_id, row.stage, "state", row.status === "queued" ? "Worker claimed queued run" : "Worker resumed interrupted run", "started");
+    await event(row.run_id, row.stage, "state", row.status === "queued" ? "App started autonomous run" : "App continued saved run", "started");
     return { job: { ...decode(row), status: "running" as const }, token };
   })();
 }
 export async function assertLease(runId: string, token: string) {
   const row = await db().prepare("SELECT run_id FROM autonomous_jobs WHERE run_id=? AND lease_token=? AND status='running' AND lease_until>?").get(runId, token, Date.now());
-  if (!row) throw new Error("Autonomous worker lease lost; no further operations allowed");
+  if (!row) throw new Error("Autonomous execution lease lost; no further operations allowed");
 }
 export async function heartbeat(runId: string, token: string) {
   const r = await db().prepare("UPDATE autonomous_jobs SET lease_until=? WHERE run_id=? AND lease_token=? AND status='running' AND lease_until>?").run(Date.now() + LEASE_MS, runId, token, Date.now());
-  if (!r.changes) throw new Error("Autonomous worker lease lost");
+  if (!r.changes) throw new Error("Autonomous execution lease lost");
 }
 export async function stage(runId: string, token: string, value: AutonomousStage) {
   await assertLease(runId, token);
@@ -74,8 +73,6 @@ export async function finish(runId: string, token: string, status: "completed" |
     await db().prepare("UPDATE runs SET status=?,error=?,updated_at=? WHERE id=?").run(status === "completed" ? "submitted" : status === "failed" ? "error" : "partial", error ?? null, now(), runId);
   })();
 }
-export async function workerHeartbeat(id: string) { await db().prepare("INSERT INTO autonomous_workers(id,heartbeat) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET heartbeat=excluded.heartbeat").run(id, Date.now()); }
-export async function workerOnline() { return !!(await db().prepare("SELECT id FROM autonomous_workers WHERE heartbeat>? LIMIT 1").get(Date.now() - 60_000)); }
 export async function latestJob(author: string) {
   const row = await db().prepare("SELECT * FROM autonomous_jobs WHERE author=? ORDER BY created_at DESC LIMIT 1").get(author) as Row | undefined;
   return row && decode(row);
@@ -86,7 +83,10 @@ export async function eventDetail(runId: string, id: number) {
   return page[0]?.id === id ? page[0] : undefined;
 }
 export async function assertGuided(runId: string) {
-  if (await getJob(runId)) throw new ApiError("Autonomous runs are controlled by their worker. Open the executed engine flow to inspect this run.", 409);
+  if (await getJob(runId)) throw new ApiError("Autonomous runs are controlled by their autonomous execution. Open the executed engine flow to inspect this run.", 409);
 }
 
-export async function removeWorker(id: string) { await db().prepare("DELETE FROM autonomous_workers WHERE id=?").run(id); }
+
+export async function release(runId: string, token: string) {
+  await db().prepare("UPDATE autonomous_jobs SET lease_until=0,lease_token=NULL WHERE run_id=? AND lease_token=? AND status='running'").run(runId, token);
+}

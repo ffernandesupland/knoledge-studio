@@ -133,4 +133,4 @@ An unwritten new article paused for review can be regenerated from its saved sou
 
 ## Optional autonomous mode
 
-The guided flow above remains the default. The first-step autonomous switch delegates plan, merge and metadata choices and final quality review to the existing AI models. A separate Node worker creates approved review drafts/revisions, logs explicit decision explanations and tool/model inputs and outputs, and ends on the same result graph. See [Autonomous pipeline](autonomous-pipeline.md) for setup, recovery boundaries and the full flow tree. No Vercel orchestration service or provider migration is required.
+The guided flow above remains the default. The first-step autonomous switch delegates plan, merge and metadata choices and final quality review to the existing AI models. The app automatically advances saved steps to create approved review drafts/revisions, logs explicit decision explanations and tool/model inputs and outputs, and ends on the same result graph. See [Autonomous pipeline](autonomous-pipeline.md) for setup, recovery boundaries and the full flow tree. No Vercel orchestration service or provider migration is required.

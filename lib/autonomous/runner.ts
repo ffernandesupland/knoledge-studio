@@ -14,7 +14,7 @@ import { assertLease, checkpoint, event, finish, saveCheckpoint, stage } from ".
 import { withAutonomousContext } from "./telemetry";
 import { AUTONOMOUS_POLICY_VERSION, type AutonomousJob, type AutonomousStage } from "./types";
 
-export async function processJob(job: AutonomousJob, token: string) {
+export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
   let currentStage = job.stage;
   async function within<T>(name: AutonomousStage, fn: () => Promise<T>): Promise<T> {
@@ -39,6 +39,7 @@ export async function processJob(job: AutonomousJob, token: string) {
           await completeRun(id, mapRunToView(output));
           await saveCheckpoint(id, "analysis-complete", true);
         });
+        if (singleStep) return;
       }
       let snapshot = await checkpoint<DecisionSnapshot>(id, "decisions");
       if (!snapshot) {
@@ -56,6 +57,7 @@ export async function processJob(job: AutonomousJob, token: string) {
           await saveCheckpoint(id, "decisions", value);
           return value;
         });
+        if (singleStep) return;
       }
       const plan = buildWritePlan({ runId: id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
       const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot), restructureEnabled: job.input.operations.includes("Restructure content"), standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] };
@@ -67,10 +69,14 @@ export async function processJob(job: AutonomousJob, token: string) {
       for (const op of plan.filter(op => op.kind !== "flag")) {
         if (await checkpoint(id, `review-complete:${op.idempotencyKey}`)) continue;
         try {
-          await within("preparation", async () => {
-            await event(id, "preparation", "state", describeOp(op), "started");
-            await executeWritePlan({ ...args, plan: [op], prepareOnly: true });
-          });
+          if (!await checkpoint(id, `prepared:${op.idempotencyKey}`)) {
+            await within("preparation", async () => {
+              await event(id, "preparation", "state", describeOp(op), "started");
+              await executeWritePlan({ ...args, plan: [op], prepareOnly: true });
+            });
+            await saveCheckpoint(id, `prepared:${op.idempotencyKey}`, true);
+            if (singleStep) return;
+          }
           await within("review", async () => {
             // Each correction must be revalidated AND reviewed as a new version before writing.
             for (let attempt = 0; attempt < 3; attempt++) {
@@ -98,9 +104,11 @@ export async function processJob(job: AutonomousJob, token: string) {
                 break;
               }
               await executeWritePlan({ ...args, plan: [op], prepareOnly: true, reviews: { [op.idempotencyKey]: { version: prepared.version, title: decision.title, summary: decision.summary, keywords: decision.keywords, fields: decision.fields } } });
+              if (singleStep) return;
             }
             await saveCheckpoint(id, `review-complete:${op.idempotencyKey}`, true);
           });
+          if (singleStep) return;
         } catch (error) {
           await assertLease(id, token);
           const message = error instanceof Error ? error.message : String(error);
@@ -112,11 +120,11 @@ export async function processJob(job: AutonomousJob, token: string) {
       }
       await assertLease(id, token);
       await freezePreparedPlan(id, args);
-      await within("submission", async () => {
+      const submissionComplete = await within("submission", async () => {
         for (const op of plan) {
           await assertLease(id, token);
           const state = await getWriteState(op.idempotencyKey);
-          if (state?.status === "ok") continue;
+          if (state?.status === "ok" || await checkpoint(id, `write-attempted:${op.idempotencyKey}`)) continue;
           if (op.kind === "flag") {
             const survivor = plan.find(p => p.kind !== "flag" && p.candidateKey === op.survivorKey);
             if (!survivor || (await getWriteState(survivor.idempotencyKey))?.status !== "ok") {
@@ -134,17 +142,21 @@ export async function processJob(job: AutonomousJob, token: string) {
             }
             await write([op], { [op.idempotencyKey]: approval.version });
           }
+          await saveCheckpoint(id, `write-attempted:${op.idempotencyKey}`, true);
+          if (singleStep) return false;
         }
+        return true;
         async function write(ops: WriteOp[], approvals: Record<string, string>) {
           const results = await executeWritePlan({ ...args, stage: "submission", plan: ops, requirePrepared: true, approvals });
           for (const r of results) await event(id, "submission", "write", r.description, r.outcome === "ok" ? "succeeded" : r.outcome === "skipped" ? "skipped" : "failed", { output: r });
         }
       });
+      if (!submissionComplete) return;
       const results = await executionResults(id);
       const allWritten = plan.every(p => results.some(r => r.idempotencyKey === p.idempotencyKey && r.outcome === "ok"));
       await finish(id, token, allWritten ? "completed" : "partial", allWritten ? undefined : "Some items could not be submitted. Completed writes are saved; inspect the diagram and decision log for unresolved items.");
     } catch (error) {
-      await assertLease(id, token); // A stale worker cannot overwrite its successor's state.
+      await assertLease(id, token); // A stale request cannot overwrite its successor's state.
       const message = error instanceof Error ? error.message : String(error);
       await event(id, currentStage, "error", "Execution stopped", "failed", { explanation: message });
       const results = await executionResults(id);
@@ -154,5 +166,5 @@ export async function processJob(job: AutonomousJob, token: string) {
       await db().prepare("UPDATE runs SET cost_usd=COALESCE((SELECT SUM(cost_usd) FROM ai_calls WHERE run_id=?),0) WHERE id=?").run(id, id);
       await saveExecutedFlow(id);
     }
-  });
+  }, singleStep ? 60_000 : undefined);
 }

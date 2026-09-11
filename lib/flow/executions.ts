@@ -52,7 +52,7 @@ export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
     node("outcome", "7 · Saved run outcome", run.error ? "stop" : "logic", `${run.status} · total recorded AI cost $${run.costUsd.toFixed(4)}`, { error: run.error, outcomes: results.map((r) => ({ outcome: r.outcome, solutionId: r.solutionId, description: r.description, message: r.message })) }),
   ];
   if (autonomous) {
-    tree.unshift(node("autonomous_authorization", "Autonomous authorization and worker", "input", `${autonomous.status} · ${autonomous.stage}. Execution is owned by the independent Node worker.`, autonomous.authorization));
+    tree.unshift(node("autonomous_authorization", "Autonomous authorization and execution", "input", `${autonomous.status} · ${autonomous.stage}. The app advances saved steps automatically for this opted-in run.`, autonomous.authorization));
     tree.push(node("agent_reviews", "Agent planning and quality reviews", "ai", "Every approval is tied to its prepared version. Detailed tool requests, responses, failures and decision evidence are in Agent decisions and activity below.", undefined, [...aiNodes("decisions"), ...aiNodes("review")]));
     tree[2].detail = "Analysis uses the existing pipeline and selected options. All autonomous tool/model activity is persisted separately, including retries and saved-read reuse.";
   }

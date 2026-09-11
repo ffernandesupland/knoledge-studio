@@ -36,5 +36,3 @@ CREATE TABLE IF NOT EXISTS autonomous_checkpoints (
   PRIMARY KEY(run_id, key)
 );
 `;
-
-export const WORKER_SCHEMA = `CREATE TABLE IF NOT EXISTS autonomous_workers (id TEXT PRIMARY KEY, heartbeat INTEGER NOT NULL);`;

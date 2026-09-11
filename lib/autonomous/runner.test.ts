@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { closeDatabase, db, useDatabase } from "../db";
 import { enqueue, claim, checkpoint, getJob, events } from "./store";
+import { POST as advanceRoute } from "../../app/api/autonomous/advance/route";
+import { readNdjson } from "../ks/stream";
 import { processJob } from "./runner";
 import { executionResults, getWriteState, loadExecution } from "../pipeline/state";
 import type { PreparedContent, ExecuteArgs } from "../pipeline/execute";
@@ -51,6 +53,35 @@ beforeEach(async () => {
 async function run() { await enqueue(id, "sauser", input); const lease = (await claim())!; await processJob(lease.job, lease.token); return lease; }
 
 describe("autonomous pipeline with the real preparation and write engine", () => {
+  it("advances the selected run from the app through saved steps without processing another queued run", async () => {
+    await enqueue(`${id}-other`, "someone-else", input);
+    await enqueue(id, "sauser", input);
+    const advance = async (runId: string) => advanceRoute(new Request("http://localhost/api/autonomous/advance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId }) }));
+    expect((await advance(`${id}-other`)).status).toBe(404);
+    const seenStages: string[] = [];
+    for (let step = 0; step < 12; step++) {
+      const response = await advance(id);
+      await readNdjson(response, () => {});
+      const saved = (await getJob(id))!;
+      seenStages.push(saved.stage);
+      if (saved.status === "completed") break;
+    }
+    expect(seenStages).toEqual(["analysis", "decisions", "preparation", "review", "submission", "finished"]);
+    expect((await getJob(`${id}-other`))?.status).toBe("queued");
+    expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    await readNdjson(await advance(id), () => {});
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+  it("does not duplicate a step when another browser request holds its lease", async () => {
+    await enqueue(id, "sauser", input);
+    await claim(id);
+    const response = await advanceRoute(new Request("http://localhost/api/autonomous/advance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: id }) }));
+    const messages: Record<string, unknown>[] = [];
+    await readNdjson(response, m => messages.push(m));
+    expect(messages).toEqual([{ type: "result", status: "running", busy: true }]);
+    expect(mocks.pipeline).not.toHaveBeenCalled();
+  });
   it("makes choices, approves the exact prepared version and writes review drafts, saving the final graph", async () => {
     mocks.write.mockImplementation(async payload => {
       expect(payload).toMatchObject({ ...article, keywords: "VPN", status: "review", templateName: template.templateName, collections: "support", language: "English" });

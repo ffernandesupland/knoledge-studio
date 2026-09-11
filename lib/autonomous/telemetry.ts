@@ -14,7 +14,7 @@ export async function tracked<T>(kind: "model" | "tool", name: string, input: un
   await assertLease(ctx.runId, ctx.token);
   const correlationId = randomUUID();
   const key = `read:${ctx.stage}:${createHash("sha256").update(JSON.stringify({ kind, name, input: cacheIdentity })).digest("hex")}`;
-  // Analysis may be replayed after a process restart. Submission always re-reads live sources.
+  // Analysis may be replayed after a request interruption. Submission always re-reads live sources.
   const cache = readOnly && ["analysis", "decisions"].includes(ctx.stage);
   const cached = cache ? await checkpoint<{ value: T }>(ctx.runId, key) : undefined;
   if (cached) {

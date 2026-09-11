@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { closeDatabase, db, useDatabase } from "../db";
-import { enqueue, claim, getJob, assertLease, events, eventDetail, event, finish, workerHeartbeat, assertGuided } from "./store";
+import { enqueue, claim, getJob, assertLease, events, eventDetail, event, finish, assertGuided } from "./store";
 import { tracked, withAutonomousContext } from "./telemetry";
 import { completeRun, createRun, discardResumableRun, getResumableRun, getRun } from "../db/runs";
 import { POST, GET } from "../../app/api/autonomous/route";
@@ -18,7 +18,7 @@ beforeEach(async () => {
   vi.unstubAllEnvs(); vi.unstubAllGlobals();
   id = `auto-store-${++count}`;
   await db().prepare("UPDATE autonomous_jobs SET status='failed' WHERE status IN ('running','queued')").run();
-  for (const key of ["KS_AUTH_USERNAME", "KS_AUTH_PASSWORD", "AUTH_SECRET", "KS_USERS_JSON", "KS_AUTONOMOUS_ENABLED"]) vi.stubEnv(key, "");
+  for (const key of ["KS_AUTH_USERNAME", "KS_AUTH_PASSWORD", "AUTH_SECRET", "KS_USERS_JSON"]) vi.stubEnv(key, "");
   vi.stubEnv("KS_PILOT_AUTHOR", "sauser");
 });
 const req = (body: unknown) => new Request("http://localhost/api/autonomous", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -51,23 +51,17 @@ describe("isolated autonomous queue and API", () => {
     await completeRun(`${id}-guided`, view);
     await enqueue(id, "sauser", input); await completeRun(id, view);
     expect((await getResumableRun("sauser"))?.id).toBe(`${id}-guided`);
-    await expect(assertGuided(id)).rejects.toThrow("controlled by their worker");
+    await expect(assertGuided(id)).rejects.toThrow("controlled by their autonomous execution");
     await expect(assertGuided(`${id}-guided`)).resolves.toBeUndefined();
     await discardResumableRun("sauser");
     expect((await getRun(id))?.status).toBe("done");
     expect((await getRun(`${id}-guided`))?.status).toBe("discarded");
   });
-  it("requires the feature flag, explicit opt-in and an online worker", async () => {
+  it("requires per-run opt-in and starts without environment setup or a worker", async () => {
     const body = { requestId: crypto.randomUUID(), autonomous: true, input };
-    expect((await POST(req(body))).status).toBe(503);
-    vi.stubEnv("KS_AUTONOMOUS_ENABLED", "true");
     expect((await POST(req({ ...body, autonomous: false }))).status).toBe(400);
-    await db().prepare("DELETE FROM autonomous_workers").run();
-    expect((await POST(req(body))).status).toBe(503);
-    await workerHeartbeat("test-worker");
     const response = await POST(req(body)); expect(response.status).toBe(202);
     const job = await response.json();
-    await db().prepare("DELETE FROM autonomous_workers").run();
     expect((await POST(req(body))).status).toBe(202);
     expect((await getJob(job.runId))?.status).toBe("queued");
     expect((await POST(req({ ...body, requestId: crypto.randomUUID(), input: { ...input, text: "" } }))).status).toBe(400);
