@@ -45,9 +45,10 @@ export function FlowExplorer({ catalog, initial, runId, executed = false }: { ex
     {!executionMode && <div className="flow-layout">
       <aside className="flow-controls">
         <h2>Build a scenario</h2><p>This explorer makes no AI calls or KB writes. Outcome controls let you inspect possible branches; they do not predict results.</p>
+        <label className="flow-toggle"><input type="checkbox" checked={!!settings.autonomous} onChange={e => update("autonomous", e.target.checked)} />Autonomous mode</label>
         <fieldset><legend>1. Sources</legend>{([["text", "Typed / pasted content"], ["file", "Uploaded document"], ["url", "Fetched URL"], ["existing", "Existing KB article"]] as const).map(([key, label]) => <label className="flow-toggle" key={key}><input type="checkbox" checked={settings[key]} onChange={(e) => update(key, e.target.checked)} />{label}</label>)}</fieldset>
         <fieldset><legend>2. Selected operations</legend>{options.map(([key, label]) => <label className="flow-toggle" key={key}><input type="checkbox" checked={settings[key]} onChange={(e) => update(key, e.target.checked)} />{label}</label>)}</fieldset>
-        <fieldset><legend>3. Explore possible outcomes</legend>
+        {!settings.autonomous && <fieldset><legend>3. Explore possible outcomes</legend>
           <label>Topics after analysis<select value={settings.topics} onChange={(e) => update("topics", Number(e.target.value))}><option value={1}>One topic</option><option value={2}>Two or more topics</option></select></label>
           <label className="flow-toggle"><input type="checkbox" checked={settings.existingSplits} disabled={!settings.existing || !settings.split} onChange={(e) => update("existingSplits", e.target.checked)} />An existing source splits into several topics</label>
           <label className="flow-toggle"><input type="checkbox" checked={settings.fixedTemplate} onChange={(e) => update("fixedTemplate", e.target.checked)} />Template fixed in analysis request</label>
@@ -58,7 +59,8 @@ export function FlowExplorer({ catalog, initial, runId, executed = false }: { ex
           <label className="flow-toggle"><input type="checkbox" checked={settings.conflict} onChange={(e) => update("conflict", e.target.checked)} />Sources contain a factual conflict</label>
           <label className="flow-toggle"><input type="checkbox" checked={settings.resolved} onChange={(e) => update("resolved", e.target.checked)} />Author resolved the conflict</label>
           <label>Write outcome<select value={settings.failure} onChange={(e) => update("failure", e.target.value as FlowOptions["failure"])}><option value="none">Success</option><option value="rejected">Definite rejection</option><option value="uncertain">Lost / uncertain response</option></select></label>
-        </fieldset>
+        </fieldset>}
+        {settings.autonomous && <p>The autonomous tree shows each possible agent decision and its recovery path. Outcomes are determined by evidence during the real run.</p>}
         <button onClick={() => { setSettings(DEFAULT_FLOW); setSelected(null); }}>Reset scenario</button>
       </aside>
       <section className="flow-diagram" aria-label="Knowledge Studio decision tree">

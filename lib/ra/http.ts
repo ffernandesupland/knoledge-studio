@@ -1,3 +1,4 @@
+import { tracked } from "../autonomous/telemetry";
 import type { RaHttpError } from "./errors";
 
 export interface RaRequestOptions {
@@ -67,31 +68,33 @@ export async function raFetch(
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: opts.method ?? "GET",
-        headers,
-        body,
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
-      });
-      const text = await res.text();
+      const { status, ok, text } = await tracked("tool", `HTTP attempt ${attempt + 1}: ${opts.path}`, { method: opts.method ?? "GET", path: opts.path }, async () => {
+        const res = await fetch(url, {
+          method: opts.method ?? "GET",
+          headers,
+          body,
+          signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+        });
+        return { status: res.status, ok: res.ok, text: await res.text() };
+      }, false, value => opts.path === "/api/rest/login" ? { status: value.status, ok: value.ok, text: "Authentication response omitted" } : value);
 
-      if (res.status >= 500 && attempt < retries) {
+      if (status >= 500 && attempt < retries) {
         await sleep(2 ** attempt * 300);
         continue;
       }
-      if (!res.ok) {
+      if (!ok) {
         // RA puts the actual reason in the body; a bare status code is not diagnosable.
-        const detail = text.trim().startsWith("<") ? "" : text.trim().slice(0, 200);
+        const detail = (opts.path === "/api/rest/login" || text.trim().startsWith("<")) ? "" : text.trim().slice(0, 200);
         throw new RaError(
-          res.status >= 500 && (!opts.method || opts.method === "GET")
-            ? `RightAnswers is temporarily unavailable (HTTP ${res.status}) while ${opts.path === "/api/rest/templates" ? "loading article templates" : "reading knowledge-base data"}. Please try again shortly.`
-            : `RA ${res.status} on ${opts.path}${detail ? `: ${detail}` : ""}`,
-          res.status,
+          status >= 500 && (!opts.method || opts.method === "GET")
+            ? `RightAnswers is temporarily unavailable (HTTP ${status}) while ${opts.path === "/api/rest/templates" ? "loading article templates" : "reading knowledge-base data"}. Please try again shortly.`
+            : `RA ${status} on ${opts.path}${detail ? `: ${detail}` : ""}`,
+          status,
           url,
           text.slice(0, 500),
         );
       }
-      return { status: res.status, text };
+      return { status: status, text };
     } catch (err) {
       lastErr = err;
       if (err instanceof RaError) throw err;

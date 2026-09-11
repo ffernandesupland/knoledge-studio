@@ -1,3 +1,4 @@
+import { decide, reviewDraft } from "../autonomous/decisions";
 import { planContent } from "../llm/planning";
 import { z } from "zod";
 import { inspectPrompt } from "../llm/client";
@@ -15,6 +16,8 @@ export async function promptCatalog(): Promise<PromptExample[]> {
   const blocks = [{ label: "source content", content: "{{content}}" }];
   const candidate = { key: "c0", title: "Example article", body: "{{content}}" };
   const builders: [string, () => unknown][] = [
+    ["autonomousDecide", () => decide({ candidates: [], groups: [] }, { text: "{{content}}", operations: [], standardsRules: [] }, { templates: [template], collections: [{ code: "example", displayName: "Example collection" }], languages: ["English"] })],
+    ["autonomousReview", () => reviewDraft({ version: "00000000-0000-4000-8000-000000000000", title: "Example article", summary: "Example summary", keywords: [], templateName: template.templateName, fields: template.fields.map(f => ({ fieldName: f.fieldName, fieldValue: "{{prepared HTML}}" })), warnings: [], sourceDocuments: [{ id: "c0", title: "Source", templateName: template.templateName, body: "{{content}}" }] })],
     ["plan", () => planContent([{ key: "c0", title: "Example topic", content: "{{content}}", sourceLabels: ["pasted text"], proposedAction: "create", reason: "One supported topic", duplicateEvidence: { checked: false } }], ["Split topics"], ["Split topics: new content"], [])],
     ["split", () => splitTopics(blocks)],
     ["chooseTemplate", () => chooseTemplate({ title: candidate.title, content: candidate.body }, [template])],

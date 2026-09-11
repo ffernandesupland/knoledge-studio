@@ -1,0 +1,96 @@
+flowchart TD
+root["Knowledge Studio"]
+auto_queue["1 · Opt in and queue"]
+root --> auto_queue
+analysis["2 · Gather evidence with the existing pipeline"]
+root --> analysis
+split["Split topics enabled"]
+analysis --> split
+click split "#prompt-split" "Inspect split"
+single["One topic from an existing article"]
+split --> single
+style single fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+many["Existing article splits into several topics"]
+split --> many
+style many fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+no_split["Split topics disabled"]
+analysis --> no_split
+style no_split fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+template["Choose a template"]
+analysis --> template
+click template "#prompt-chooseTemplate" "Inspect chooseTemplate"
+template_fixed["Keep a template without AI"]
+analysis --> template_fixed
+style template_fixed fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+optimize["Optimize for search"]
+analysis --> optimize
+click optimize "#prompt-optimizeSearch" "Inspect optimizeSearch"
+style optimize fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+dedupe["Find duplicates"]
+analysis --> dedupe
+query["Generate focused and keyword queries"]
+dedupe --> query
+click query "#prompt-dedupeQuery" "Inspect dedupeQuery"
+search["Search Hybrid, Keyword and Neural"]
+dedupe --> search
+no_match["No neighbours returned"]
+dedupe --> no_match
+style no_match fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+compare["Compare full articles in required slots"]
+dedupe --> compare
+click compare "#prompt-dedupeAdjudicate" "Inspect dedupeAdjudicate"
+batch["Compare drafts within this batch"]
+dedupe --> batch
+click batch "#prompt-batchAdjudicate" "Inspect batchAdjudicate"
+low["Below 80 → keep as possible matches"]
+dedupe --> low
+style low fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+group["80 or above → propose a review group"]
+dedupe --> group
+gaps["Find knowledge gaps"]
+analysis --> gaps
+style gaps fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+gap_ai["Judge coverage using article content"]
+gaps --> gap_ai
+click gap_ai "#prompt-findGaps" "Inspect findGaps"
+style gap_ai fill:#f3f4f6,color:#9ca3af,stroke:#d1d5db
+plan["Synthesize the review plan after evidence gathering"]
+analysis --> plan
+click plan "#prompt-plan" "Inspect plan"
+auto_decisions["3 · Agent chooses the complete plan"]
+root --> auto_decisions
+click auto_decisions "#prompt-autonomousDecide" "Inspect autonomousDecide"
+auto_merge["Merge supported overlaps"]
+auto_decisions --> auto_merge
+auto_separate["Keep distinct topics separate"]
+auto_decisions --> auto_separate
+auto_invalid["Invalid or unsupported plan"]
+auto_decisions --> auto_invalid
+auto_prepare["4 · Prepare each article"]
+root --> auto_prepare
+auto_merge_prompt["Combine merge sources"]
+auto_prepare --> auto_merge_prompt
+click auto_merge_prompt "#prompt-mergeSections" "Inspect mergeSections"
+auto_compose_prompt["Author or map a new article"]
+auto_prepare --> auto_compose_prompt
+click auto_compose_prompt "#prompt-restructure" "Inspect restructure"
+auto_standards["Apply selected standards"]
+auto_prepare --> auto_standards
+click auto_standards "#prompt-standards" "Inspect standards"
+auto_quality["5 · Agent reviews against source evidence"]
+root --> auto_quality
+click auto_quality "#prompt-autonomousReview" "Inspect autonomousReview"
+auto_accept["Accept valid supported content"]
+auto_quality --> auto_accept
+auto_revise["Revise from available evidence"]
+auto_quality --> auto_revise
+auto_skip["Unresolved conflict or missing evidence"]
+auto_quality --> auto_skip
+auto_write["6 · Write approved versions"]
+root --> auto_write
+auto_comments["Destination succeeds → tracking comments"]
+auto_write --> auto_comments
+auto_partial["Failure or uncertain result"]
+auto_write --> auto_partial
+auto_result["7 · Final diagram and saved execution"]
+root --> auto_result

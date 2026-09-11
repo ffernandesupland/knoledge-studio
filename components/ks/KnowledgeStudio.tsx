@@ -1,5 +1,6 @@
 "use client";
 
+import { AutonomousRun } from "./AutonomousRun";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DsDropdown, IdChip, Snackbar, useActionToast } from "@/components/ds";
@@ -68,7 +69,25 @@ function pickDefaultCollection(collections: { code: string; label: string }[]): 
   return (sensible ?? collections[0])?.label ?? "";
 }
 
-export default function KnowledgeStudio() {
+export default function KnowledgeStudio({ initialAutonomousRun }: { initialAutonomousRun?: string } = {}) {
+  const [autoMode, setAutoMode] = useState(false);
+  const [autoJob, setAutoJob] = useState<string | null>(initialAutonomousRun ?? null);
+  const [autoStarting, setAutoStarting] = useState(false);
+  const [autoCapability, setAutoCapability] = useState<{ enabled: boolean; workerOnline: boolean; latest?: { runId: string; status: string } } | null>(null);
+  const autoRequest = useRef<{ fingerprint: string; id: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/autonomous", { signal: controller.signal }).then(async r => { if (r.ok) setAutoCapability(await r.json()); }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+  function openAuto(id: string) {
+    const url = new URL(window.location.href); url.searchParams.set("autonomousRun", id);
+    window.history.replaceState(null, "", url); setAutoJob(id);
+  }
+  function closeAuto() {
+    const url = new URL(window.location.href); url.searchParams.delete("autonomousRun");
+    window.history.replaceState(null, "", url); setAutoJob(null); setAutoMode(false); autoRequest.current = null;
+  }
   const [screen, setScreen] = useState<Screen>("input");
   const [path, setPath] = useState<PathKey | null>(null);
   const [contentText, setContentText] = useState("");
@@ -204,6 +223,26 @@ export default function KnowledgeStudio() {
       .map(([id]) => id);
     if (!contentText.trim() && attachments.length === 0 && sourceSolutionIds.length === 0 && !ops.some((o) => o.name === "Find gaps" && o.on)) {
       showToast({ message: "Add some content, a file, or pick a solution first" });
+      return;
+    }
+    if (autoMode) {
+      if (autoStarting) return;
+      const input = {
+        text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
+        attachments: attachments.map(a => ({ label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+        sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
+        standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
+      };
+      const fingerprint = JSON.stringify(input);
+      if (autoRequest.current?.fingerprint !== fingerprint) autoRequest.current = { fingerprint, id: crypto.randomUUID() };
+      setAutoStarting(true);
+      try {
+        const response = await fetch("/api/autonomous", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: autoRequest.current.id, autonomous: true, input }) });
+        const data = await response.json(); if (!response.ok) throw new Error(data.error);
+        setAutoCapability(previous => previous ? { ...previous, latest: { runId: data.runId, status: data.status } } : previous);
+        openAuto(data.runId);
+      } catch (e) { showToast({ message: e instanceof Error ? e.message : "Could not start autonomous run" }); }
+      finally { setAutoStarting(false); }
       return;
     }
     setScreen("check");
@@ -514,6 +553,12 @@ export default function KnowledgeStudio() {
               showToast={showToast}
             />
           </div>
+          {autoCapability?.enabled && <div className="ks-card auto-option">
+            <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
+            {!autoCapability.workerOnline && <small>The worker is currently offline. It must be running to start a new execution.</small>}</div>
+            <button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode(value => !value)} />
+            {autoCapability.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
+          </div>}
           <div className="ks-card">
             <div className="ks-card-head">
               <span className="ms">tune</span>Choose what to do
@@ -1177,11 +1222,11 @@ export default function KnowledgeStudio() {
             {ops.filter((o) => o.on).length} of {ops.length} options on
           </span>
           <div className="ks-foot-actions">
-            <button type="button" className="ds-btn ds-btn-primary" disabled={!sessionReady || pipeline.phase === "running"} onClick={createPlan}>
+            <button type="button" className="ds-btn ds-btn-primary" disabled={!sessionReady || pipeline.phase === "running" || autoStarting} onClick={createPlan}>
               <span className="ms" style={{ fontSize: 18 }}>
                 bolt
               </span>
-              Create plan
+              {autoStarting ? "Starting…" : autoMode ? "Start autonomous run" : "Create plan"}
             </button>
           </div>
         </div>
@@ -1270,6 +1315,8 @@ export default function KnowledgeStudio() {
     </div>;
   }
 
+
+  if (autoJob) return <AutonomousRun key={autoJob} runId={autoJob} onClose={closeAuto} />;
 
   return (
     <div className="ks-wizard">

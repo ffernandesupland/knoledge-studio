@@ -1,3 +1,4 @@
+import { tracked } from "../autonomous/telemetry";
 import { AsyncLocalStorage } from "node:async_hooks";
 const actor = new AsyncLocalStorage<string>();
 export const withRaActor = <T>(user: string, fn: () => Promise<T>) => actor.run(user, fn);
@@ -30,19 +31,21 @@ async function call<T>(
   raw = false,
 ): Promise<T> {
   const impUser = ctx.impUser ?? actor.getStore();
-  const token = await getToken(impUser);
-  const { text } = await raFetch(config.ra.baseUrl, {
-    ...opts,
-    timeoutMs: opts.timeoutMs ?? config.ra.timeoutMs,
-    headers: { Authorization: `Bearer ${token}` },
-    query: {
-      companyCode: config.ra.companyCode,
-      appInterface: config.ra.appInterface,
-      imp_user: impUser,
-      ...opts.query,
-    },
-  });
-  return (raw ? (text as unknown as T) : parseJson<T>(text, opts.path));
+  return tracked("tool", `${opts.method ?? "GET"} ${opts.path}`, { actor: impUser, path: opts.path, query: opts.query, body: opts.body }, async () => {
+    const token = await getToken(impUser);
+    const { text } = await raFetch(config.ra.baseUrl, {
+      ...opts,
+      timeoutMs: opts.timeoutMs ?? config.ra.timeoutMs,
+      headers: { Authorization: `Bearer ${token}` },
+      query: {
+        companyCode: config.ra.companyCode,
+        appInterface: config.ra.appInterface,
+        imp_user: impUser,
+        ...opts.query,
+      },
+    });
+    return (raw ? (text as unknown as T) : parseJson<T>(text, opts.path));
+  }, !opts.method || opts.method === "GET");
 }
 
 export interface SearchParams {

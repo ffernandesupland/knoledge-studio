@@ -5,8 +5,8 @@ import type { ContentReview, OpResult } from "@/lib/pipeline/execute";
 import { ArticlePreview } from "./ArticlePreview";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
-export function SubmissionGraph({ model, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, templates = [] }: {
-  templates?: string[]; model: SubmissionGraphModel; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
+export function SubmissionGraph({ model, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
+  decisionActor?: "author" | "agent"; templates?: string[]; model: SubmissionGraphModel; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
   onSave?: (key: string, review: ContentReview) => void; onChangePlan?: () => void; onDirtyChange?: (dirty: boolean) => void; flowHref?: string;
 }) {
   const [selection, setSelection] = useState<{ key: string; source?: string; action?: boolean; comment?: string } | null>(null);
@@ -66,7 +66,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
             <p>Template: {source.templateName ?? "Read from the existing article during preparation"}</p>
             {source.body ? <pre className="sg-source-text">{source.body}</pre> : <p>Full source content is retrieved during preparation. The recorded engine prompts contain the exact source content used.</p>}
           </> : selection?.action ? <>
-            <p>{row.reason}</p>{row.similarity != null && <p>Group similarity: {row.similarity}% · AI assessment, confirmed by your merge decision.</p>}<p><strong>Destination:</strong> {row.destinationId ? `Retain article ${row.destinationId}; create its review draft or revision.` : "Create one new article for review."}</p>
+            <p>{row.reason}</p>{row.similarity != null && <p>Group similarity: {row.similarity}% · AI assessment, confirmed by {decisionActor === "agent" ? "the agent’s" : "your"} merge decision.</p>}<p><strong>Destination:</strong> {row.destinationId ? `Retain article ${row.destinationId}; create its review draft or revision.` : "Create one new article for review."}</p>
             <h3>Preparation steps</h3><ol>{row.preparation.map((p, i) => <li key={i}>{p.label}</li>)}</ol><h3>Included sources</h3><ul>{row.sources.map((s) => <li key={s.id}>{s.title}{s.retained ? " (retained)" : ""}</li>)}</ul>
             {!!row.coverage.length && <><h3>Planned coverage</h3><ul>{row.coverage.map((c, i) => <li key={i}>{c}</li>)}</ul></>}
             {!!row.questions.length && <><h3>Open questions</h3><ul>{row.questions.map((q, i) => <li key={i}>{q}</li>)}</ul></>}

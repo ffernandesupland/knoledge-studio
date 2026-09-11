@@ -1,4 +1,5 @@
 export interface FlowOptions {
+  autonomous?: boolean;
   text: boolean; file: boolean; url: boolean; existing: boolean;
   split: boolean; restructure: boolean; standards: boolean; optimize: boolean; dedupe: boolean; gaps: boolean;
   topics: number; existingSplits: boolean; batchOverlap: boolean; survivor: "existing" | "new"; fixedTemplate: boolean;
@@ -12,6 +13,7 @@ export const DEFAULT_FLOW: FlowOptions = { text: true, file: false, url: false, 
 
 /** A decision tree, not a prediction of an AI result. Inactive branches remain inspectable. */
 export function buildFlow(o: FlowOptions): FlowNode[] {
+  if (o.autonomous) return autonomousFlow(o);
   const content = o.text || o.file || o.url || o.existing;
   const group = content && o.dedupe && (o.matches === "high" || (o.topics > 1 && o.batchOverlap));
   const waiting = group && o.decision === "pending";
@@ -105,4 +107,35 @@ export function mermaidTree(nodes: FlowNode[]): string {
   }
   visit(effectiveNodes(nodes), "root");
   return lines.join("\n");
+}
+
+/** Separate branch: guided scenario semantics remain unchanged. */
+function autonomousFlow(o: FlowOptions): FlowNode[] {
+  const guided = buildFlow({ ...o, autonomous: false });
+  const analysis = { ...guided[1], children: guided[1].children?.map(n => n.id === "gaps" ? { ...n, children: n.children?.filter(child => child.id !== "gap_answer") } : n) };
+  const node = (id: string, title: string, kind: NodeKind, detail: string, children?: FlowNode[], prompt?: string): FlowNode => ({ id, title, kind, detail, active: true, children, prompt });
+  return [
+    node("auto_queue", "1 · Opt in and queue", "input", "Switch off by default. Record the signed-in actor, selected options and authorization to create review drafts/revisions. A live independent Node worker claims a database lease. Closing the browser does not stop it."),
+    { ...analysis, title: "2 · Gather evidence with the existing pipeline", detail: "Same models and selected analysis tools as guided mode. Calls and progress are persisted. Completed reads can be reused after a worker restart." },
+    node("auto_decisions", "3 · Agent chooses the complete plan", "ai", "Read available templates, collections and languages. Decide every proposal and duplicate group with an evidence-based explanation. Preserve explicit constraints and existing templates. Validate every ID; unsupported gaps are excluded.", [
+      node("auto_merge", "Merge supported overlaps", "logic", "Choose a retained member only from the verified group. Related topics alone do not justify merging. Included sources feed one resulting article."),
+      node("auto_separate", "Keep distinct topics separate", "logic", "Each included topic receives its own create/update operation. Excluded proposals are logged and never written."),
+      node("auto_invalid", "Invalid or unsupported plan", "stop", "Stop before writing if the agent returns unknown IDs, invalid metadata or no defensible plan. Persist the failure."),
+    ], "autonomousDecide"),
+    node("auto_prepare", "4 · Prepare each article", "logic", "Persist a write plan. Use the selected template, source documents and standards through the existing preparation engine. No KB writes here.", [
+      node("auto_merge_prompt", "Combine merge sources", "ai", "Preserve source contributions and conflicts in the retained template.", undefined, "mergeSections"),
+      node("auto_compose_prompt", "Author or map a new article", "ai", "Populate every relevant template field with HTML; summary and keywords remain plain text.", undefined, o.restructure ? "restructure" : "compose"),
+      ...(o.standards ? [node("auto_standards", "Apply selected standards", "ai", "Apply the configured wording and formatting rules before reviewing the resulting version.", undefined, "standards")] : []),
+    ]),
+    node("auto_quality", "5 · Agent reviews against source evidence", "ai", "Return accept, revise or skip with source IDs and verbatim evidence. At most three quality rounds per article. Revisions receive a new version and must pass template validation and another review.", [
+      node("auto_accept", "Accept valid supported content", "logic", "Save agent approval for the exact prepared version, with explanation and policy version."),
+      node("auto_revise", "Revise from available evidence", "logic", "Apply the complete corrected article. Revalidate fields, HTML and standards; review the new version."),
+      node("auto_skip", "Unresolved conflict or missing evidence", "stop", "Keep this item unresolved. Continue other independent articles; never guess missing facts."),
+    ], "autonomousReview"),
+    node("auto_write", "6 · Write approved versions", "write", "Recheck approval version and live source versions. Create review drafts/revisions through the existing journal. Completed writes are reused; uncertain writes are never resent automatically.", [
+      node("auto_comments", "Destination succeeds → tracking comments", "write", "Comment on existing merged sources only after the retained destination succeeds. Never publish, delete or archive sources."),
+      node("auto_partial", "Failure or uncertain result", "stop", "Save the error and affected item. Keep successful independent writes. A lost response requires verification, not an automatic replay."),
+    ]),
+    node("auto_result", "7 · Final diagram and saved execution", "logic", "Show actual source → action → result outcomes, final article fields, IDs, cost and Finish. Past executions retains the same graph plus exact model/tool inputs, outputs and evidence-based agent explanations."),
+  ];
 }

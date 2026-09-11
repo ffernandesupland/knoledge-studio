@@ -1,0 +1,30 @@
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { z } from "zod";
+import { closeDatabase, useDatabase } from "../db";
+import { enqueue, claim, events } from "../autonomous/store";
+import { withAutonomousContext } from "../autonomous/telemetry";
+import { runOperation } from "./client";
+const parse = vi.hoisted(() => vi.fn(async () => ({ output_parsed: { title: "Verified title" }, usage: { input_tokens: 12, output_tokens: 4 } })));
+vi.mock("openai", () => ({ default: class { responses = { parse }; } }));
+let dir: string;
+beforeAll(() => { dir = mkdtempSync(path.join(tmpdir(), "ks-ai-cache-")); useDatabase(path.join(dir, "test.db")); vi.stubEnv("OPENAI_API_KEY", "test-only"); });
+afterAll(() => { closeDatabase(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
+it("reuses equivalent model inputs despite random prompt delimiters, but different evidence makes a new call", async () => {
+  await enqueue("cache-run", "sauser", { text: "Source", operations: [], standardsRules: [] });
+  const leased = (await claim())!;
+  const args = { operation: "plan", role: "Planner", task: "Return a title", blocks: [{ label: "source", content: "Verified content" }], schemaName: "title", schema: z.object({ title: z.string() }) };
+  await withAutonomousContext("cache-run", leased.token, "analysis", async () => {
+    const first = await runOperation(args);
+    const replay = await runOperation(args);
+    expect(replay).toEqual(first);
+    expect(parse).toHaveBeenCalledTimes(1);
+    await runOperation({ ...args, blocks: [{ label: "source", content: "Different evidence" }] });
+    expect(parse).toHaveBeenCalledTimes(2);
+  });
+  const log = await events("cache-run");
+  expect(log.filter(e => e.kind === "model" && e.status === "skipped")).toHaveLength(1);
+  expect(JSON.stringify(log.find(e => e.kind === "model" && e.status === "started")?.input)).toContain("untrusted-content");
+});
