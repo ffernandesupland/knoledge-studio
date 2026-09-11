@@ -5,6 +5,9 @@ import path from "node:path";
 import { closeDatabase, db, useDatabase } from "../db";
 import { enqueue, claim, checkpoint, getJob, events } from "./store";
 import { POST as advanceRoute } from "../../app/api/autonomous/advance/route";
+import { POST as resumeRoute } from "../../app/api/autonomous/resume/route";
+import { GET as statusRoute } from "../../app/api/autonomous/route";
+import { GET as historyRoute } from "../../app/api/runs/executions/route";
 import { readNdjson } from "../ks/stream";
 import { processJob } from "./runner";
 import { executionResults, getWriteState, loadExecution } from "../pipeline/state";
@@ -14,12 +17,12 @@ import { readExecutedFlow } from "../flow/executions";
 import { getRun } from "../db/runs";
 import { decisionSnapshot, validateQuality, type QualityDecision } from "./decisions";
 
-const mocks = vi.hoisted(() => ({ pipeline: vi.fn(), model: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(), author: vi.fn(), merge: vi.fn(), solution: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pipeline: vi.fn(), model: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(), author: vi.fn(), merge: vi.fn(), solution: vi.fn(), search: vi.fn() }));
 vi.mock("../pipeline/run", () => ({ runPipeline: mocks.pipeline }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.model }));
 vi.mock("../llm/operations", () => ({ restructure: mocks.author, mergeSections: mocks.merge, applyStandards: vi.fn() }));
 vi.mock("../ra/client", () => ({ withRaActor: (_: string, fn: () => unknown) => fn(), ra: {
-  getTemplates: async () => [template], getCollections: async () => [{ code: "support" }], search: async () => ({ languages: ["English"] }),
+  getTemplates: async () => [template], getCollections: async () => [{ code: "support" }], search: mocks.search,
   getSolution: mocks.solution, getSolutionHtml: mocks.solution, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag,
 } }));
 const template = { templateName: "How To (RA)", templateType: "standard", kbPrefix: "", fields: [{ fieldName: "Solution", description: "", required: true, searchable: true }] };
@@ -39,6 +42,10 @@ beforeEach(async () => {
   vi.resetAllMocks(); id = `auto-runner-${++counter}`;
   await db().prepare("UPDATE autonomous_jobs SET status='failed' WHERE status IN ('queued','running')").run();
   mocks.pipeline.mockResolvedValue(analysis());
+  mocks.search.mockImplementation(async params => {
+    if (params.returnTypes !== "taxonomies,languages") throw new Error("HTTP 500: unsupported languages-only facet request");
+    return { languages: ["English"] };
+  });
   mocks.author.mockResolvedValue(result(article));
   mocks.write.mockResolvedValue("Created 260909000000003");
   mocks.update.mockResolvedValue({ solutionId: "260909000000004", mode: "revision", request: {} });
@@ -53,6 +60,44 @@ beforeEach(async () => {
 async function run() { await enqueue(id, "sauser", input); const lease = (await claim())!; await processJob(lease.job, lease.token); return lease; }
 
 describe("autonomous pipeline with the real preparation and write engine", () => {
+  it("shows the saved result after a metadata failure and resumes without repeating analysis", async () => {
+    mocks.pipeline.mockResolvedValue(analysis(7));
+    mocks.search.mockRejectedValueOnce(new Error("RightAnswers is temporarily unavailable (HTTP 500)"));
+    await run();
+    const response = await statusRoute(new Request(`http://localhost/api/autonomous?runId=${id}`));
+    const status = await response.json();
+    expect(status).toMatchObject({ status: "failed", outcome: { failedStage: "Choose actions and metadata", submitted: 0, prepared: 0, canResume: true } });
+    expect(status.outcome.proposals).toHaveLength(7);
+    expect(status.graph).toBeUndefined();
+    expect(status.outcome.stages.map((s: { status: string }) => s.status)).toEqual(["completed", "stopped", "pending", "pending", "pending"]);
+    expect((await readExecutedFlow(id))?.outcome?.failedStage).toBe("Choose actions and metadata");
+    // Existing production histories predate the result summary. Backfill them on read.
+    const oldFlow = (await readExecutedFlow(id))!;
+    delete oldFlow.outcome;
+    await db().prepare("UPDATE flow_executions SET payload=? WHERE run_id=?").run(JSON.stringify(oldFlow), id);
+    const history = await (await historyRoute(new Request(`http://localhost/api/runs/executions?runId=${id}`))).json();
+    expect(history.outcome).toMatchObject({ failedStage: "Choose actions and metadata", submitted: 0 });
+    expect(mocks.write).not.toHaveBeenCalled();
+    const resumeRequest = () => new Request("http://localhost/api/autonomous/resume", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: id }) });
+    expect((await resumeRoute(resumeRequest())).status).toBe(200);
+    expect((await resumeRoute(resumeRequest())).status).toBe(409);
+    const lease = (await claim(id))!;
+    await processJob(lease.job, lease.token);
+    expect((await getJob(id))?.status).toBe("completed");
+    expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(7);
+    const final = await (await statusRoute(new Request(`http://localhost/api/autonomous?runId=${id}`))).json();
+    expect(final.outcome).toMatchObject({ submitted: 7, prepared: 7, canResume: false });
+    expect(final.outcome.stages.every((s: { status: string }) => s.status === "completed")).toBe(true);
+    expect((await resumeRoute(resumeRequest())).status).toBe(409);
+  });
+  it("shows an analysis failure as a final outcome without inventing proposals or outputs", async () => {
+    mocks.pipeline.mockRejectedValueOnce(new Error("Source unavailable"));
+    await run();
+    const status = await (await statusRoute(new Request(`http://localhost/api/autonomous?runId=${id}`))).json();
+    expect(status.outcome).toMatchObject({ failedStage: "Analyze sources", submitted: 0, proposals: [], canResume: false });
+    expect(status.outcome.stages.map((s: { status: string }) => s.status)).toEqual(["stopped", "pending", "pending", "pending", "pending"]);
+  });
   it("advances the selected run from the app through saved steps without processing another queued run", async () => {
     await enqueue(`${id}-other`, "someone-else", input);
     await enqueue(id, "sauser", input);

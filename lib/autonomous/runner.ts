@@ -45,7 +45,9 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
       if (!snapshot) {
         snapshot = await within("decisions", async () => {
           const run = (await getRun(id))!;
-          const [templates, collections, facets] = await Promise.all([ra.getTemplates(), ra.getCollections(), ra.search({ returnTypes: "languages", page: 1 })]);
+          // Use the same facet request as the guided Metadata screen. RA rejects
+          // the languages-only request on the pilot server with HTTP 500.
+          const [templates, collections, facets] = await Promise.all([ra.getTemplates(), ra.getCollections(), ra.search({ returnTypes: "taxonomies,languages", page: 1 })]);
           const catalog: Catalog = { templates, collections, languages: facets.languages ?? [] };
           if (!templates.length || !collections.length || !catalog.languages.length) throw new Error("The catalog does not contain the required templates, collections and languages");
           const result = await decide(run, job.input, catalog);

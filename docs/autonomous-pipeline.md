@@ -32,6 +32,10 @@ Stage progress, model requests/responses, RA calls and HTTP attempts, cache reus
 
 The activity list loads summaries in pages of 100. Selecting an event retrieves its full input/output. Access is scoped to the run owner; authentication headers and the RA login token are omitted. HTTP transport completion includes its actual status code and does not imply application success.
 
+Every terminal run also shows an execution result: recorded stage progress, the failure stage and message, saved proposals, and actual prepared/submitted article counts. This appears on the run screen and in past executions even when failure occurred before a submission plan existed. Older saved histories are backfilled when opened; proposals are never presented as created articles.
+
+If analysis succeeded but planning stopped before a decision snapshot or any write state, **Resume planning** reuses that analysis. This explicit action is owner-scoped, retains the original error/activity, and resumes the original authorization. Completed/partial runs, runs with write attempts, and obsolete authorizations cannot use it. The autonomous catalog uses the same `taxonomies,languages` facet request as guided Metadata; the pilot RA server rejects the languages-only request.
+
 ```mermaid
 flowchart TD
   Start[Add content and select options] --> Mode{Run fully autonomously?}
@@ -41,6 +45,8 @@ flowchart TD
   App --> Analyze[Existing analysis and selected tools]
   Analyze --> Plan[Agent chooses proposals, merges and metadata]
   Plan --> Prepare[Prepare articles in final templates]
+  Plan -->|Catalog unavailable| Failed[Final result with saved proposals and error]
+  Failed -->|Resume planning before any writes| Plan
   Prepare --> Review{Agent quality review}
   Review -->|Revise within limit| Correct[Correct and validate a new version]
   Correct --> Review
