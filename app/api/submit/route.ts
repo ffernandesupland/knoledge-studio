@@ -1,3 +1,4 @@
+import { assertGuided } from "@/lib/autonomous/store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
 import { z } from "zod";
 import { assertPreparedPlan, executeWritePlan, type ExecuteArgs } from "@/lib/pipeline/execute";
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
     const body = await readJson(request, schema);
     const run = (await getRun(body.runId));
     assertOwner(run, user);
+    await assertGuided(run.id);
     const snapshot = canonicalSnapshot(run, body.snapshot);
     const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
     if (!plan.length) throw new Error("Select at least one article to submit");

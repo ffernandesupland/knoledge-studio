@@ -1,4 +1,7 @@
-export const SCHEMA = `
+import { AUTONOMOUS_SCHEMA, WORKER_SCHEMA } from "../autonomous/schema";
+export const SCHEMA = `${AUTONOMOUS_SCHEMA}
+${WORKER_SCHEMA}
+
 CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,
   created_at    TEXT NOT NULL,

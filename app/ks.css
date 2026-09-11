@@ -468,3 +468,20 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 @media (prefers-reduced-motion: reduce) { .ks-spinner { animation: none; } }
 @media(max-width:1100px) { .sg-page-heading > div { flex-basis: auto; } }
 @media(max-width:600px) { .ks-foot-actions { width: 100%; } .ks-scroll { padding: 16px; } #page-hdr { padding-inline: 16px; } }
+
+/* Autonomous mode is a separate view; all content remains inside the viewport. */
+.auto-option { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 20px; }
+.auto-option > div { flex: 1 1 300px; min-width: 0; }
+.auto-option p { margin: 8px 0; }
+.auto-option .toggle { flex-shrink: 0; }
+.auto-run { padding: 24px; }
+.auto-run > .ks-card { padding: 20px; }
+.auto-log { margin-top: 24px; min-width: 0; }
+.auto-log-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.auto-events, .auto-event-detail { background: white; border: 1px solid #d3dce8; border-radius: 8px; padding: 16px; min-width: 0; max-height: 620px; overflow: auto; overflow-wrap: anywhere; }
+.auto-events ol { list-style: none; margin: 0; padding: 0; }
+.auto-events li { margin-bottom: 8px; }
+.auto-events li button { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; border: 1px solid #d3dce8; border-radius: 6px; background: white; padding: 12px; overflow-wrap: anywhere; }
+.auto-events li button[aria-pressed="true"] { background: #edf5ff; border-color: #2675df; }
+.auto-event-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 850px) { .auto-log-layout { grid-template-columns: minmax(0, 1fr); } .auto-run { padding: 16px; } }

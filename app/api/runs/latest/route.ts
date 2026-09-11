@@ -1,3 +1,4 @@
+import { assertGuided } from "@/lib/autonomous/store";
 import { z } from "zod";
 import { discardResumableRun, getResumableRun, getRun, saveSnapshot } from "@/lib/db/runs";
 import { requireActor, apiError } from "@/lib/api/auth";
@@ -21,6 +22,7 @@ export async function PATCH(request: Request) {
     const body = await readJson(request, z.object({ runId: z.string().max(100), snapshot: z.unknown() }));
     const run = (await getRun(body.runId));
     assertOwner(run, user);
+    await assertGuided(run.id);
     await withRunLock(run.id, async () => {
       const execution = await loadExecution<ExecuteArgs>(run.id);
       if (execution && execution.stage !== "preparation") return;

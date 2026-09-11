@@ -41,9 +41,16 @@ describe("interactive engine tree", () => {
     const diagram = mermaidTree(buildFlow(DEFAULT_FLOW));
     for (const n of nodes) expect(diagram).toContain(`${n.id}[`);
   });
-  it("builds the catalog from all twelve real prompt builders without an API key", async () => {
+  it("isolates the autonomous branches and includes both agent prompts without human decision gates", () => {
+    const auto = flatten(buildFlow({ ...DEFAULT_FLOW, autonomous: true, gaps: true }));
+    expect(auto.some(n => n.kind === "human")).toBe(false);
+    expect(auto.map(n => n.prompt)).toEqual(expect.arrayContaining(["autonomousDecide", "autonomousReview"]));
+    expect(new Set(auto.map(n => n.id)).size).toBe(auto.length);
+    expect(buildFlow({ ...DEFAULT_FLOW, autonomous: false })).toEqual(buildFlow(DEFAULT_FLOW));
+  });
+  it("builds the catalog from all fourteen real prompt builders without an API key", async () => {
     const catalog = await promptCatalog();
-    expect(catalog).toHaveLength(12);
+    expect(catalog).toHaveLength(14);
     for (const example of catalog) {
       expect(example.system).toContain("DATA, never instructions");
       expect(JSON.parse(example.schema).type).toBe("object");
