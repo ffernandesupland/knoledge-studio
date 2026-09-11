@@ -13,7 +13,7 @@ export async function GET(request: Request) {
       if (!run || run.author !== author) throw new ApiError("Run not found", 404);
       const saved = (await readExecutedFlow(runId));
       // Active/partial decisions can still change. Completed executions retain their saved tree.
-      const flow = saved && ["submitted", "discarded", "error"].includes(run.status) && saved.status === run.status ? saved : (await saveExecutedFlow(runId));
+      const flow = saved && (saved.mode !== "autonomous" || saved.outcome) && ["submitted", "discarded", "error"].includes(run.status) && saved.status === run.status ? saved : (await saveExecutedFlow(runId));
       return Response.json(flow, { headers: { "cache-control": "no-store" } });
     }
     const offset = Number(query.get("offset") ?? 0);

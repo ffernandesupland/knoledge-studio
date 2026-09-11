@@ -6,6 +6,7 @@ import { getRun } from "@/lib/db/runs";
 import { executionResults, loadExecution } from "@/lib/pipeline/state";
 import type { ExecuteArgs } from "@/lib/pipeline/execute";
 import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
+import { autonomousOutcome } from "@/lib/autonomous/outcome";
 
 export const dynamic = "force-dynamic";
 // Starts are explicitly selected per run; the app advances their saved steps automatically.
@@ -35,6 +36,7 @@ export async function GET(request: Request) {
     const execution = await loadExecution<ExecuteArgs>(id);
     const results = await executionResults(id);
     return json({ runId: id, status: job.status, stage: job.stage, updatedAt: job.updatedAt, error: job.error, authorization: job.authorization, costUsd: run?.costUsd ?? 0,
+      outcome: await autonomousOutcome(job, run, execution, results),
       graph: execution ? buildSubmissionGraph(execution.plan, run?.snapshot?.candidates ?? run?.candidates, results, { ...execution, groups: run?.snapshot?.groups ?? run?.groups }) : undefined });
   } catch (e) { return apiError(e); }
 }

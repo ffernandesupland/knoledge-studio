@@ -1,4 +1,5 @@
 import { getJob } from "../autonomous/store";
+import { autonomousOutcome, type AutonomousOutcome } from "../autonomous/outcome";
 import { buildSubmissionGraph, type SubmissionGraphModel } from "../ks/submission-graph";
 import { db } from "../db";
 import { getRun } from "../db/runs";
@@ -8,6 +9,8 @@ import type { FlowNode } from "./model";
 
 export interface ExecutedNode extends FlowNode { record?: unknown; children?: ExecutedNode[] }
 export interface ExecutedFlow {
+  outcome?: AutonomousOutcome;
+  error?: string;
   mode?: "guided" | "autonomous";
   graph?: SubmissionGraphModel;
   version: 1; runId: string; createdAt: string; savedAt: string; status: string;
@@ -57,6 +60,7 @@ export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
     tree[2].detail = "Analysis uses the existing pipeline and selected options. All autonomous tool/model activity is persisted separately, including retries and saved-read reuse.";
   }
   const flow: ExecutedFlow = { mode: autonomous ? "autonomous" : "guided", version: 1, runId, createdAt: run.createdAt, savedAt: new Date().toISOString(), status: run.status, title: run.candidates[0]?.title ?? "Content analysis", costUsd: run.costUsd, tree, graph: execution ? buildSubmissionGraph(execution.plan, choices?.candidates ?? run.candidates, results, { ...execution, groups: choices?.groups ?? run.groups }) : undefined };
+  if (autonomous) { flow.outcome = await autonomousOutcome(autonomous, run, execution, results); flow.error = autonomous.error; }
   (await db().prepare("INSERT INTO flow_executions(run_id,saved_at,payload) VALUES (?,?,?) ON CONFLICT(run_id) DO UPDATE SET saved_at=excluded.saved_at,payload=excluded.payload").run(runId, flow.savedAt, JSON.stringify(flow)));
   return flow;
 }

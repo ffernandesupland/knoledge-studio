@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { closeDatabase, db, useDatabase } from "../db";
-import { enqueue, claim, getJob, assertLease, events, eventDetail, event, finish, assertGuided } from "./store";
+import { enqueue, claim, getJob, assertLease, events, eventDetail, event, finish, assertGuided, saveCheckpoint } from "./store";
+import { resumePlanning, canResumePlanning } from "./recovery";
+import { saveWriteState } from "../pipeline/state";
 import { tracked, withAutonomousContext } from "./telemetry";
 import { completeRun, createRun, discardResumableRun, getResumableRun, getRun } from "../db/runs";
 import { POST, GET } from "../../app/api/autonomous/route";
@@ -23,6 +25,17 @@ beforeEach(async () => {
 });
 const req = (body: unknown) => new Request("http://localhost/api/autonomous", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 describe("isolated autonomous queue and API", () => {
+  it("rejects recovery by another owner and recovery with uncertain writes", async () => {
+    await enqueue(id, "sauser", input);
+    const lease = (await claim(id))!;
+    await saveCheckpoint(id, "analysis-complete", true);
+    await finish(id, lease.token, "failed", "Metadata unavailable");
+    await expect(resumePlanning(id, "someone-else")).rejects.toThrow("Run not found");
+    await saveWriteState(id, `${id}:create:c0`, { status: "uncertain" });
+    expect(await canResumePlanning((await getJob(id))!)).toBe(false);
+    await expect(resumePlanning(id, "sauser")).rejects.toThrow("cannot resume planning");
+    expect((await getJob(id))?.status).toBe("failed");
+  });
   it("records authorization and makes enqueue idempotent without allowing another actor or changed input", async () => {
     await enqueue(id, "sauser", input); await enqueue(id, "sauser", input);
     expect((await events(id))).toHaveLength(1);

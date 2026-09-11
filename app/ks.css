@@ -476,6 +476,18 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .auto-option .toggle { flex-shrink: 0; }
 .auto-run { padding: 24px; }
 .auto-run > .ks-card { padding: 20px; }
+.auto-outcome { padding: 24px; margin: 20px 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; min-width: 0; overflow-wrap: anywhere; }
+.auto-outcome [role="alert"] { padding: 16px; border-left: 4px solid #b45309; background: #fffbeb; }
+.auto-stage-diagram { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; list-style: none; padding: 0; margin: 24px 0; }
+.auto-stage-diagram li { position: relative; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+.auto-stage-diagram li:not(:last-child)::after { content: "→"; position: absolute; left: calc(100% + 3px); top: 40%; }
+.auto-stage-diagram span { display: block; margin-top: 8px; font-size: 13px; }
+.auto-stage-diagram [data-status="completed"] { background: #f0fdf4; border-color: #86efac; }
+.auto-stage-diagram [data-status="stopped"] { background: #fffbeb; border-color: #f59e0b; }
+.auto-stage-diagram [data-status="active"] { background: #eff6ff; border-color: #60a5fa; }
+.auto-saved-proposals { padding-left: 20px; }
+.auto-saved-proposals li { margin-bottom: 16px; }
+@media (max-width: 850px) { .auto-stage-diagram { grid-template-columns: minmax(0, 1fr); } .auto-stage-diagram li:not(:last-child)::after { content: "↓"; left: 50%; top: 100%; } }
 .auto-log { margin-top: 24px; min-width: 0; }
 .auto-log-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
 .auto-events, .auto-event-detail { background: white; border: 1px solid #d3dce8; border-radius: 8px; padding: 16px; min-width: 0; max-height: 620px; overflow: auto; overflow-wrap: anywhere; }
