@@ -9,10 +9,10 @@ import { executeWritePlan, type ExecuteArgs, type OpResult } from "../pipeline/e
 import { executionResults, freezePreparedPlan, getWriteState, savePreparationPlan, saveWriteState, withRunLock } from "../pipeline/state";
 import { submissionIdentity } from "../ks/submission-plan";
 import { saveExecutedFlow } from "../flow/executions";
-import { decide, decisionSnapshot, reviewDraft, validateQuality, type Catalog, type QualityDecision } from "./decisions";
+import { decide, decisionSnapshot, reviewDraft, validateQuality, type Catalog, type QualityDecision, type DecisionRepair } from "./decisions";
 import { assertLease, checkpoint, event, finish, saveCheckpoint, stage } from "./store";
 import { withAutonomousContext } from "./telemetry";
-import { AUTONOMOUS_POLICY_VERSION, type AutonomousJob, type AutonomousStage } from "./types";
+import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, type AutonomousJob, type AutonomousStage } from "./types";
 
 export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
@@ -50,16 +50,32 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
           const [templates, collections, facets] = await Promise.all([ra.getTemplates(), ra.getCollections(), ra.search({ returnTypes: "taxonomies,languages", page: 1 })]);
           const catalog: Catalog = { templates, collections, languages: facets.languages ?? [] };
           if (!templates.length || !collections.length || !catalog.languages.length) throw new Error("The catalog does not contain the required templates, collections and languages");
-          const result = await decide(run, job.input, catalog);
-          const value = decisionSnapshot(run, job.input, catalog, result.data);
-          for (const d of result.data.candidates) await event(id, "decisions", "decision", `Proposal ${d.key}: ${d.keep ? "include" : "skip"}`, d.keep ? "succeeded" : "skipped", { explanation: d.explanation, output: d });
-          for (const d of result.data.groups) await event(id, "decisions", "decision", `Group ${d.index}: ${d.decision}`, "succeeded", { explanation: d.explanation, output: d });
-          await event(id, "decisions", "decision", "Choose final metadata", "succeeded", { explanation: result.data.metadata.explanation, output: result.data.metadata });
-          await saveSnapshot(id, value);
-          await saveCheckpoint(id, "decisions", value);
-          return value;
+          let repair = await checkpoint<DecisionRepair>(id, DECISION_REPAIR_KEY) ?? { attempts: 0 };
+          while (repair.attempts < MAX_DECISION_ATTEMPTS) {
+            repair = { ...repair, attempts: repair.attempts + 1 };
+            // Reserve the attempt before calling AI so interruptions cannot reset the bound.
+            await saveCheckpoint(id, DECISION_REPAIR_KEY, repair);
+            const result = await decide(run, job.input, catalog, repair);
+            let value: DecisionSnapshot;
+            try { value = decisionSnapshot(run, job.input, catalog, result.data); }
+            catch (error) {
+              repair = { ...repair, previous: result.data, errors: [error instanceof Error ? error.message : String(error)] };
+              await saveCheckpoint(id, DECISION_REPAIR_KEY, repair);
+              await event(id, "decisions", "validation", `Plan validation failed (attempt ${repair.attempts}/${MAX_DECISION_ATTEMPTS})`, "failed", { explanation: repair.errors![0], output: { willCorrect: repair.attempts < MAX_DECISION_ATTEMPTS } });
+              if (repair.attempts >= MAX_DECISION_ATTEMPTS) break;
+              if (singleStep) return undefined;
+              continue;
+            }
+            for (const d of result.data.candidates) await event(id, "decisions", "decision", `Proposal ${d.key}: ${d.keep ? "include" : "skip"}`, d.keep ? "succeeded" : "skipped", { explanation: d.explanation, output: d });
+            for (const d of result.data.groups) await event(id, "decisions", "decision", `Group ${d.index}: ${d.decision}`, "succeeded", { explanation: d.explanation, output: d });
+            await event(id, "decisions", "decision", "Choose final metadata", "succeeded", { explanation: result.data.metadata.explanation, output: result.data.metadata });
+            await saveSnapshot(id, value);
+            await saveCheckpoint(id, "decisions", value);
+            return value;
+          }
+          throw new Error(`Planning could not produce a valid plan after ${MAX_DECISION_ATTEMPTS} attempts. No articles were submitted. Inspect the plan validation events for the specific issues.`);
         });
-        if (singleStep) return;
+        if (singleStep || !snapshot) return;
       }
       const plan = buildWritePlan({ runId: id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
       const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot), restructureEnabled: job.input.operations.includes("Restructure content"), standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] };

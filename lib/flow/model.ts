@@ -120,7 +120,8 @@ function autonomousFlow(o: FlowOptions): FlowNode[] {
     node("auto_decisions", "3 · Agent chooses the complete plan", "ai", "Read available templates, collections and languages. Decide every proposal and duplicate group with an evidence-based explanation. Preserve explicit constraints and existing templates. Validate every ID; unsupported gaps are excluded.", [
       node("auto_merge", "Merge supported overlaps", "logic", "Choose a retained member only from the verified group. Related topics alone do not justify merging. Included sources feed one resulting article."),
       node("auto_separate", "Keep distinct topics separate", "logic", "Each included topic receives its own create/update operation. Excluded proposals are logged and never written."),
-      node("auto_invalid", "Invalid or unsupported plan", "stop", "Stop before writing if the agent returns unknown IDs, invalid metadata or no defensible plan. Persist the failure."),
+      node("auto_repair", "Correct invalid IDs or metadata", "ai", "Constrain choices to the run and catalog. If validation rejects a plan, send the exact errors and prior output back to the agent. Save each attempt and reuse the analysis. At most three attempts across requests.", undefined, "autonomousDecide"),
+      node("auto_invalid", "Planning correction limit reached", "stop", "Stop before writing after three invalid attempts. Preserve the failure and proposals in the final result. Resume cannot reset the limit for the same planner version."),
     ], "autonomousDecide"),
     node("auto_prepare", "4 · Prepare each article", "logic", "Persist a write plan. Use the selected template, source documents and standards through the existing preparation engine. No KB writes here.", [
       node("auto_merge_prompt", "Combine merge sources", "ai", "Preserve source contributions and conflicts in the retained template.", undefined, "mergeSections"),

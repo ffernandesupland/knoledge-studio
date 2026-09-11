@@ -1,12 +1,14 @@
 import { db } from "../db";
 import { ApiError } from "../api/auth";
 import { checkpoint, event, getJob } from "./store";
-import { AUTONOMOUS_POLICY_VERSION, type AutonomousJob } from "./types";
+import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, type AutonomousJob } from "./types";
 
 /** Only pre-decision failures with saved analysis and no write state can resume. */
 export async function canResumePlanning(job: AutonomousJob): Promise<boolean> {
   if (job.status !== "failed" || job.authorization.actor !== job.author || job.authorization.policyVersion !== AUTONOMOUS_POLICY_VERSION || job.authorization.scope !== "create-review-drafts-and-revisions") return false;
   if (!await checkpoint(job.runId, "analysis-complete") || await checkpoint(job.runId, "decisions")) return false;
+  const repair = await checkpoint<{ attempts: number }>(job.runId, DECISION_REPAIR_KEY);
+  if (repair && repair.attempts >= MAX_DECISION_ATTEMPTS) return false;
   const state = await db().prepare(`SELECT 1 FROM execution_plans WHERE run_id=?
     UNION ALL SELECT 1 FROM write_state WHERE run_id=?
     UNION ALL SELECT 1 FROM write_audit WHERE run_id=? LIMIT 1`).get(job.runId, job.runId, job.runId);

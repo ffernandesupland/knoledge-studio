@@ -15,7 +15,9 @@ import type { PreparedContent, ExecuteArgs } from "../pipeline/execute";
 import type { RunOutput } from "../pipeline/run";
 import { readExecutedFlow } from "../flow/executions";
 import { getRun } from "../db/runs";
-import { decisionSnapshot, validateQuality, type QualityDecision } from "./decisions";
+import { decisionSchema, decisionSnapshot, validateQuality, type QualityDecision } from "./decisions";
+import { DECISION_REPAIR_KEY } from "./types";
+import { canResumePlanning } from "./recovery";
 
 const mocks = vi.hoisted(() => ({ pipeline: vi.fn(), model: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(), author: vi.fn(), merge: vi.fn(), solution: vi.fn(), search: vi.fn() }));
 vi.mock("../pipeline/run", () => ({ runPipeline: mocks.pipeline }));
@@ -60,6 +62,64 @@ beforeEach(async () => {
 async function run() { await enqueue(id, "sauser", input); const lease = (await claim())!; await processJob(lease.job, lease.token); return lease; }
 
 describe("autonomous pipeline with the real preparation and write engine", () => {
+  it("corrects unknown evidence and empty metadata in the next app step instead of ending the run", async () => {
+    let attempts = 0;
+    mocks.model.mockImplementation(async args => {
+      const block = JSON.parse(args.blocks.at(-1).content);
+      if (args.operation !== "autonomousDecide") return result(accept(block.prepared));
+      const data = decide(block);
+      if (++attempts === 1) { data.candidates[0].evidence = ["260906085151520"]; data.metadata.collection = ""; }
+      else {
+        const feedback = JSON.parse(args.blocks.find((b: { label: string }) => b.label === "planning validation feedback").content);
+        expect(feedback.errors[0]).toContain("candidates.0.evidence.0");
+        expect(feedback.errors[0]).toContain("metadata.collection");
+        expect(feedback.previous.metadata.collection).toBe("");
+      }
+      return result(data);
+    });
+    await enqueue(id, "sauser", input);
+    const advance = () => advanceRoute(new Request("http://localhost/api/autonomous/advance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: id }) }));
+    await readNdjson(await advance(), () => {}); // analysis
+    await readNdjson(await advance(), () => {}); // invalid decisions, saved feedback
+    expect((await getJob(id))?.status).toBe("running");
+    expect(await checkpoint(id, "decisions")).toBeUndefined();
+    expect(mocks.write).not.toHaveBeenCalled();
+    await readNdjson(await advance(), () => {}); // corrected decisions
+    expect(await checkpoint(id, "decisions")).toMatchObject({ collection: "support" });
+    for (let step = 0; step < 5; step++) {
+      await readNdjson(await advance(), () => {});
+      if ((await getJob(id))?.status === "completed") break;
+    }
+    expect((await getJob(id))?.status).toBe("completed");
+    expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect((await events(id)).some(e => e.kind === "validation" && e.status === "failed")).toBe(true);
+  });
+  it("bounds invalid planning attempts across requests and does not reset them through resume", async () => {
+    mocks.model.mockImplementation(async args => {
+      const data = decide(JSON.parse(args.blocks.at(-1).content));
+      data.metadata.collection = "";
+      return result(data);
+    });
+    await enqueue(id, "sauser", input);
+    for (let step = 0; step < 4; step++) {
+      const response = await advanceRoute(new Request("http://localhost/api/autonomous/advance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: id }) }));
+      await readNdjson(response, () => {});
+    }
+    expect((await getJob(id))?.status).toBe("failed");
+    expect(await checkpoint(id, DECISION_REPAIR_KEY)).toMatchObject({ attempts: 3 });
+    expect(await canResumePlanning((await getJob(id))!)).toBe(false);
+    expect(mocks.model).toHaveBeenCalledTimes(3);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("constrains structured output to recorded IDs, template names and metadata codes", () => {
+    const view = { candidates: [proposal("c0")], groups: [] } as unknown as Parameters<typeof decisionSchema>[0];
+    const schema = decisionSchema(view, { templates: [template], collections: [{ code: "support", displayName: "Support collection" }], languages: ["English"] });
+    const valid = decide(view);
+    expect(schema.safeParse(valid).success).toBe(true);
+    expect(schema.safeParse({ ...valid, metadata: { ...valid.metadata, collection: "Support collection" } }).success).toBe(false);
+    expect(schema.safeParse({ ...valid, candidates: [{ ...valid.candidates[0], evidence: ["260906085151520"] }] }).success).toBe(false);
+  });
   it("shows the saved result after a metadata failure and resumes without repeating analysis", async () => {
     mocks.pipeline.mockResolvedValue(analysis(7));
     mocks.search.mockRejectedValueOnce(new Error("RightAnswers is temporarily unavailable (HTTP 500)"));
