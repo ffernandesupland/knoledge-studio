@@ -6,10 +6,11 @@ import { KS_OPS_DEFAULT } from "../ks/data";
 import type { WSTemplate } from "../ra/types";
 import type { AutonomousInput } from "./types";
 import type { PreparedContent } from "../pipeline/execute";
+import { autonomousWritePlan } from "./plan";
 
 const reason = { explanation: z.string().min(10), evidence: z.array(z.string().min(1)).min(1).max(20) };
 export const DecisionSchema = z.object({
-  candidates: z.array(z.object({ key: z.string(), keep: z.boolean(), templateName: z.string(), ...reason })).max(60),
+  candidates: z.array(z.object({ key: z.string(), keep: z.boolean().describe("Include this source proposal in the plan, including as input to a merge. False excludes it from ALL outputs. True does not mean create a separate article."), templateName: z.string(), ...reason })).max(60),
   groups: z.array(z.object({ index: z.number().int().nonnegative(), decision: z.enum(["merged", "separate"]), survivorId: z.string(), ...reason })).max(60),
   metadata: z.object({ collection: z.string(), language: z.string(), ...reason }),
 });
@@ -37,6 +38,7 @@ export function decide(run: PlanningRun, input: AutonomousInput, catalog: Catalo
     task: `Choose every proposal, merge group and final metadata without asking the user. Return exactly one candidate decision per supplied key and one group decision per supplied index.
 The authorized scope is creation of review drafts/revisions and merge tracking comments, never publication or deletion. Respect selected operations and explicit template/collection/language constraints.
 Keep useful source-supported proposals; skip research-only gaps without answers. Related topics are not necessarily duplicates. Merge only when evidence shows the same user need and compatible facts; otherwise keep separate. Never merge solely because titles share keywords. Choose the retained destination only among the group's members, prefer an appropriate existing article, and account for its scope and history. Do not split then merge your own distinct topics without evidence.
+IMPORTANT: candidates[].keep means INCLUDE THIS SOURCE CONTENT IN THE PLAN. Set keep=true for a proposal that contributes to a merge, even when an existing article is retained. The engine creates only the retained result; it does not also create that proposal separately. keep=false means EXCLUDE the proposal entirely, including from every merge. Never use keep=false to mean "merge instead of create". Every merged group must include at least one kept proposal and produce a retained output. If excluding the whole group, choose separate and explain the exclusion.
 Use only catalog templates; existing update targets keep their current template. Metadata collection MUST be a nonempty catalog code, never its display name or an empty string. Language MUST be a catalog value. Choosing the destination collection is an administrative editorial decision delegated to you, not a factual claim that requires the source document to name a collection. Choose the best available destination for NEW articles based on collection labels, topic and audience, and explain the tradeoff if none is an exact match. Existing revisions preserve their parent's collection, taxonomy and language at write time; the global metadata does not move them. Respect explicit metadata constraints.
 Allowed evidence identifiers are ONLY candidates[].key and groups[].members[].id at the top level of the supplied records. An ID merely mentioned inside article text, a rationale, or a nested duplicate result is not an eligible decision reference. Copy IDs exactly. For a separate group, still return one of that group's member IDs; it does not authorize a merge.
 If validation feedback is supplied, correct every reported issue and return the complete plan again. Do not remove supported proposals merely to bypass a validation error. Do not repeat a previously rejected response unchanged.
@@ -71,7 +73,9 @@ export function decisionSnapshot(run: StoredRun, input: AutonomousInput, catalog
   const metadata = decisions.metadata;
   if (!catalog.collections.some(c => c.code === metadata.collection) || !catalog.languages.includes(metadata.language)) throw new Error("Agent metadata must match the available catalog");
   if ((input.collection && metadata.collection !== input.collection) || (input.language && metadata.language !== input.language)) throw new Error("Agent changed explicit metadata constraints");
-  return canonicalSnapshot(run, { candidates, groups, selectedKeys: decisions.candidates.filter(c => c.keep).map(c => c.key), resolutions: groups.map((_, i) => decisions.groups.find(g => g.index === i)!.decision), operations: KS_OPS_DEFAULT.map(o => ({ ...o, on: input.operations.some(name => name === o.name) })), collection: metadata.collection, language: metadata.language, standard: "Autonomous policy", standardsRules: input.standardsRules, newSolutionTemplate: input.templateName ?? null, templateOverrides: [] });
+  const snapshot = canonicalSnapshot(run, { candidates, groups, selectedKeys: decisions.candidates.filter(c => c.keep).map(c => c.key), resolutions: groups.map((_, i) => decisions.groups.find(g => g.index === i)!.decision), operations: KS_OPS_DEFAULT.map(o => ({ ...o, on: input.operations.some(name => name === o.name) })), collection: metadata.collection, language: metadata.language, standard: "Autonomous policy", standardsRules: input.standardsRules, newSolutionTemplate: input.templateName ?? null, templateOverrides: [] });
+  autonomousWritePlan(run.id, snapshot);
+  return snapshot;
 }
 
 export const QualitySchema = z.object({

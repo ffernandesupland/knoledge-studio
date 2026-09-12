@@ -52,8 +52,8 @@ export function ExecutionHistory({ initialRunId, onModeChange }: { initialRunId?
       </div>
       {flow && <>
         <p><strong>{flow.status}</strong> · ${flow.costUsd.toFixed(4)} recorded AI cost · Saved {new Date(flow.savedAt).toLocaleString()} · <Link href={`/flow?view=executed&runId=${encodeURIComponent(flow.runId)}`}>Permanent link</Link></p>
-        {flow.outcome && <AutonomousOutcome outcome={flow.outcome} error={flow.error} showProposals={!flow.graph && ["error", "partial"].includes(flow.status)} />}
-        {flow.graph && <SubmissionGraph model={flow.graph} mode="history" decisionActor={flow.mode === "autonomous" ? "agent" : "author"} />}
+        {flow.outcome && <AutonomousOutcome outcome={flow.outcome} error={flow.error} showProposals={!flow.graph?.rows.length && ["error", "partial"].includes(flow.status)} />}
+        {!!flow.graph?.rows.length && <SubmissionGraph model={flow.graph} mode="history" decisionActor={flow.mode === "autonomous" ? "agent" : "author"} />}
         {flow.mode === "autonomous" && <><p><Link href={`/?autonomousRun=${encodeURIComponent(flow.runId)}`}>{["submitted", "partial", "error"].includes(flow.status) ? "Open final result" : "Open autonomous run status"}</Link></p><AutonomousLog key={flow.runId} runId={flow.runId} live={!["submitted", "partial", "error"].includes(flow.status)} /></>}
         <p>This tree contains recorded activity and choices. Missing records are identified explicitly. Prompt nodes show the exact saved requests and responses, including the model and prompt version used at that time.</p>
         <button onClick={() => { const url = URL.createObjectURL(new Blob([diagram], { type: "text/plain" })); const a = document.createElement("a"); a.href = url; a.download = `${flow.runId}-executed.mmd`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download executed Mermaid tree</button>

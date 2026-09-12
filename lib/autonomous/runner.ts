@@ -4,7 +4,8 @@ import { mapRunToView } from "../ks/model";
 import { completeRun, getRun, saveSnapshot, type DecisionSnapshot } from "../db/runs";
 import { withAiAudit } from "../llm/audit";
 import { db } from "../db";
-import { buildWritePlan, describeOp, type WriteOp } from "../pipeline/submit";
+import { describeOp, type WriteOp } from "../pipeline/submit";
+import { autonomousWritePlan } from "./plan";
 import { executeWritePlan, type ExecuteArgs, type OpResult } from "../pipeline/execute";
 import { executionResults, freezePreparedPlan, getWriteState, savePreparationPlan, saveWriteState, withRunLock } from "../pipeline/state";
 import { submissionIdentity } from "../ks/submission-plan";
@@ -77,11 +78,11 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
         });
         if (singleStep || !snapshot) return;
       }
-      const plan = buildWritePlan({ runId: id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
+      const plan = autonomousWritePlan(id, snapshot);
       const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot), restructureEnabled: job.input.operations.includes("Restructure content"), standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] };
       await savePreparationPlan(id, args);
       if (!plan.length) {
-        await finish(id, token, "partial", "The agent found no source-supported articles to submit. See the recorded proposal decisions.");
+        await finish(id, token, "partial", "The agent excluded all proposals from submission. See the recorded reasons for each exclusion.");
         return;
       }
       for (const op of plan.filter(op => op.kind !== "flag")) {
