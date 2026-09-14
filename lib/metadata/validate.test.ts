@@ -1,0 +1,10 @@
+import { beforeEach, expect, it, vi } from "vitest";
+const api=vi.hoisted(()=>({getCollections:vi.fn(),getBrowsePaths:vi.fn(),getSolution:vi.fn(),search:vi.fn()}));
+vi.mock("../ra/client",()=>({ra:api}));
+import {validatePlanMetadata} from "./validate";
+import type {WriteOp} from "../pipeline/submit";
+const op:WriteOp={kind:"create",candidateKey:"c",idempotencyKey:"r:c",title:"Article",templateName:"How To",fields:[],metadata:{collections:["allowed"],taxonomies:["Root//Leaf"],language:"English"}};
+beforeEach(()=>{vi.resetAllMocks();api.getCollections.mockResolvedValue([{code:"allowed",displayName:"Allowed"}]);api.getBrowsePaths.mockResolvedValue([{value:"Root//Leaf"}]);api.search.mockResolvedValue({languages:["English"]});});
+it("checks current catalogs using the actor before accepting values",async()=>{await validatePlanMetadata([op],{impUser:"alice"});expect(api.getBrowsePaths).toHaveBeenCalledWith("Root",{impUser:"alice"});expect(api.getCollections).toHaveBeenCalledWith({impUser:"alice"});});
+it("rejects unknown collections and removed taxonomy paths",async()=>{await expect(validatePlanMetadata([{...op,metadata:{collections:["forbidden"]}}],{})).rejects.toThrow("collection");api.getBrowsePaths.mockResolvedValue([]);await expect(validatePlanMetadata([op],{})).rejects.toThrow("taxonomy");});
+it("rejects unsupported clearing on classified existing articles",async()=>{api.getSolution.mockResolvedValue({taxonomy:["Root//Old"]});await expect(validatePlanMetadata([{kind:"revise",candidateKey:"existing",solutionId:"existing",idempotencyKey:"r:e",title:"Existing",fromMerge:false,metadata:{taxonomies:[]}}],{})).rejects.toThrow("cannot clear");});

@@ -11,7 +11,7 @@ export function AutonomousOutcome({ outcome, error, showProposals = false }: { o
     <ol className="auto-stage-diagram" aria-label="Recorded execution stages">{outcome.stages.map(stage => <li key={stage.key} data-status={stage.status}>
       <strong>{stage.label}</strong><span>{statusLabels[stage.status]}</span>
     </li>)}</ol>
-    {showProposals && <><h3>Saved proposals</h3><p>These are planning ideas. Final actions, templates and merge destinations have not been selected.</p>
+    {showProposals && <><h3>Saved proposals</h3><p>These are planning ideas. No executable submission plan is available yet.</p>
       {outcome.proposals.length ? <ul className="auto-saved-proposals">{outcome.proposals.map(p => <li key={p.key}><strong>{p.title}</strong>{p.reason && <p>{p.reason}</p>}</li>)}</ul> : <p>No proposals were saved before the interruption.</p>}
     </>}
   </section>;

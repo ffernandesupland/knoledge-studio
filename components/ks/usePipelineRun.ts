@@ -1,11 +1,13 @@
 "use client";
+import type { SourceAttachment, SourceBlock } from "@/lib/ks/source-document";
 import { useRef, useState } from "react";
 import type { ProgressEvent, RunOutput } from "@/lib/pipeline/run";
 import { mapRunToView, type ViewCandidate, type ViewRun } from "@/lib/ks/model";
 import { readNdjson } from "@/lib/ks/stream";
 export interface RunRequest {
   text: string;
-  attachments?: { label: string; text: string; kind?: "file" | "url" }[];
+  attachments?: SourceAttachment[];
+  content?: SourceBlock[];
   sourceSolutionIds?: string[];
   operations: string[];
   path?: string;

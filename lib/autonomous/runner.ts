@@ -1,18 +1,25 @@
+import { researchPipelineMetadata } from "../metadata/pipeline";
+import { METADATA_OPERATION, type MetadataValues } from "../metadata/settings";
+import { validatePlanMetadata } from "../metadata/validate";
+import { autonomousMetadataValues } from "./metadata";
+import { withSourceContext } from "../llm/source-context";
+import { orderedSources } from "../ks/source-document";
 import { ra, withRaActor } from "../ra/client";
 import { runPipeline } from "../pipeline/run";
 import { mapRunToView } from "../ks/model";
 import { completeRun, getRun, saveSnapshot, type DecisionSnapshot } from "../db/runs";
 import { withAiAudit } from "../llm/audit";
 import { db } from "../db";
-import { buildWritePlan, describeOp, type WriteOp } from "../pipeline/submit";
+import { describeOp, type WriteOp } from "../pipeline/submit";
+import { autonomousWritePlan } from "./plan";
 import { executeWritePlan, type ExecuteArgs, type OpResult } from "../pipeline/execute";
 import { executionResults, freezePreparedPlan, getWriteState, savePreparationPlan, saveWriteState, withRunLock } from "../pipeline/state";
 import { submissionIdentity } from "../ks/submission-plan";
 import { saveExecutedFlow } from "../flow/executions";
-import { decide, decisionSnapshot, reviewDraft, validateQuality, type Catalog, type QualityDecision } from "./decisions";
+import { decide, decisionSnapshot, reviewDraft, validateQuality, type Catalog, type QualityDecision, type DecisionRepair } from "./decisions";
 import { assertLease, checkpoint, event, finish, saveCheckpoint, stage } from "./store";
 import { withAutonomousContext } from "./telemetry";
-import { AUTONOMOUS_POLICY_VERSION, type AutonomousJob, type AutonomousStage } from "./types";
+import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, type AutonomousJob, type AutonomousStage } from "./types";
 
 export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
@@ -20,7 +27,7 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
   async function within<T>(name: AutonomousStage, fn: () => Promise<T>): Promise<T> {
     await stage(id, token, name);
     currentStage = name;
-    return withAutonomousContext(id, token, name, () => withRaActor(job.author, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, fn)));
+    return withAutonomousContext(id, token, name, () => withRaActor(job.author, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, () => withSourceContext(job.input.content || job.input.attachments?.some(a => a.imageId) ? orderedSources(job.input) : [], fn))));
   }
   // Existing write locks and journals remain authoritative for side effects.
   await withRunLock(id, async () => {
@@ -50,22 +57,65 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
           const [templates, collections, facets] = await Promise.all([ra.getTemplates(), ra.getCollections(), ra.search({ returnTypes: "taxonomies,languages", page: 1 })]);
           const catalog: Catalog = { templates, collections, languages: facets.languages ?? [] };
           if (!templates.length || !collections.length || !catalog.languages.length) throw new Error("The catalog does not contain the required templates, collections and languages");
-          const result = await decide(run, job.input, catalog);
-          const value = decisionSnapshot(run, job.input, catalog, result.data);
-          for (const d of result.data.candidates) await event(id, "decisions", "decision", `Proposal ${d.key}: ${d.keep ? "include" : "skip"}`, d.keep ? "succeeded" : "skipped", { explanation: d.explanation, output: d });
-          for (const d of result.data.groups) await event(id, "decisions", "decision", `Group ${d.index}: ${d.decision}`, "succeeded", { explanation: d.explanation, output: d });
-          await event(id, "decisions", "decision", "Choose final metadata", "succeeded", { explanation: result.data.metadata.explanation, output: result.data.metadata });
-          await saveSnapshot(id, value);
-          await saveCheckpoint(id, "decisions", value);
-          return value;
+          let repair = await checkpoint<DecisionRepair>(id, DECISION_REPAIR_KEY) ?? { attempts: 0 };
+          while (repair.attempts < MAX_DECISION_ATTEMPTS) {
+            repair = { ...repair, attempts: repair.attempts + 1 };
+            // Reserve the attempt before calling AI so interruptions cannot reset the bound.
+            await saveCheckpoint(id, DECISION_REPAIR_KEY, repair);
+            const result = await decide(run, job.input, catalog, repair);
+            let value: DecisionSnapshot;
+            try { value = decisionSnapshot(run, job.input, catalog, result.data); }
+            catch (error) {
+              repair = { ...repair, previous: result.data, errors: [error instanceof Error ? error.message : String(error)] };
+              await saveCheckpoint(id, DECISION_REPAIR_KEY, repair);
+              await event(id, "decisions", "validation", `Plan validation failed (attempt ${repair.attempts}/${MAX_DECISION_ATTEMPTS})`, "failed", { explanation: repair.errors![0], output: { willCorrect: repair.attempts < MAX_DECISION_ATTEMPTS } });
+              if (repair.attempts >= MAX_DECISION_ATTEMPTS) break;
+              if (singleStep) return undefined;
+              continue;
+            }
+            for (const d of result.data.candidates) await event(id, "decisions", "decision", `Proposal ${d.key}: ${d.keep ? "include" : "skip"}`, d.keep ? "succeeded" : "skipped", { explanation: d.explanation, output: d });
+            for (const d of result.data.groups) await event(id, "decisions", "decision", `Group ${d.index}: ${d.decision}`, "succeeded", { explanation: d.explanation, output: d });
+            await event(id, "decisions", "decision", "Choose final metadata", "succeeded", { explanation: result.data.metadata.explanation, output: result.data.metadata });
+            await saveSnapshot(id, value);
+            await saveCheckpoint(id, "decisions", value);
+            return value;
+          }
+          throw new Error(`Planning could not produce a valid plan after ${MAX_DECISION_ATTEMPTS} attempts. No articles were submitted. Inspect the plan validation events for the specific issues.`);
         });
-        if (singleStep) return;
+        if (singleStep || !snapshot) return;
       }
-      const plan = buildWritePlan({ runId: id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
+      if (job.input.operations.includes(METADATA_OPERATION) && !await checkpoint(id, "metadata-complete")) {
+        for (const op of autonomousWritePlan(id, snapshot)) {
+          if (op.kind === "flag") continue;
+          const key = `metadata-choice:${op.idempotencyKey}`;
+          let choice = await checkpoint<MetadataValues>(id, key);
+          const restored = !!choice;
+          if (!choice) choice = await within("decisions", async () => {
+            await event(id, "decisions", "state", `Research metadata: ${op.title}`, "started");
+            const report = await researchPipelineMetadata(id, op, { impUser: job.author }, () => {});
+            const values = autonomousMetadataValues(report, job.input);
+            await validatePlanMetadata([{ ...op, metadata: values }], { impUser: job.author });
+            await event(id, "decisions", "decision", `Apply metadata: ${op.title}`, "succeeded", {
+              explanation: report.rationale,
+              output: { candidateKey: op.candidateKey, values, suggestions: report.suggestions, uncertainties: report.uncertainties,
+                fallback: "Explicit collection/language constraints take priority. Without a supported suggestion, retain existing metadata; new articles use the chosen global defaults." },
+            });
+            await assertLease(id, token);
+            await saveCheckpoint(id, key, values);
+            return values;
+          });
+          snapshot = { ...snapshot, metadata: { ...snapshot.metadata, solutions: { ...snapshot.metadata?.solutions, [op.candidateKey]: choice } } };
+          await saveSnapshot(id, snapshot);
+          await saveCheckpoint(id, "decisions", snapshot);
+          if (singleStep && !restored) return;
+        }
+        await saveCheckpoint(id, "metadata-complete", true);
+      }
+      const plan = autonomousWritePlan(id, snapshot);
       const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot), restructureEnabled: job.input.operations.includes("Restructure content"), standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] };
       await savePreparationPlan(id, args);
       if (!plan.length) {
-        await finish(id, token, "partial", "The agent found no source-supported articles to submit. See the recorded proposal decisions.");
+        await finish(id, token, "partial", "The agent excluded all proposals from submission. See the recorded reasons for each exclusion.");
         return;
       }
       for (const op of plan.filter(op => op.kind !== "flag")) {
@@ -74,6 +124,7 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
           if (!await checkpoint(id, `prepared:${op.idempotencyKey}`)) {
             await within("preparation", async () => {
               await event(id, "preparation", "state", describeOp(op), "started");
+              await validatePlanMetadata([op], { impUser: job.author });
               await executeWritePlan({ ...args, plan: [op], prepareOnly: true });
             });
             await saveCheckpoint(id, `prepared:${op.idempotencyKey}`, true);
@@ -149,6 +200,7 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
         }
         return true;
         async function write(ops: WriteOp[], approvals: Record<string, string>) {
+          await validatePlanMetadata(ops, { impUser: job.author });
           const results = await executeWritePlan({ ...args, stage: "submission", plan: ops, requirePrepared: true, approvals });
           for (const r of results) await event(id, "submission", "write", r.description, r.outcome === "ok" ? "succeeded" : r.outcome === "skipped" ? "skipped" : "failed", { output: r });
         }

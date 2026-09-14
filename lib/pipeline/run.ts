@@ -1,3 +1,6 @@
+import { orderedSources } from "../ks/source-document";
+import { withSourceContext } from "../llm/source-context";
+import type { SourceAttachment, SourceBlock } from "@/lib/ks/source-document";
 import { planContent, type ContentProposal } from "../llm/planning";
 import { solutionVersion } from "./version";
 import { ra } from "../ra/client";
@@ -14,6 +17,7 @@ import {
 import { buildDuplicateGroups, type DuplicateGroup } from "./grouping";
 
 export type OperationName =
+  | "Discover and suggest metadata"
   | "Split topics"
   | "Restructure content"
   | "Apply content standards"
@@ -24,7 +28,8 @@ export type OperationName =
 export interface RunInput {
   text: string;
   /** Text extracted from uploaded files and fetched URLs. */
-  attachments?: { label: string; text: string; kind?: "file" | "url" }[];
+  attachments?: SourceAttachment[];
+  content?: SourceBlock[];
   /** Existing solutions pulled in from the KB picker. */
   sourceSolutionIds?: string[];
   operations: OperationName[];
@@ -97,6 +102,9 @@ async function step<T>(
  * the proposal the Check screen renders.
  */
 export async function runPipeline(input: RunInput, onProgress?: OnProgress): Promise<RunOutput> {
+  return withSourceContext(input.content || input.attachments?.some(a => a.imageId) ? orderedSources(input) : [], () => runPipelineImpl(input, onProgress));
+}
+async function runPipelineImpl(input: RunInput, onProgress?: OnProgress): Promise<RunOutput> {
   const steps: RunOutput["steps"] = [];
   const warnings: string[] = [];
   const has = (op: OperationName) => input.operations.includes(op);
@@ -119,10 +127,7 @@ export async function runPipeline(input: RunInput, onProgress?: OnProgress): Pro
 
   // Preserve KB boundaries deterministically. New material may be split together; KB
   // articles are processed separately so model output order never determines a write target.
-  const fresh = [
-    ...(input.text.trim() ? [{ label: "pasted text", content: input.text }] : []),
-    ...(input.attachments ?? []).filter((a) => a.text.trim()).map((a) => ({ label: a.label, content: a.text })),
-  ];
+  const fresh = orderedSources(input);
   const batches = [
     ...(fresh.length ? [{ blocks: fresh, source: undefined as typeof sourceSolutions[number] | undefined }] : []),
     ...sourceSolutions.map((source) => ({ source, blocks: [{ label: `solution ${source.id}`, content: [source.title, source.summary, ...(source.fields ?? []).map((f) => `## ${f.name}\n${f.content}`)].filter(Boolean).join("\n\n") }] })),

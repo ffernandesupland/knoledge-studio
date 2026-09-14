@@ -1,5 +1,7 @@
+import type { SourceAttachment, SourceBlock } from "@/lib/ks/source-document";
 import type { Operation } from "../ks/data";
 export interface DecisionSnapshot {
+  metadata?: import("../metadata/settings").MetadataSettings;
   candidates: ViewCandidate[];
   groups: ViewDupeGroup[];
   selectedKeys: string[];
@@ -28,7 +30,8 @@ export interface StoredRun {
   path: string | null;
   status: RunStatus;
   inputText: string;
-  attachments?: { label: string; text: string; kind?: "file" | "url" }[];
+  attachments?: SourceAttachment[];
+  content?: SourceBlock[];
   sourceIds: string[];
   operations: string[];
   costUsd: number;
@@ -76,7 +79,8 @@ export async function createRun(args: {
   author: string;
   path: string | null;
   inputText: string;
-  attachments?: { label: string; text: string; kind?: "file" | "url" }[];
+  attachments?: SourceAttachment[];
+  content?: SourceBlock[];
   sourceIds: string[];
   operations: string[];
 }): Promise<void> {
@@ -96,6 +100,7 @@ export async function createRun(args: {
         operations: JSON.stringify(args.operations),
       }));
     (await db().prepare("INSERT INTO run_sources(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.attachments ?? [])));
+    if (args.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.content));
   })();
 }
 
@@ -182,6 +187,7 @@ async function hydrate(row: RunRow, decision?: DecisionRow): Promise<StoredRun> 
     status: row.status as RunStatus,
     inputText: row.input_text ?? "",
     attachments: JSON.parse(((await db().prepare("SELECT payload FROM run_sources WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "[]"),
+    content: JSON.parse(((await db().prepare("SELECT payload FROM run_source_documents WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "null") ?? undefined,
     sourceIds: JSON.parse(row.source_ids),
     operations: JSON.parse(row.operations),
     costUsd: row.cost_usd,

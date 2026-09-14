@@ -1,3 +1,4 @@
+import { validatePlanMetadata } from "@/lib/metadata/validate";
 import { assertGuided } from "@/lib/autonomous/store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
 import { z } from "zod";
@@ -23,9 +24,10 @@ export async function POST(request: Request) {
     assertOwner(run, user);
     await assertGuided(run.id);
     const snapshot = canonicalSnapshot(run, body.snapshot);
-    const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions });
+    const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions, metadata: snapshot.metadata });
     if (!plan.length) throw new Error("Select at least one article to submit");
     if (body.dryRun) return Response.json({ plan });
+    await validatePlanMetadata(plan, { impUser: user });
     const collections = await ra.getCollections({ impUser: user });
     const collection = collections.find((c) => c.code === snapshot.collection || c.displayName === snapshot.collection)?.code;
     if (!collection || !snapshot.language) throw new Error("Choose a valid collection and language");

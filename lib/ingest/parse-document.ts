@@ -2,7 +2,7 @@ export interface ParsedDocument {
   name: string;
   text: string;
   bytes: number;
-  kind: "pdf" | "docx" | "text";
+  kind: "pdf" | "docx" | "text" | "image";
 }
 
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./limits";
@@ -10,6 +10,9 @@ export { MAX_UPLOAD_BYTES } from "./limits";
 
 /** Allowlist rather than a denylist: anything not named here is refused. */
 const ACCEPTED: Record<string, ParsedDocument["kind"]> = {
+  "image/png": "image",
+  "image/jpeg": "image",
+  "image/webp": "image",
   "application/pdf": "pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
   "text/plain": "text",
@@ -18,6 +21,10 @@ const ACCEPTED: Record<string, ParsedDocument["kind"]> = {
 };
 
 const EXTENSIONS: Record<string, ParsedDocument["kind"]> = {
+  png: "image",
+  jpg: "image",
+  jpeg: "image",
+  webp: "image",
   pdf: "pdf",
   docx: "docx",
   txt: "text",
@@ -49,7 +56,10 @@ export async function parseDocument(
   if (!kind) throw new Error(`Unsupported file type: ${name}`);
 
   let text: string;
-  if (kind === "pdf") {
+  if (kind === "image") {
+    const { readImage } = await import("./read-image");
+    text = await readImage(name, buffer);
+  } else if (kind === "pdf") {
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: buffer });
     try {

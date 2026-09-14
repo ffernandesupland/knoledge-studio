@@ -5,21 +5,34 @@ import { KS_OPS_DEFAULT } from "../ks/data";
 
 export const fieldSchema = z.object({ fieldName: z.string().min(1).max(200), fieldValue: z.string().max(500_000) });
 const fields = z.array(fieldSchema).max(100);
-const operationName = z.enum(["Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
+const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 export const runSchema = z.object({
-  text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional() })).max(20).optional(),
+  text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
+  content: z.array(z.discriminatedUnion("type", [
+    z.object({ id: z.string().max(100), type: z.literal("text"), text: z.string().max(500_000) }),
+    z.object({ id: z.string().max(100), type: z.literal("attachment"), attachmentId: z.string().max(100) }),
+  ])).max(200).optional(),
   sourceSolutionIds: z.array(z.string().regex(/^\d{15}$/)).max(20).refine((v) => new Set(v).size === v.length, "Source IDs must be unique").optional(),
-  operations: z.array(operationName).max(6), templateName: z.string().max(200).optional(),
+  operations: z.array(operationName).max(7), templateName: z.string().max(200).optional(),
   path: z.enum(["create", "improve", "gap"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
+}).superRefine((v, ctx) => {
+  if (!v.content) return;
+  const ids = (v.attachments ?? []).map(a => a.id);
+  const refs = v.content.flatMap(b => b.type === "attachment" ? [b.attachmentId] : []);
+  if (ids.some(id => !id) || new Set(ids).size !== ids.length || new Set(refs).size !== refs.length || refs.length !== ids.length || refs.some(id => !ids.includes(id))) ctx.addIssue({ code: "custom", message: "Editor sources must match attachments exactly" });
+  if (new Set(v.content.map(b => b.id)).size !== v.content.length) ctx.addIssue({ code: "custom", message: "Editor block IDs must be unique" });
+  if (v.content.reduce((n,b) => n + (b.type === "text" ? b.text.length : 0),0) + (v.attachments ?? []).reduce((n,a)=>n+a.text.length,0) > 500_000) ctx.addIssue({ code: "custom", message: "Use a smaller source batch (500,000 characters maximum)" });
 }).refine((v) => v.text.length + (v.attachments ?? []).reduce((n, a) => n + a.text.length, 0) <= 500_000, "Use a smaller source batch (500,000 characters maximum)");
 const candidatePatch = z.object({
   key: z.string().max(100), title: z.string().min(1).max(500), summary: z.string().max(4000).optional(), keywords: z.array(z.string().max(100)).max(30).optional(),
   templateName: z.string().max(200), fields, rawContent: z.string().max(500_000), titleLocked: z.boolean().optional(),
 });
+const metadataValues = z.object({ collections: z.array(z.string().min(1).max(200)).min(1).max(20).optional(), taxonomies: z.array(z.string().min(1).max(1000)).max(20).optional(), language: z.string().min(1).max(100).optional() });
 export const snapshotSchema = z.object({
+  metadata: z.object({ global: metadataValues.optional(), solutions: z.record(z.string().max(100), metadataValues).optional() }).optional(),
   candidates: z.array(candidatePatch).max(60), groups: z.array(z.object({ survivorId: z.string().max(100) }).passthrough()).max(60),
   selectedKeys: z.array(z.string().max(100)).max(60), resolutions: z.array(z.enum(["separate", "merged"]).nullable()).max(60),
-  operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).length(6),
+  operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).min(6).max(7),
   collection: z.string().max(200), language: z.string().max(100), standard: z.string().max(100),
   standardsRules: z.array(z.string().min(1).max(500)).max(20), newSolutionTemplate: z.string().max(200).nullable(), templateOverrides: z.array(z.string().max(100)).max(60),
 });
@@ -62,8 +75,8 @@ export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapsho
     return { ...g, survivorId, members: g.members.map((m) => ({ ...m, retained: m.id === survivorId })) };
   });
   if (input.selectedKeys.some((key) => !candidates.some((c) => c.key === key && !c.researchOnly))) throw new ApiError("Unknown or research-only candidate selected");
-  if (new Set(input.operations.map((o) => o.name)).size !== 6) throw new ApiError("Invalid operation choices");
-  return { ...input, candidates, groups, operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: input.operations.find((v) => v.name === o.name)!.on })) };
+  if (new Set(input.operations.map((o) => o.name)).size !== input.operations.length || KS_OPS_DEFAULT.filter(o => o.name !== "Discover and suggest metadata").some(o => !input.operations.some(v => v.name === o.name))) throw new ApiError("Invalid operation choices");
+  return { ...input, candidates, groups, operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: input.operations.find((v) => v.name === o.name)?.on ?? false })) };
 }
 
 export function assertOwner(run: StoredRun | null, author: string): asserts run is StoredRun {

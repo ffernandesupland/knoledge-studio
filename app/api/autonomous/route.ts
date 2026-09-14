@@ -1,3 +1,4 @@
+import { assertImageOwnership } from "@/lib/ingest/image-store";
 import { z } from "zod";
 import { requireActor, apiError, ApiError } from "@/lib/api/auth";
 import { readJson, runSchema } from "@/lib/api/validation";
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
     const author = await requireActor(request);
     const body = await readJson(request, schema);
     if (!body.input.text.trim() && !body.input.attachments?.some(a => a.text.trim()) && !body.input.sourceSolutionIds?.length) throw new ApiError("Add supported source content before starting an autonomous run");
+    await assertImageOwnership(body.input, author);
     const id = `auto-${body.requestId}`;
     const job = await enqueue(id, author, body.input);
     return json({ runId: job.runId, status: job.status }, 202);

@@ -18,6 +18,8 @@ The existing backend's request limits still apply to individual steps, especiall
 - Tables: `autonomous_jobs`, `autonomous_events`, `autonomous_checkpoints`. Guided resume/discard and submission APIs exclude autonomous jobs.
 - A transaction claims only the requested run. A 60-second lease and run lock prevent duplicate work from simultaneous tabs. The request renews its lease every 15 seconds and releases it on completion; an abruptly interrupted request expires automatically. Guided lock behavior is unchanged.
 - Analysis reads/model results and decisions are checkpointed. Exact prompts, including their random data delimiters, remain logged; cache identity uses stable source content and prompt version. A crash before saving a model result can still repeat that model call.
+- Planning constrains evidence IDs, template names and metadata to the actual run/catalog. The collection must be a catalog code: choosing it for new articles is an editorial decision, while revisions preserve their parent's metadata. A rejected plan receives the precise validation errors and its prior output for correction, up to three saved attempts across requests. The analysis is reused, and every rejected attempt remains in the Explorer. Exhausting this limit disables Resume planning for that planner version.
+- Proposal `keep=true` includes its content in the plan, including as a merge contribution. `keep=false` excludes it entirely. Each merged group must produce a retained output through the shared write planner; contradictory all-excluded merges enter the same bounded correction loop. Guided selection semantics are unchanged.
 - Quality review allows at most three rounds per article across resumptions. Corrections must preserve supported facts, template field names, HTML body fields, and plain-text summary/keywords. A changed version must be reviewed again.
 - Agent approvals record the exact prepared version, policy version, explanation and source evidence. Invalid IDs, unsupported claims or unresolved conflicts cannot authorize writes. Independent valid articles can proceed while unresolved articles remain visible.
 - Live source versions are checked again before writes. New articles use review status; published parents get revisions. Tracking comments wait for a successful retained destination. Nothing is published, deleted or archived.
@@ -34,7 +36,7 @@ The activity list loads summaries in pages of 100. Selecting an event retrieves 
 
 Every terminal run also shows an execution result: recorded stage progress, the failure stage and message, saved proposals, and actual prepared/submitted article counts. This appears on the run screen and in past executions even when failure occurred before a submission plan existed. Older saved histories are backfilled when opened; proposals are never presented as created articles.
 
-If analysis succeeded but planning stopped before a decision snapshot or any write state, **Resume planning** reuses that analysis. This explicit action is owner-scoped, retains the original error/activity, and resumes the original authorization. Completed/partial runs, runs with write attempts, and obsolete authorizations cannot use it. The autonomous catalog uses the same `taxonomies,languages` facet request as guided Metadata; the pilot RA server rejects the languages-only request.
+If analysis succeeded but planning stopped before a decision snapshot or any write state, **Resume planning** reuses that analysis. This explicit action is owner-scoped, retains the original error/activity, and resumes the original authorization. A legacy partial run with an empty preparation plan and merged groups that excluded every proposal can also resume, but only when no write state or audit exists. Its unusable snapshot and empty plan are archived in activity before replanning. Completed runs, other partial runs, runs with write attempts, and obsolete authorizations cannot use it. The autonomous catalog uses the same `taxonomies,languages` facet request as guided Metadata; the pilot RA server rejects the languages-only request.
 
 ```mermaid
 flowchart TD
@@ -45,6 +47,9 @@ flowchart TD
   App --> Analyze[Existing analysis and selected tools]
   Analyze --> Plan[Agent chooses proposals, merges and metadata]
   Plan --> Prepare[Prepare articles in final templates]
+  Plan -->|Invalid IDs, metadata or merge participation| Repair[Log validation errors and ask AI to correct]
+  Repair -->|Within three attempts| Plan
+  Repair -->|Limit reached| Failed
   Plan -->|Catalog unavailable| Failed[Final result with saved proposals and error]
   Failed -->|Resume planning before any writes| Plan
   Prepare --> Review{Agent quality review}

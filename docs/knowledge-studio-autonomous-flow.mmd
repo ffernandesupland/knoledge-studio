@@ -64,7 +64,10 @@ auto_merge["Merge supported overlaps"]
 auto_decisions --> auto_merge
 auto_separate["Keep distinct topics separate"]
 auto_decisions --> auto_separate
-auto_invalid["Invalid or unsupported plan"]
+auto_repair["Correct invalid IDs or metadata"]
+auto_decisions --> auto_repair
+click auto_repair "#prompt-autonomousDecide" "Inspect autonomousDecide"
+auto_invalid["Planning correction limit reached"]
 auto_decisions --> auto_invalid
 auto_prepare["4 · Prepare each article"]
 root --> auto_prepare

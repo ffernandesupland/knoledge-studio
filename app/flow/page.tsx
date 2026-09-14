@@ -8,7 +8,7 @@ export default async function FlowPage({ searchParams }: { searchParams: Promise
   const initial: FlowOptions = { ...DEFAULT_FLOW };
   if (typeof query.options === "string") {
     const enabled = new Set(query.options.split(","));
-    for (const key of ["split", "restructure", "standards", "optimize", "dedupe", "gaps"] as const) initial[key] = enabled.has(key);
+    for (const key of ["split", "restructure", "standards", "optimize", "dedupe", "gaps", "metadataSuggest"] as const) initial[key] = enabled.has(key);
   }
   if (typeof query.sources === "string") {
     const sources = new Set(query.sources.split(","));

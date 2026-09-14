@@ -1,5 +1,6 @@
 export interface FlowOptions {
   autonomous?: boolean;
+  metadataSuggest?: boolean;
   text: boolean; file: boolean; url: boolean; existing: boolean;
   split: boolean; restructure: boolean; standards: boolean; optimize: boolean; dedupe: boolean; gaps: boolean;
   topics: number; existingSplits: boolean; batchOverlap: boolean; survivor: "existing" | "new"; fixedTemplate: boolean;
@@ -9,7 +10,7 @@ export interface FlowOptions {
 }
 export type NodeKind = "input" | "ai" | "api" | "logic" | "human" | "write" | "stop";
 export interface FlowNode { id: string; title: string; kind: NodeKind; detail: string; active: boolean; prompt?: string; children?: FlowNode[] }
-export const DEFAULT_FLOW: FlowOptions = { text: true, file: false, url: false, existing: false, split: true, restructure: true, standards: true, optimize: false, dedupe: true, gaps: false, topics: 2, existingSplits: false, batchOverlap: false, survivor: "existing", fixedTemplate: false, matches: "high", decision: "pending", conflict: false, resolved: false, failure: "none" };
+export const DEFAULT_FLOW: FlowOptions = { metadataSuggest: false, text: true, file: false, url: false, existing: false, split: true, restructure: true, standards: true, optimize: false, dedupe: true, gaps: false, topics: 2, existingSplits: false, batchOverlap: false, survivor: "existing", fixedTemplate: false, matches: "high", decision: "pending", conflict: false, resolved: false, failure: "none" };
 
 /** A decision tree, not a prediction of an AI result. Inactive branches remain inspectable. */
 export function buildFlow(o: FlowOptions): FlowNode[] {
@@ -27,7 +28,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
   return [
     n("input", "1 · Add source material", "input", true, "Ingestion does not call AI. Limits: 4 MB per uploaded file, 2 MB per fetched page, 500,000 source characters per analysis.", [
       n("text", "Typed or pasted text", "input", o.text, "Keep the original source text and wrap it as untrusted data for model calls."),
-      n("file", "Upload PDF, DOCX or text", "api", o.file, "POST /api/ingest → allowlist and size check → parse locally → extracted text persisted with the run."),
+      n("file", "Insert images, PDF, DOCX or text", "api", o.file, "POST /api/ingest → allowlist and size check → preserve original images or extract document text. Editor order is saved with the run; original images and surrounding text reach the model together."),
       n("url", "Fetch a URL", "api", o.url, "POST /api/ingest → check scheme/address → validate DNS and every redirect → bounded text extraction. No credentials sent to the source."),
       n("kb", "Pick existing solutions", "api", o.existing, "GET /api/kb/search → RA Neural search → user picks IDs → fetch full articles. Preserve IDs, templates and source versions."),
       n("empty", "No source content", "stop", !content, o.gaps ? "Gap discovery may run alone. Suggestions are research tasks, not articles." : "Stop: add source material or enable Find gaps."),
@@ -62,7 +63,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
       n("merge", "Merge → choose survivor → confirm sources", "human", merge, "The author chooses the retained article and confirms the group. Unselected own candidates are excluded; external duplicate members remain included."),
       n("deselect", "Deselect a candidate", "human", true, "No write for that candidate. A deselected candidate is also omitted from its merge."),
     ]),
-    n("metadata", "4 · Metadata and draft editing", "human", submit, "Set collection, language classification, standards and new-draft templates. Save a coherent decision snapshot; reload restores survivor choices and toggles. Source/title edits persist. No AI call at this stage."),
+    n("metadata", "4 · Metadata and draft editing", "human", submit, "Set global or per-article collections, taxonomies, language and templates. Optional metadata research uses the resulting article and its merge sources, retrieves similar solutions and explores taxonomy branches. Review concise evidence and choose which suggestions to use. Metadata changes invalidate prepared approvals.", [n("metadata_research", "Discover and suggest metadata", "ai", submit && !!o.metadataSuggest, "For each resulting article: read proposed content and merge sources, retrieve published examples, explore taxonomy branches, validate suggestions and show short evidence. Choose global defaults or per-article overrides; no write occurs during research.")]),
     n("submit", "5 · Prepare drafts without KB writes", "logic", submit, "Server validates ownership and candidate/group identities, then saves a mutable preparation plan under a run lock. Changing sources, decisions or metadata invalidates its prepared drafts. No KB writes or comments are allowed here.", [
       n("merge_ai", "Merge selected source content", "ai", merge, "Read current existing sources; combine against the survivor's template. Retain conflicts, contributions and template warnings. Detect source changes before writing.", undefined, "mergeSections"),
       n("author", "Restructure an unmerged article", "ai", !merge && o.restructure, "Original source + reviewed scope plan (guidance, not facts) → final template fields, title, summary and keywords. Preserve user/optimized title choices. Never guess missing technical facts.", undefined, "restructure"),
@@ -118,9 +119,10 @@ function autonomousFlow(o: FlowOptions): FlowNode[] {
     node("auto_queue", "1 · Opt in and queue", "input", "Switch off by default. Record the signed-in actor, selected options and authorization to create review drafts/revisions. The app automatically advances saved steps while the page is open. Reopening the run resumes progress. No environment toggle or worker command is required."),
     { ...analysis, title: "2 · Gather evidence with the existing pipeline", detail: "Same models and selected analysis tools as guided mode. Calls and progress are persisted. Completed reads can be reused after a request interruption." },
     node("auto_decisions", "3 · Agent chooses the complete plan", "ai", "Read available templates, collections and languages. Decide every proposal and duplicate group with an evidence-based explanation. Preserve explicit constraints and existing templates. Validate every ID; unsupported gaps are excluded.", [
-      node("auto_merge", "Merge supported overlaps", "logic", "Choose a retained member only from the verified group. Related topics alone do not justify merging. Included sources feed one resulting article."),
+      node("auto_merge", "Merge supported overlaps", "logic", "Choose a retained member only from the verified group. Related topics alone do not justify merging. keep=true includes source content even when merging into an existing article; it does not create a separate draft. Every merged group must produce a retained output. Contradictory exclusions trigger plan correction."),
       node("auto_separate", "Keep distinct topics separate", "logic", "Each included topic receives its own create/update operation. Excluded proposals are logged and never written."),
-      node("auto_invalid", "Invalid or unsupported plan", "stop", "Stop before writing if the agent returns unknown IDs, invalid metadata or no defensible plan. Persist the failure."),
+      node("auto_repair", "Correct invalid IDs or metadata", "ai", "Constrain choices to the run and catalog. If validation rejects a plan, send the exact errors and prior output back to the agent. Save each attempt and reuse the analysis. At most three attempts across requests.", undefined, "autonomousDecide"),
+      node("auto_invalid", "Planning correction limit reached", "stop", "Stop before writing after three invalid attempts. Preserve the failure and proposals in the final result. Resume cannot reset the limit for the same planner version."),
     ], "autonomousDecide"),
     node("auto_prepare", "4 · Prepare each article", "logic", "Persist a write plan. Use the selected template, source documents and standards through the existing preparation engine. No KB writes here.", [
       node("auto_merge_prompt", "Combine merge sources", "ai", "Preserve source contributions and conflicts in the retained template.", undefined, "mergeSections"),

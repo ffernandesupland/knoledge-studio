@@ -77,6 +77,10 @@ export const ra = {
     return call<WSCollection[]>(ctx, { path: "/api/rest/collections" });
   },
 
+  getBrowsePaths(taxonomyPath = "", ctx: RaContext = {}): Promise<NonNullable<WSSearchResult["browsePaths"]>> {
+    return call(ctx, { path: "/api/rest/browsepaths", query: { taxonomyPath, statuses: "approved" } });
+  },
+
   /** Real user queries, used for search optimization and as gap-analysis seeds. */
   getCompanyTopSearches(
     timerange: "today" | "lastweek" | "lastmonth" | "alltime" = "lastmonth",
@@ -204,25 +208,27 @@ export const ra = {
    */
   async updateSolution(
     solution: WSSolution,
-    changes: { title?: string; summary?: string; keywords?: string; fields?: WSDisplayField[] },
+    changes: { title?: string; summary?: string; keywords?: string; fields?: WSDisplayField[]; collections?: string; taxonomies?: string; language?: string },
     ctx: RaContext = {},
   ): Promise<{ mode: "revision" | "direct"; solutionId: string; request: { title?: string; summary?: string; keywords?: string; fields?: WSDisplayField[]; templateName?: string; revisionParentID?: string; solutionID?: string; collections?: string; taxonomies?: string; language?: string; minorSave?: boolean } }> {
+    if (changes.taxonomies === "" && solution.taxonomy?.length) throw new Error("RightAnswers retains existing taxonomies when an empty list is sent. Choose a replacement path or clear them in RightAnswers.");
     const live = isLive(solution.status);
     const request = {
         ...changes,
         templateName: solution.templateName ?? undefined,
         // A revision is a new record, so it must carry collections/taxonomy forward.
-        // A direct update must NOT send collections: combined with minorSave it makes RA
-        // fork a new record instead of editing in place (verified V12).
+        // Direct metadata changes use a major save (minorSave=false); QA verified
+        // 2026-09-13 that collections/taxonomies update the same draft. Content-only
+        // edits retain minorSave=true. Collections + minorSave=true can fork (V12).
         ...(live
           ? {
               revisionParentID: solution.id,
-              collections: (solution.collections ?? []).join(","),
-              taxonomies: (solution.taxonomy ?? []).join(","),
-              language: solution.language,
+              collections: changes.collections ?? (solution.collections ?? []).join(","),
+              taxonomies: changes.taxonomies ?? (solution.taxonomy ?? []).join(","),
+              language: changes.language ?? solution.language,
             }
           : { solutionID: solution.id }),
-        minorSave: !live,
+        minorSave: !live && changes.collections === undefined && changes.taxonomies === undefined && changes.language === undefined,
       };
     const raw = await this.manageSolution(request, ctx);
     const solutionId = parseSolutionId(raw);

@@ -74,6 +74,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
           </> : prepared ? <>
             <p className={`sg-status sg-status-${row.result?.outcome}`}>{statusLabel(row.result)}</p>
             {row.result?.message && <p>{row.result.message}</p>}
+            {prepared.metadata && <div className="sg-warning"><strong>Selected metadata</strong><p>Collections: {prepared.metadata.collections?.join(", ") ?? "Default / existing"}</p><p>Taxonomies: {prepared.metadata.taxonomies?.map(p => p.replaceAll("//", " › ")).join("; ") || "None / existing"}</p><p>Language: {prepared.metadata.language ?? "Default / existing"}</p></div>}
             {prepared.warnings.map((w, i) => <p className="sg-warning" key={i}>{w}</p>)}
             {editing && onSave ? <form key={prepared.version} onSubmit={(e) => {
               e.preventDefault(); const data = new FormData(e.currentTarget);

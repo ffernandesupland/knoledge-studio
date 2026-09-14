@@ -1,3 +1,7 @@
+import type { MetadataValues } from "../metadata/settings";
+import { getRun } from "../db/runs";
+import { orderedSources } from "../ks/source-document";
+import { withSourceContext } from "../llm/source-context";
 import { solutionVersion } from "./version";
 import { randomUUID } from "node:crypto";
 import { ra } from "../ra/client";
@@ -12,6 +16,7 @@ import { validateFields, validateSummary } from "./content";
 import { getWriteState, saveWriteState } from "./state";
 
 export interface PreparedContent {
+  metadata?: MetadataValues;
   version: string;
   readyForSubmission?: boolean;
   sourceVersions?: Record<string, string>;
@@ -85,6 +90,12 @@ export async function assertPreparedPlan(args: ExecuteArgs) {
 
 /** Caller holds a durable run lock. Each write is journaled before contacting RA. */
 export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void): Promise<OpResult[]> {
+  const run = await getRun(args.runId);
+  if (run && run.author !== args.user) throw new Error("Run belongs to another author");
+  const originals = run?.content || run?.attachments?.some(a => a.imageId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
+  return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress));
+}
+async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void): Promise<OpResult[]> {
   const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [] } = args;
   if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
@@ -204,6 +215,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             prepared.sourceVersions = { ...prepared.sourceVersions, [parent.id]: version };
           }
           if (!prepared.title.trim()) throw new Error("Article title must not be empty.");
+          prepared.metadata = op.metadata;
           prepared.readyForSubmission = true;
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
           if (args.prepareOnly) {
@@ -217,7 +229,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
           let solutionId: string;
           let response: string;
           if (op.kind === "create") {
-            payload = { ...changes, templateName: prepared.templateName, status: "review", collections: collection, language };
+            payload = { ...changes, templateName: prepared.templateName, status: "review", collections: op.metadata?.collections?.join(",") ?? collection, taxonomies: op.metadata?.taxonomies?.join(","), language: op.metadata?.language ?? language };
             (await saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared }));
             writing = true;
             response = await ra.manageSolution(payload as Parameters<typeof ra.manageSolution>[0], ctx);
@@ -233,7 +245,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
             payload = { ...changes, templateName: parent.templateName, parentId: parent.id, sourceStatus: parent.status, collections: parent.collections, taxonomy: parent.taxonomy, language: parent.language };
             (await saveWriteState(runId, op.idempotencyKey, { status: "writing", prepared }));
             writing = true;
-            const updated = await ra.updateSolution(parent, changes, ctx);
+            const updated = await ra.updateSolution(parent, { ...changes, ...(op.metadata?.collections ? { collections: op.metadata.collections.join(",") } : {}), ...(op.metadata?.taxonomies ? { taxonomies: op.metadata.taxonomies.join(",") } : {}), ...(op.metadata?.language ? { language: op.metadata.language } : {}) }, ctx);
             payload = updated.request;
             solutionId = updated.solutionId;
             if (!solutionId) throw new Error("Missing write target; reconcile before retrying.");

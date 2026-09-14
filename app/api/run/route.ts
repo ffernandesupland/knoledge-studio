@@ -1,3 +1,4 @@
+import { assertImageOwnership } from "@/lib/ingest/image-store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
 import { runPipeline } from "@/lib/pipeline/run";
 import { completeRun, createRun, failRun } from "@/lib/db/runs";
@@ -14,8 +15,9 @@ export async function POST(request: Request) {
   try {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
+    await assertImageOwnership(input, author);
     const runId = `run-${randomUUID()}`;
-    (await createRun({ id: runId, author, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments }));
+    (await createRun({ id: runId, author, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({

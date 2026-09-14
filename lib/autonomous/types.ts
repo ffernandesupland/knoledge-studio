@@ -39,3 +39,6 @@ export interface AutonomousJob {
   error?: string;
 }
 export const AUTONOMOUS_POLICY_VERSION = "2026-09-11.1";
+// Separate from user authorization so planner fixes do not invalidate saved runs.
+export const DECISION_REPAIR_KEY = "decision-repair:2026-09-11.3";
+export const MAX_DECISION_ATTEMPTS = 3;
