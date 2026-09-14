@@ -2,15 +2,19 @@ import { requireActor, apiError } from "@/lib/api/auth";
 import { fetchUrlSafely } from "@/lib/ingest/fetch-url";
 import { MAX_UPLOAD_BYTES, parseDocument } from "@/lib/ingest/parse-document";
 
+import { classify } from "@/lib/ingest/parse-document";
+import { storeImage } from "@/lib/ingest/image-store";
 import { MAX_UPLOAD_MB } from "@/lib/ingest/limits";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 export interface IngestedSource {
   label: string;
   text: string;
   meta: string;
+  kind?: string;
+  imageId?: string;
 }
 
 /**
@@ -21,7 +25,7 @@ export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") ?? "";
 
   try {
-    await requireActor(request);
+    const author = await requireActor(request);
     if (contentType.includes("application/json")) {
       const { url } = (await request.json()) as { url?: string };
       if (!url?.trim()) return Response.json({ error: "No URL provided" }, { status: 400 });
@@ -46,11 +50,16 @@ export async function POST(request: Request) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
+      if (classify(file.name, file.type) === "image") {
+        const imageId = await storeImage(author, file.name, buffer);
+        return Response.json({ source: { label: file.name, text: `Original image: ${file.name}`, kind: "image", imageId, meta: `${Math.round(file.size / 1024)} KB · IMAGE` } });
+      }
       const parsed = await parseDocument(file.name, file.type, buffer);
       const source: IngestedSource = {
+        kind: parsed.kind,
         label: parsed.name,
         text: parsed.text,
-        meta: `${Math.round(parsed.bytes / 1024)} KB · ${parsed.kind.toUpperCase()}`,
+        meta: `${Math.round(parsed.bytes / 1024)} KB · ${parsed.kind === "image" ? "IMAGE · " + file.name.split(".").pop()?.toUpperCase() : parsed.kind.toUpperCase()}`,
       };
       return Response.json({ source });
     }

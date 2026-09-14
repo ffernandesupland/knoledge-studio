@@ -18,9 +18,10 @@ export async function canResumePlanning(job: AutonomousJob): Promise<boolean> {
   if (!["failed", "partial"].includes(job.status) || job.authorization.actor !== job.author || job.authorization.policyVersion !== AUTONOMOUS_POLICY_VERSION || job.authorization.scope !== "create-review-drafts-and-revisions") return false;
   if (!await checkpoint(job.runId, "analysis-complete")) return false;
   const contradictory = await emptyContradictoryPlan(job.runId);
-  if (!contradictory && (job.status !== "failed" || await checkpoint(job.runId, "decisions"))) return false;
+  const pendingMetadata = job.input.operations.includes("Discover and suggest metadata") && !await checkpoint(job.runId, "metadata-complete");
+  if (!contradictory && (job.status !== "failed" || (await checkpoint(job.runId, "decisions") && !pendingMetadata))) return false;
   const repair = await checkpoint<{ attempts: number }>(job.runId, DECISION_REPAIR_KEY);
-  if (repair && repair.attempts >= MAX_DECISION_ATTEMPTS) return false;
+  if (repair && repair.attempts >= MAX_DECISION_ATTEMPTS && !await checkpoint(job.runId, "decisions")) return false;
   const state = await db().prepare(`SELECT 1 FROM execution_plans WHERE run_id=? AND ?=0
     UNION ALL SELECT 1 FROM write_state WHERE run_id=?
     UNION ALL SELECT 1 FROM write_audit WHERE run_id=? LIMIT 1`).get(job.runId, contradictory ? 1 : 0, job.runId, job.runId);

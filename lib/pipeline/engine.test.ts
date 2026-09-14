@@ -1,3 +1,4 @@
+import { sourceContext } from "../llm/source-context";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -83,6 +84,32 @@ describe("analysis → view → plan contract", () => {
     const plan = buildWritePlan({ runId, ...view, selected: new Set(["c0"]), resolutions: [] });
     await executeWritePlan(args(plan, { restructureEnabled: true }));
     expect(mocks.restructure.mock.calls[0][2]).toEqual(view.candidates[0].proposal);
+  });
+  it("includes typed text, multiple images and a PDF together in planning evidence", async () => {
+    await runPipeline({ text: "User context", attachments: [
+      { label: "screen-one.png", text: "First screenshot evidence" },
+      { label: "screen-two.jpg", text: "Second screenshot evidence" },
+      { label: "manual.pdf", text: "PDF instructions" },
+    ], operations: [] });
+    expect(mocks.plan.mock.calls[0][0][0]).toMatchObject({
+      content: "User context\n\nFirst screenshot evidence\n\nSecond screenshot evidence\n\nPDF instructions",
+      sourceLabels: ["pasted text", "screen-one.png", "screen-two.jpg", "manual.pdf"],
+    });
+  });
+  it("preserves ordered originals in analysis and restores them for article preparation", async () => {
+    const content = [{ id: "before", type: "text" as const, text: "Before image" }, { id: "image", type: "attachment" as const, attachmentId: "a" }, { id: "after", type: "text" as const, text: "After image" }];
+    const attachments = [{ id: "a", label: "image.png", text: "Original image", imageId: "image-asset" }];
+    await db().prepare("UPDATE run_sources SET payload=? WHERE run_id=?").run(JSON.stringify(attachments), runId);
+    await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(runId, JSON.stringify(content));
+    let analysisContext: unknown;
+    const planner = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementationOnce((...args) => { analysisContext = sourceContext(); return planner(...args); });
+    await runPipeline({ text: "Before image\nAfter image", attachments, content, operations: [] });
+    expect(analysisContext).toEqual([{ label: "Text 1", content: "Before image" }, { label: "image.png", content: "Original image", imageId: "image-asset" }, { label: "Text 3", content: "After image" }]);
+    let preparationContext: unknown;
+    mocks.restructure.mockImplementationOnce(() => { preparationContext = sourceContext(); return result({ title: "Article", summary: "Summary", keywords: [], fields }); });
+    await executeWritePlan(args([newOp()], { prepareOnly: true }));
+    expect(preparationContext).toEqual(analysisContext);
   });
   it("rejects invented topic keys from the planner", async () => {
     mocks.plan.mockResolvedValue(result({ proposals: [{ key: "made-up", purpose: "x", coverage: ["x"], rationale: "x", openQuestions: [] }] }));
@@ -404,4 +431,16 @@ describe("review route and plan invalidation", () => {
     expect((await loadExecution<ExecuteArgs>(runId))!.reviewIdentity).toBe("first");
     expect((await getWriteState(ready.idempotencyKey))!.status).toBe("ok");
   });
+});
+
+it("preserves per-article metadata through preparation and passes the same choices to create and revise", async () => {
+  const first = { ...newOp("a"), metadata: { collections: ["first", "second"], taxonomies: ["Root//A"], language: "French" } };
+  const second: WriteOp = {kind:"revise",candidateKey:source.id,solutionId:source.id,title:source.title,templateName:template.templateName,fields,rawContent:"Existing content",fromMerge:false,idempotencyKey:`${runId}:revise:${source.id}`,metadata:{collections:["other"],taxonomies:[]}};
+  const ready = await executeWritePlan(args([first,second],{prepareOnly:true}));
+  expect(ready.every(r=>r.outcome==="ready")).toBe(true);
+  expect(ready[0].prepared?.metadata).toEqual(first.metadata);
+  const written = await executeWritePlan(args([first,second]));
+  expect(written.every(r=>r.outcome==="ok")).toBe(true);
+  expect(mocks.write.mock.calls[0][0]).toMatchObject({collections:"first,second",taxonomies:"Root//A",language:"French"});
+  expect(mocks.update.mock.calls[0][1]).toMatchObject({collections:"other",taxonomies:""});
 });

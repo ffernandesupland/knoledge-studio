@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { PromptExample } from "@/lib/flow/catalog";
 import { buildFlow, DEFAULT_FLOW, effectiveNodes, mermaidTree, type FlowNode, type FlowOptions } from "@/lib/flow/model";
 
-const options = [["split", "Split topics"], ["restructure", "Restructure content"], ["standards", "Apply content standards"], ["dedupe", "Find duplicates"], ["optimize", "Optimize for search"], ["gaps", "Find gaps"]] as const;
+const options = [["split", "Split topics"], ["restructure", "Restructure content"], ["standards", "Apply content standards"], ["dedupe", "Find duplicates"], ["optimize", "Optimize for search"], ["gaps", "Find gaps"], ["metadataSuggest", "Discover and suggest metadata"]] as const;
 const kinds = { input: "Source", ai: "AI prompt", api: "API / parser", logic: "Code", human: "Your decision", write: "KB write", stop: "Wait / stop" };
 
 export function FlowExplorer({ catalog, initial, runId, executed = false }: { executed?: boolean; catalog: PromptExample[]; initial: FlowOptions; runId?: string }) {

@@ -82,6 +82,7 @@ export const KS_PATHS: Record<PathKey, PathDef> = {
 };
 
 export const KS_OPS_DEFAULT: Operation[] = [
+  { name: "Discover and suggest metadata", desc: "Research collections and taxonomies per solution; review in step 3 or apply automatically in autonomous mode", icon: "sell", on: false },
   {
     name: "Split topics",
     desc: "Split content that covers several topics into separate solutions",

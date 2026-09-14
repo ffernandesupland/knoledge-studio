@@ -20,13 +20,14 @@ import { decisionSchema, decisionSnapshot, validateQuality, type QualityDecision
 import { DECISION_REPAIR_KEY } from "./types";
 import { canResumePlanning, resumePlanning } from "./recovery";
 
-const mocks = vi.hoisted(() => ({ pipeline: vi.fn(), model: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(), author: vi.fn(), merge: vi.fn(), solution: vi.fn(), search: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pipeline: vi.fn(), model: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(), author: vi.fn(), merge: vi.fn(), solution: vi.fn(), search: vi.fn(), research: vi.fn(), browse: vi.fn() }));
+vi.mock("../metadata/pipeline", () => ({ researchPipelineMetadata: mocks.research }));
 vi.mock("../pipeline/run", () => ({ runPipeline: mocks.pipeline }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.model }));
 vi.mock("../llm/operations", () => ({ restructure: mocks.author, mergeSections: mocks.merge, applyStandards: vi.fn() }));
 vi.mock("../ra/client", () => ({ withRaActor: (_: string, fn: () => unknown) => fn(), ra: {
   getTemplates: async () => [template], getCollections: async () => [{ code: "support" }], search: mocks.search,
-  getSolution: mocks.solution, getSolutionHtml: mocks.solution, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag,
+  getBrowsePaths: mocks.browse, getSolution: mocks.solution, getSolutionHtml: mocks.solution, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag,
 } }));
 const template = { templateName: "How To (RA)", templateType: "standard", kbPrefix: "", fields: [{ fieldName: "Solution", description: "", required: true, searchable: true }] };
 const sourceText = "Open settings and import the verified VPN profile supplied by IT.";
@@ -64,6 +65,63 @@ beforeEach(async () => {
 async function run() { await enqueue(id, "sauser", input); const lease = (await claim())!; await processJob(lease.job, lease.token); return lease; }
 
 describe("autonomous pipeline with the real preparation and write engine", () => {
+  it("researches each final output in saved steps and sends its own validated metadata to the write engine", async () => {
+    mocks.pipeline.mockResolvedValue(analysis(2));
+    mocks.browse.mockResolvedValue([{ value: "VPN//Setup" }, { value: "VPN//Access" }]);
+    mocks.research.mockImplementation(async (_id, op, ctx) => {
+      expect(ctx).toEqual({ impUser: "sauser" });
+      return { rationale: "The article matches this task taxonomy.", uncertainties: [], suggestions: [
+        { option: { kind: "collection", value: "support" } },
+        { option: { kind: "taxonomy", value: op.candidateKey === "c0" ? "VPN//Setup" : "VPN//Access" } },
+      ] };
+    });
+    await enqueue(id, "sauser", { ...input, operations: ["Discover and suggest metadata"] });
+    for (let step = 0; step < 20; step++) {
+      await readNdjson(await advanceRoute(new Request("http://localhost/api/autonomous/advance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: id }) })), () => {});
+      if ((await getJob(id))?.status === "completed") break;
+    }
+    expect((await getJob(id))?.status).toBe("completed");
+    expect(mocks.research).toHaveBeenCalledTimes(2);
+    expect(mocks.write.mock.calls.map(([payload]) => payload.taxonomies)).toEqual(["VPN//Setup", "VPN//Access"]);
+    expect((await getRun(id))?.snapshot?.metadata?.solutions?.c1).toEqual({ collections: ["support"], taxonomies: ["VPN//Access"] });
+    expect((await events(id)).filter(e => e.name.startsWith("Apply metadata:"))).toHaveLength(2);
+  });
+  it("researches only a retained merged solution and applies its metadata to the revision", async () => {
+    mocks.pipeline.mockResolvedValue(mergeAnalysis(1));
+    mocks.browse.mockResolvedValue([{ value: "VPN//Setup" }]);
+    mocks.research.mockImplementation(async (_id, op) => {
+      expect(op.kind).toBe("revise");
+      expect(op.candidateKey).toBe("260909000000010");
+      expect(op.mergeSources.length).toBeGreaterThan(0);
+      return { rationale: "Supported merged task.", suggestions: [{ option: { kind: "taxonomy", value: "VPN//Setup" } }], uncertainties: [] };
+    });
+    await enqueue(id, "sauser", { ...input, operations: ["Discover and suggest metadata"] });
+    const lease = (await claim(id))!;
+    await processJob(lease.job, lease.token);
+    expect((await getJob(id))?.status).toBe("completed");
+    expect(mocks.research).toHaveBeenCalledTimes(1);
+    expect(mocks.update.mock.calls[0][1]).toMatchObject({ taxonomies: "VPN//Setup" });
+    expect(mocks.flag).toHaveBeenCalledTimes(1);
+  });
+  it("stops before preparation on invalid research metadata and can resume saved research decisions", async () => {
+    mocks.research.mockResolvedValueOnce({ rationale: "Suggested", suggestions: [{ option: { kind: "collection", value: "invented" } }] });
+    await enqueue(id, "sauser", { ...input, operations: ["Discover and suggest metadata"] });
+    let lease = (await claim(id))!;
+    await processJob(lease.job, lease.token);
+    expect((await getJob(id))?.status).toBe("failed");
+    expect(mocks.author).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(await canResumePlanning((await getJob(id))!)).toBe(true);
+    const status = await (await statusRoute(new Request(`http://localhost/api/autonomous?runId=${id}`))).json();
+    expect(status.outcome.failedStage).toBe("Choose actions and metadata");
+    mocks.research.mockResolvedValue({ rationale: "No supported change", suggestions: [], uncertainties: [] });
+    await resumePlanning(id, "sauser");
+    lease = (await claim(id))!;
+    await processJob(lease.job, lease.token);
+    expect((await getJob(id))?.status).toBe("completed");
+    expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
   it("repairs seven merged groups with keep=false and produces revisions instead of zero operations or standalone drafts", async () => {
     mocks.pipeline.mockResolvedValue(mergeAnalysis());
     let attempts = 0;
@@ -248,6 +306,7 @@ describe("autonomous pipeline with the real preparation and write engine", () =>
     });
     await run();
     expect((await getJob(id))?.status).toBe("completed"); expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(mocks.research).not.toHaveBeenCalled();
     const flow = await readExecutedFlow(id);
     expect(flow?.mode).toBe("autonomous"); expect(flow?.graph?.rows[0].result?.outcome).toBe("ok");
     expect((await events(id)).some(e => e.kind === "decision" && e.explanation?.includes("matches"))).toBe(true);

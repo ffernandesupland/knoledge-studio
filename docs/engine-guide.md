@@ -134,3 +134,9 @@ An unwritten new article paused for review can be regenerated from its saved sou
 ## Optional autonomous mode
 
 The guided flow above remains the default. The first-step autonomous switch delegates plan, merge and metadata choices and final quality review to the existing AI models. The app automatically advances saved steps to create approved review drafts/revisions, logs explicit decision explanations and tool/model inputs and outputs, and ends on the same result graph. See [Autonomous pipeline](autonomous-pipeline.md) for setup, recovery boundaries and the full flow tree. No Vercel orchestration service or provider migration is required.
+
+## Ordered visual sources
+
+The content editor stores a sequence of text blocks and attachment references. Images and documents are inserted at the cursor immediately, so parallel upload completion cannot reorder them. Original PNG, JPEG and WebP images are stored in authenticated, chunked database records and displayed inline. PDFs, Word and text documents expose their parsed text in a card at the insertion point.
+
+Analysis, article preparation and autonomous review send original image bytes interleaved with neighbouring source text to the model. Image ingestion itself does not transcribe the image. Run history saves the editor sequence and image references; previews require the same author account. Model audit entries reference the durable image IDs instead of repeating base64 payloads. Historical uploads that only saved a transcription must be reinserted to recover visual context.

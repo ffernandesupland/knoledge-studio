@@ -1,6 +1,15 @@
 import { AUTONOMOUS_SCHEMA } from "../autonomous/schema";
 export const SCHEMA = `${AUTONOMOUS_SCHEMA}
 
+CREATE TABLE IF NOT EXISTS source_images (
+  id TEXT PRIMARY KEY, author TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, bytes INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS source_image_chunks (
+  image_id TEXT NOT NULL REFERENCES source_images(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(image_id,position)
+);
+CREATE TABLE IF NOT EXISTS run_source_documents (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
+
 CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,
   created_at    TEXT NOT NULL,
@@ -67,6 +76,10 @@ CREATE TABLE IF NOT EXISTS write_state (
   key TEXT PRIMARY KEY, run_id TEXT NOT NULL,
   status TEXT NOT NULL, prepared TEXT, result TEXT,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS metadata_research (
+  run_id TEXT NOT NULL REFERENCES runs(id), candidate_key TEXT NOT NULL, identity TEXT NOT NULL, report TEXT NOT NULL,
+  PRIMARY KEY (run_id,candidate_key)
 );
 CREATE TABLE IF NOT EXISTS ai_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, phase TEXT NOT NULL,

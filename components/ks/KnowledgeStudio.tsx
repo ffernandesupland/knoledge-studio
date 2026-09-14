@@ -1,4 +1,7 @@
 "use client";
+import PipelineMetadata from "./PipelineMetadata";
+import type { MetadataSettings } from "@/lib/metadata/settings";
+import { legacyDocument, type SourceBlock, type SourceAttachment } from "@/lib/ks/source-document";
 
 import { AutonomousRun } from "./AutonomousRun";
 import { SignOutButton } from "@/components/auth/SignOutButton";
@@ -91,7 +94,13 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   const [screen, setScreen] = useState<Screen>("input");
   const [path, setPath] = useState<PathKey | null>(null);
   const [contentText, setContentText] = useState("");
+  const [sourceContent, setSourceContent] = useState<SourceBlock[]>([{ id: "text-start", type: "text", text: "" }]);
+  function changeSourceContent(blocks: SourceBlock[]) {
+    setSourceContent(blocks);
+    setContentText(blocks.flatMap(b => b.type === "text" ? [b.text] : []).join("\n"));
+  }
   const [gapQuestion, setGapQuestion] = useState("");
+  const [sourcesBusy, setSourcesBusy] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
 
@@ -117,6 +126,8 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   const [meta, setMeta] = useState<MetadataOptions | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
+  const [metadataSettings, setMetadataSettings] = useState<MetadataSettings>({});
+  const [metadataBusy, setMetadataBusy] = useState(false);
   const [metaFields, setMetaFields] = useState({ Collection: "", Language: "", Owner: "Loading author…" });
   const [csStandard, setCsStandard] = useState("Default company standard");
   const [csRules, setCsRules] = useState<string[]>([...KS_CS_PRESETS["Default company standard"]]);
@@ -145,7 +156,8 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
         });
         setSelected(new Set(snapshot?.selectedKeys ?? stored.decisions?.selectedKeys ?? stored.candidates.filter((c: { researchOnly?: boolean }) => !c.researchOnly).map((c: { key: string }) => c.key)));
         setResolutions(snapshot?.resolutions ?? stored.decisions?.resolutions ?? stored.groups.map(() => null));
-        setOps(snapshot?.operations ?? KS_OPS_DEFAULT.map((o) => ({ ...o, on: stored.operations.includes(o.name) })));
+        setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: snapshot?.operations.find(v => v.name === o.name)?.on ?? stored.operations.includes(o.name) })));
+        setMetadataSettings(snapshot?.metadata ?? {});
         if (snapshot) {
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: snapshot.collection, Language: snapshot.language }));
@@ -156,7 +168,9 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
           setMetaFields((p) => ({ ...p, Collection: stored.decisions.collection, Language: stored.decisions.language ?? p.Language }));
         }
         setPath(stored.path ?? null); setContentText(stored.inputText ?? "");
-        setAttachments((stored.attachments ?? []).map((a: { label: string; text: string; kind?: string }) => ({ name: a.label, text: a.text, icon: a.kind === "url" ? "link" : "description" })));
+        const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
+        setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
+        setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
         setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, { id, title: `Solution ${id}`, meta: "Selected source" }])));
         if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? [], d.execution.stage, d.execution.reviewIdentity); setScreen("submit"); }
         else setScreen("check");
@@ -218,6 +232,11 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   }
 
   async function createPlan() {
+    if (sourcesBusy) return;
+    if (sourceContent.some(b => b.type === "attachment" && !attachments.some(a => a.id === b.attachmentId))) {
+      showToast({ message: "Remove failed uploads or wait until every source is ready." }); return;
+    }
+    const orderedContent: SourceBlock[] = gapQuestion ? [{ id: "gap-question", type: "text", text: `Question: ${gapQuestion}` }, ...sourceContent] : sourceContent;
     const sourceSolutionIds = Object.entries(kbSelected)
       .filter(([, on]) => on)
       .map(([id]) => id);
@@ -229,7 +248,8 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       if (autoStarting) return;
       const input = {
         text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
-        attachments: attachments.map(a => ({ label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+        content: orderedContent,
+        attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
         sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
       };
@@ -246,12 +266,14 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       return;
     }
     setScreen("check");
+    setMetadataSettings({});
     setSelected(new Set());
     setResolutions([]);
     setSurvivorChoice({}); setTemplateOverrides(new Set()); submitRun.reset();
     const view = await pipeline.start({
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
-      attachments: attachments.map((a) => ({ label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+      content: orderedContent,
+      attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
       sourceSolutionIds,
       operations: ops.filter((o) => o.on).map((o) => o.name),
       path: path ?? undefined,
@@ -275,6 +297,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   /** "Start over": clears every screen's state and stops the server from offering this run back. */
   function resetAll(finished = false) {
+    if (sourcesBusy) return;
     setGapQuestion("");
     const hasProgress =
       path != null || contentText.trim().length > 0 || attachments.length > 0 || pipeline.phase !== "idle";
@@ -285,7 +308,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     setAutoMode(false); autoRequest.current = null;
     setScreen("input");
     setPath(null);
-    setContentText("");
+    setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]);
     setAttachments([]);
     setDragOver(false);
     setKbSearchOpen(false);
@@ -293,6 +316,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     setKbRows([]);
     setKbSelected({});
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o })));
+    setMetadataSettings({});
 
     pipeline.reset();
     submitRun.reset();
@@ -371,13 +395,15 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     });
   }, [groups, survivorChoice]);
 
-  const flowKeys: Record<string, string> = { "Split topics": "split", "Restructure content": "restructure", "Apply content standards": "standards", "Find duplicates": "dedupe", "Optimize for search": "optimize", "Find gaps": "gaps" };
+  const metadataEnabled = ops.some(o => o.name === "Discover and suggest metadata" && o.on);
+  const showMetadataEditor = metadataEnabled || Object.keys(metadataSettings.global ?? {}).length > 0 || Object.keys(metadataSettings.solutions ?? {}).length > 0;
+  const flowKeys: Record<string, string> = { "Split topics": "split", "Restructure content": "restructure", "Apply content standards": "standards", "Find duplicates": "dedupe", "Optimize for search": "optimize", "Find gaps": "gaps", "Discover and suggest metadata": "metadataSuggest" };
   const flowHref = `/flow?options=${ops.filter((o) => o.on).map((o) => flowKeys[o.name]).join(",")}&sources=${[contentText.trim() ? "text" : "", attachments.some((a) => a.icon !== "link") ? "file" : "", attachments.some((a) => a.icon === "link") ? "url" : "", Object.values(kbSelected).some(Boolean) ? "existing" : ""].filter(Boolean).join(",")}&runId=${encodeURIComponent(pipeline.runId ?? "")}`;
   const snapshot = useMemo<DecisionSnapshot>(() => ({
     candidates, groups: effectiveGroups, selectedKeys: [...selected], resolutions, operations: ops,
     collection: metaFields.Collection, language: metaFields.Language, standard: csStandard, standardsRules: csRules,
-    newSolutionTemplate, templateOverrides: [...templateOverrides],
-  }), [candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides]);
+    newSolutionTemplate, templateOverrides: [...templateOverrides], metadata: metadataSettings,
+  }), [candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides, metadataSettings]);
   useEffect(() => {
     if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || (submitRun.locked || submitRun.phase === "preparing" || submitRun.phase === "submitting")) return;
     const t = setTimeout(() => {
@@ -397,9 +423,9 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   const gate = ksCheckGate(candidates, effectiveGroups, selected, resolutions);
   const proposedWritePlan = useMemo(() => {
-    try { return { plan: buildWritePlan({ runId: pipeline.runId ?? "", candidates, groups: effectiveGroups, selected, resolutions }), error: "" }; }
+    try { return { plan: buildWritePlan({ runId: pipeline.runId ?? "", candidates, groups: effectiveGroups, selected, resolutions, metadata: metadataSettings }), error: "" }; }
     catch (e) { return { plan: [], error: (e as Error).message }; }
-  }, [pipeline.runId, candidates, effectiveGroups, selected, resolutions]);
+  }, [pipeline.runId, candidates, effectiveGroups, selected, resolutions, metadataSettings]);
   const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot);
   const preparedMatches = submitRun.identity === currentIdentity;
   const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
@@ -508,6 +534,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               type="button"
               className="ds-btn ds-btn-secondary"
               style={{ height: 28, padding: "0 10px" }}
+              disabled={sourcesBusy}
               onClick={() => setPath(null)}
             >
               <span className="ms" style={{ fontSize: 16 }}>
@@ -528,9 +555,10 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               <span className="ms">input</span>Content
             </div>
             <KsSmartInput
-              text={contentText}
-              onTextChange={setContentText}
+              content={sourceContent}
+              onContentChange={changeSourceContent}
               attachments={attachments}
+              onBusyChange={setSourcesBusy}
               onRemoveAttachment={(i) => setAttachments((p) => p.filter((_, idx) => idx !== i))}
               onAttach={(a) => setAttachments((p) => [...p, a])}
               dragOver={dragOver}
@@ -569,6 +597,8 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               {ops.map((op, i) => (
                 <div
                   key={op.name}
+                  role="button" tabIndex={0} aria-pressed={op.on}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
                   className={"ks-op" + (op.on ? " on" : "")}
                   onClick={() =>
                     setOps((prev) => prev.map((o, idx) => (idx === i ? { ...o, on: !o.on } : o)))
@@ -781,7 +811,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
                         <div style={{ fontWeight: 600, color: T.textPrimary }}>{c.title}</div>
                         <div style={{ fontSize: 12, color: T.textSecondary }}>{c.subtitle}</div>
                         {c.researchOnly && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => {
-                          setGapQuestion(c.summary ?? c.title); setContentText(""); setAttachments([]); setKbSelected({});
+                          setGapQuestion(c.summary ?? c.title); setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]); setAttachments([]); setKbSelected({});
                           pipeline.reset(); submitRun.reset(); pickPath("gap"); setScreen("input");
                         }}>Research this gap</button>}
                       </td>
@@ -955,11 +985,12 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
             </div>
           )}
 
-          {templateOptions.length > 0 && candidates.some((c) => !isSolutionId(c.key)) && (
+          {(templateOptions.length > 0 || showMetadataEditor) && (
             <div className="ks-card">
               <div className="ks-meta-group">
                 <span className="ms">auto_awesome</span>Suggested from your knowledge base
               </div>
+              {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} />}
               <div className="ks-meta-grid">
                 <div className="form-field">
                   <div className="form-label">Template</div>
@@ -985,21 +1016,21 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
                 <div className="form-label">
                   Collection <span className="req">*</span>
                 </div>
-                <DsDropdown
+                {showMetadataEditor ? <p>Use the global and per-solution collection choices above.</p> : <DsDropdown
                   value={metaFields.Collection}
                   options={collectionOptions}
                   onChange={(v) => setMetaFields((p) => ({ ...p, Collection: v }))}
-                />
+                />}
               </div>
               <div className="form-field">
                 <div className="form-label">
                   Language <span className="req">*</span>
                 </div>
-                <DsDropdown
+                {showMetadataEditor ? <p>Use the global and per-solution language choices above.</p> : <DsDropdown
                   value={metaFields.Language}
                   options={languageOptions}
                   onChange={(v) => setMetaFields((p) => ({ ...p, Language: v }))}
-                />
+                />}
               </div>
               <div className="form-field">
                 <div className="form-label">
@@ -1223,7 +1254,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
             {ops.filter((o) => o.on).length} of {ops.length} options on
           </span>
           <div className="ks-foot-actions">
-            <button type="button" className="ds-btn ds-btn-primary" disabled={!sessionReady || pipeline.phase === "running" || autoStarting} onClick={createPlan}>
+            <button type="button" className="ds-btn ds-btn-primary" disabled={sourcesBusy || !sessionReady || pipeline.phase === "running" || autoStarting} onClick={createPlan}>
               <span className="ms" style={{ fontSize: 18 }}>
                 bolt
               </span>
@@ -1283,7 +1314,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     bodyNode = renderMetadataStep();
     footer = (
       <div className="ks-sticky-footer">
-        <span className="ks-foot-status">Applies to every solution in this run</span>
+        <span className="ks-foot-status">Global defaults apply unless a solution has its own settings</span>
         <div className="ks-foot-actions">
           <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setScreen("check")}>
             <span className="ms" style={{ fontSize: 18 }}>
@@ -1291,7 +1322,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
             </span>
             Back
           </button>
-          <button type="button" className="ds-btn ds-btn-primary" onClick={() => setScreen("submit")}>
+          <button type="button" className="ds-btn ds-btn-primary" disabled={metadataBusy} onClick={() => setScreen("submit")}>
             <span className="ms" style={{ fontSize: 18 }}>
               bolt
             </span>
@@ -1302,7 +1333,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     );
   } else if (screen === "submit") {
     bodyNode = renderSubmitStep();
-    const canPrepare = gate.ok && displayPlan.length > 0 && !!metaFields.Collection && !submissionBusy && !draftEditing && !allWritten;
+    const canPrepare = gate.ok && displayPlan.length > 0 && !!metaFields.Collection && !metadataBusy && !submissionBusy && !draftEditing && !allWritten;
     footer = <div className="ks-sticky-footer">
       <span className="ks-foot-status">{allWritten ? "Submission complete — nothing published" : completion.uncertain ? "Verify the pending write below before continuing." : submitRun.locked ? completion.message : draftEditing ? "Unsaved article edits" : draftsReady ? "Review the final articles before sending them for approval." : "Preparing drafts saves them here; it does not write to RightAnswers."}</span>
       <div className="ks-foot-actions">
@@ -1323,9 +1354,10 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     <div className="ks-wizard">
       <div id="page-hdr">
         <div className="page-title">Knowledge Studio</div>
+        <Link className="ds-btn ds-btn-secondary" href="/metadata-lab" target="_blank">Metadata lab</Link>
         <Link className="ds-btn ds-btn-secondary" href={flowHref} target="_blank">Explore engine flow</Link>
         <SignOutButton />
-        <button type="button" className="ds-btn ds-btn-secondary" disabled={pipeline.phase === "running" || submissionBusy || draftEditing} onClick={() => resetAll()}>
+        <button type="button" className="ds-btn ds-btn-secondary" disabled={sourcesBusy || pipeline.phase === "running" || submissionBusy || draftEditing} onClick={() => resetAll()}>
           <span className="ms" style={{ fontSize: 18 }}>
             restart_alt
           </span>
@@ -1339,7 +1371,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
           check: candidates.length ? `${selected.size} of ${candidates.length} proposals` : pipeline.phase === "running" ? "Building plan" : "Review plan",
         }}
         onJump={(id) => {
-          if (pipeline.phase === "running" || submissionBusy || draftEditing) return;
+          if (sourcesBusy || pipeline.phase === "running" || submissionBusy || draftEditing) return;
           if (submitRun.locked) { setScreen("submit"); return; }
           // Later steps only make sense once a plan exists.
           if (id !== "input" && pipeline.phase !== "done") return;

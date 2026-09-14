@@ -19,7 +19,7 @@ export async function autonomousOutcome(job: AutonomousJob, run: StoredRun | nul
   const lastError = active ? undefined : await db().prepare("SELECT stage FROM autonomous_events WHERE run_id=? AND kind='error' ORDER BY id DESC LIMIT 1").get(job.runId) as { stage: AutonomousStage } | undefined;
   const articles = execution?.plan.filter(p => p.kind !== "flag") ?? [];
   const analysisDone = !!await checkpoint(job.runId, "analysis-complete");
-  const decisionsDone = !!await checkpoint(job.runId, "decisions");
+  const decisionsDone = !!await checkpoint(job.runId, "decisions") && (!job.input.operations.includes("Discover and suggest metadata") || !!await checkpoint(job.runId, "metadata-complete"));
   const reviewed = articles.length > 0 && (await Promise.all(articles.map(p => checkpoint(job.runId, `review-complete:${p.idempotencyKey}`)))).every(Boolean);
   const labels = [
     ["analysis", "Analyze sources", analysisDone],

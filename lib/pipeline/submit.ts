@@ -1,3 +1,4 @@
+import { effectiveMetadata, type MetadataSettings, type MetadataValues } from "../metadata/settings";
 import type { ContentProposal } from "../llm/planning";
 import type { DupeResolution } from "../ks/helpers";
 import type { ViewCandidate, ViewDupeGroup } from "../ks/model";
@@ -26,6 +27,7 @@ export type WriteOp =
   | {
       kind: "create";
       candidateKey: string;
+      metadata?: MetadataValues;
       sourceVersion?: string;
       edited?: boolean;
       summary?: string;
@@ -47,6 +49,7 @@ export type WriteOp =
   | {
       kind: "revise";
       candidateKey: string;
+      metadata?: MetadataValues;
       /** Parent solution; its live content is never modified. */
       solutionId: string;
       sourceVersion?: string;
@@ -83,6 +86,7 @@ export type WriteOp =
     };
 
 export interface BuildPlanArgs {
+  metadata?: MetadataSettings;
   runId: string;
   candidates: ViewCandidate[];
   groups: ViewDupeGroup[];
@@ -228,6 +232,8 @@ export function buildWritePlan(args: BuildPlanArgs): WriteOp[] {
       });
     }
   }
+
+  for (const op of ops) if (op.kind !== "flag") { const value = effectiveMetadata(args.metadata, op.candidateKey); if (value) op.metadata = value; }
 
   // Flags run last so nothing is marked as merged before its survivor exists.
   const order = { create: 0, revise: 1, flag: 2 } as const;

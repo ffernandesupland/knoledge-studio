@@ -20,8 +20,11 @@ export const PRICING: Record<string, { input: number; output: number }> = {
 };
 
 export const OPERATION_TIER: Record<string, ModelTier> = {
+  metadataRecommend: "reasoning",
+  metadataExplore: "cheap",
   autonomousDecide: "reasoning",
   autonomousReview: "reasoning",
+  readImage: "reasoning",
   split: "reasoning",
   plan: "reasoning",
   restructure: "reasoning",

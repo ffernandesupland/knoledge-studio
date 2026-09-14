@@ -1,4 +1,7 @@
 "use client";
+import { SourceEditor, type SourceEditorHandle } from "./SourceEditor";
+import type { SourceBlock } from "@/lib/ks/source-document";
+import { createUploadQueue } from "@/lib/ks/upload-queue";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/ingest/limits";
 
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -111,6 +114,8 @@ export function KsAddRuleMenu({
 }
 
 export interface Attachment {
+  id: string;
+  imageId?: string;
   icon: string;
   name: string;
   meta?: string;
@@ -129,8 +134,8 @@ export interface KbRow {
  * tabs and no formatting toolbar; content types coexist so nothing locks out a second type.
  */
 export function KsSmartInput({
-  text,
-  onTextChange,
+  content,
+  onContentChange,
   attachments,
   onRemoveAttachment,
   onAttach,
@@ -145,9 +150,10 @@ export function KsSmartInput({
   kbSelected,
   onToggleKbRow,
   showToast,
+  onBusyChange,
 }: {
-  text: string;
-  onTextChange: (v: string) => void;
+  content: SourceBlock[];
+  onContentChange: (v: SourceBlock[]) => void;
   attachments: Attachment[];
   onRemoveAttachment: (i: number) => void;
   onAttach: (a: Attachment) => void;
@@ -162,13 +168,47 @@ export function KsSmartInput({
   kbSelected: Record<string, KbRow>;
   onToggleKbRow: (id: string) => void;
   showToast: (t: ToastState) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const editor = useRef<SourceEditorHandle>(null);
+  const removed = useRef(new Set<string>());
   const kbSearchInput = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [queue] = useState(() => createUploadQueue());
+  const pending = useRef(0);
+  const [uploads, setUploads] = useState<{ id: string; name: string; status: string; error?: boolean }[]>([]);
 
-  async function ingestFile(file: File) {
-    setBusy(`Reading ${file.name}…`);
+  function enqueue(work: () => Promise<void>) {
+    pending.current++;
+    setPendingCount(pending.current);
+    onBusyChange(true);
+    void queue.add(work).catch(error => {
+      showToast({ message: error instanceof Error ? error.message : "Unable to read source" });
+    }).finally(() => {
+      pending.current--;
+      setPendingCount(pending.current);
+      onBusyChange(pending.current > 0);
+    });
+  }
+
+  function ingestFiles(files: File[]) {
+    onDragOver(false);
+    const entries = files.map(file => ({ file, id: crypto.randomUUID() }));
+    editor.current?.insert(entries.map(e => e.id));
+    for (const { file, id } of entries) {
+      if (attachments.length + pending.current >= 20) {
+        setUploads(rows => [...rows, { id, name: file.name, status: "Up to 20 attachments per plan. Remove a source and add this file again.", error: true }]);
+        continue;
+      }
+      setUploads(rows => [...rows, { id, name: file.name, status: "Queued" }]);
+      enqueue(() => ingestFile(file, id));
+    }
+  }
+
+  async function ingestFile(file: File, id: string) {
+    if (removed.current.has(id)) return;
+    setUploads(rows => rows.map(row => row.id === id ? { ...row, status: "Reading…" } : row));
     try {
       if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than the ${MAX_UPLOAD_MB} MB limit`);
       const body = new FormData();
@@ -176,22 +216,21 @@ export function KsSmartInput({
       const res = await fetch("/api/ingest", { method: "POST", body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      if (removed.current.has(id)) return;
       onAttach({
-        icon: data.source.meta.includes("PDF") ? "picture_as_pdf" : "description",
+        id, imageId: data.source.imageId,
+        icon: data.source.kind === "image" ? "image" : data.source.meta.includes("PDF") ? "picture_as_pdf" : "description",
         name: data.source.label,
         meta: data.source.meta,
         text: data.source.text,
       });
-      showToast({ message: `Added ${data.source.label}` });
+      setUploads(rows => rows.filter(row => row.id !== id));
     } catch (e) {
-      showToast({ message: (e as Error).message });
-    } finally {
-      setBusy(null);
+      setUploads(rows => rows.map(row => row.id === id ? { ...row, status: (e as Error).message, error: true } : row));
     }
   }
 
-  async function ingestUrl(url: string) {
-    setBusy("Fetching link…");
+  async function ingestUrl(url: string, id: string) {
     try {
       const res = await fetch("/api/ingest", {
         method: "POST",
@@ -200,28 +239,32 @@ export function KsSmartInput({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      onAttach({ icon: "link", name: data.source.label, meta: data.source.meta, text: data.source.text });
-      showToast({ message: "Link added" });
+      if (removed.current.has(id)) return;
+      onAttach({ id, icon: "link", name: data.source.label, meta: data.source.meta, text: data.source.text });
+      setUploads(rows => rows.filter(row => row.id !== id));
     } catch (e) {
-      showToast({ message: (e as Error).message });
-    } finally {
-      setBusy(null);
+      setUploads(rows => rows.map(row => row.id === id ? { ...row, status: (e as Error).message, error: true } : row));
     }
   }
 
-  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const pasted = e.clipboardData.getData("text");
-    if (pasted && /^https?:\/\/\S+$/i.test(pasted.trim())) {
-      e.preventDefault();
-      void ingestUrl(pasted.trim());
-    }
+  function addUrl(url: string) {
+    const id = crypto.randomUUID();
+    editor.current?.insert([id]);
+    setUploads(rows => [...rows, { id, name: url, status: "Reading…" }]);
+    enqueue(() => ingestUrl(url, id));
+  }
+  function removeSource(id: string) {
+    removed.current.add(id);
+    const index = attachments.findIndex(a => a.id === id);
+    if (index >= 0) onRemoveAttachment(index);
+    setUploads(rows => rows.filter(row => row.id !== id));
+    onContentChange(content.filter(b => b.type !== "attachment" || b.attachmentId !== id));
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     onDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) void ingestFile(file);
+    ingestFiles(Array.from(e.dataTransfer.files));
   }
 
   const selectedSolutions = Object.values(kbSelected);
@@ -238,51 +281,43 @@ export function KsSmartInput({
       onDragLeave={() => onDragOver(false)}
       onDrop={handleDrop}
     >
-      <textarea
-        className="ks-si-textarea"
-        placeholder="Type, paste a link, or drop a file…"
-        value={text}
-        onChange={(e) => onTextChange(e.target.value)}
-        onPaste={handlePaste}
-      />
-      {attachments.length > 0 && (
-        <div className="ks-si-list">
-          {attachments.map((a, i) => (
-            <div className="ks-si-row" key={`${a.name}-${i}`}>
-              <span className="ms">{a.icon}</span>
-              <div className="ks-si-main">
-                <div className="ks-si-name">{a.name}</div>
-                {a.meta && <div className="ks-si-meta">{a.meta}</div>}
-              </div>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Remove"
-                onClick={() => onRemoveAttachment(i)}
-              >
-                <span className="ms">close</span>
-              </button>
+      <SourceEditor ref={editor} blocks={content} onChange={onContentChange} onFiles={ingestFiles} onUrl={addUrl} renderSource={id => {
+        const a = attachments.find(a => a.id === id);
+        const upload = uploads.find(u => u.id === id);
+        return <div className="ks-inline-source" role={upload?.error ? "alert" : undefined}>
+          <div className="ks-si-row">
+            <span className="ms">{a?.icon ?? (upload?.error ? "error" : "hourglass_top")}</span>
+            <div className="ks-si-main"><div className="ks-si-name">{a?.name ?? upload?.name ?? "Uploading…"}</div>
+              <div className="ks-si-meta">{a ? `${a.meta ?? "Source"} · Ready` : `${upload?.error ? "Not included: " : ""}${upload?.status ?? "Queued"}`}</div>
             </div>
-          ))}
-        </div>
-      )}
+            <button type="button" className="icon-btn" aria-label={`Remove ${a?.name ?? upload?.name ?? "source"}`} onClick={() => removeSource(id)}><span className="ms">close</span></button>
+          </div>
+          {a?.icon === "image" && !a.imageId && <p className="ks-si-summary">This older upload contains extracted text only. Reinsert the image to include its original visual content.</p>}
+          {/* Original protected images use the signed-in browser session directly. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {a?.imageId ? <img className="ks-source-image" src={`/api/ingest/images/${a.imageId}`} alt={a.name} /> : a && <details className="ks-si-preview"><summary>View document content</summary><div>{a.text}</div></details>}
+        </div>;
+      }} />
+      <div className="ks-si-summary" role="status">
+        {attachments.length + (content.some(b => b.type === "text" && b.text.trim()) ? 1 : 0) + kbCount} sources ready{pendingCount > 0 && ` · ${pendingCount} processing`} · Text, images and documents are sent in the order shown.
+      </div>
       <div className="ks-si-bar">
         <input
           ref={fileInput}
           type="file"
           hidden
-          accept=".pdf,.docx,.txt,.md,.csv"
+          multiple
+          accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt,.md,.csv"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void ingestFile(f);
+            ingestFiles(Array.from(e.target.files ?? []));
             e.target.value = "";
           }}
         />
         <button
           type="button"
           className="icon-btn"
-          title="Attach a file"
-          disabled={!!busy}
+          title="Attach files"
+          aria-label="Attach files"
           onClick={() => fileInput.current?.click()}
         >
           <span className="ms">attach_file</span>
@@ -296,7 +331,7 @@ export function KsSmartInput({
           <span className="ms">database</span>
         </button>
         <span className="ks-si-help">
-          {busy ?? "Type, paste a link, or drop a PDF, Word or text file."}
+          {pendingCount > 0 ? `Reading ${pendingCount} sources. You can add more files while these finish.` : `Select or drop multiple PNG, JPEG, WebP, PDF, Word or text files. ${MAX_UPLOAD_MB} MB each.`}
         </span>
       </div>
       {(kbOpen || kbCount > 0) && (

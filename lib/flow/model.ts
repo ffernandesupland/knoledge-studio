@@ -1,5 +1,6 @@
 export interface FlowOptions {
   autonomous?: boolean;
+  metadataSuggest?: boolean;
   text: boolean; file: boolean; url: boolean; existing: boolean;
   split: boolean; restructure: boolean; standards: boolean; optimize: boolean; dedupe: boolean; gaps: boolean;
   topics: number; existingSplits: boolean; batchOverlap: boolean; survivor: "existing" | "new"; fixedTemplate: boolean;
@@ -9,7 +10,7 @@ export interface FlowOptions {
 }
 export type NodeKind = "input" | "ai" | "api" | "logic" | "human" | "write" | "stop";
 export interface FlowNode { id: string; title: string; kind: NodeKind; detail: string; active: boolean; prompt?: string; children?: FlowNode[] }
-export const DEFAULT_FLOW: FlowOptions = { text: true, file: false, url: false, existing: false, split: true, restructure: true, standards: true, optimize: false, dedupe: true, gaps: false, topics: 2, existingSplits: false, batchOverlap: false, survivor: "existing", fixedTemplate: false, matches: "high", decision: "pending", conflict: false, resolved: false, failure: "none" };
+export const DEFAULT_FLOW: FlowOptions = { metadataSuggest: false, text: true, file: false, url: false, existing: false, split: true, restructure: true, standards: true, optimize: false, dedupe: true, gaps: false, topics: 2, existingSplits: false, batchOverlap: false, survivor: "existing", fixedTemplate: false, matches: "high", decision: "pending", conflict: false, resolved: false, failure: "none" };
 
 /** A decision tree, not a prediction of an AI result. Inactive branches remain inspectable. */
 export function buildFlow(o: FlowOptions): FlowNode[] {
@@ -27,7 +28,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
   return [
     n("input", "1 · Add source material", "input", true, "Ingestion does not call AI. Limits: 4 MB per uploaded file, 2 MB per fetched page, 500,000 source characters per analysis.", [
       n("text", "Typed or pasted text", "input", o.text, "Keep the original source text and wrap it as untrusted data for model calls."),
-      n("file", "Upload PDF, DOCX or text", "api", o.file, "POST /api/ingest → allowlist and size check → parse locally → extracted text persisted with the run."),
+      n("file", "Insert images, PDF, DOCX or text", "api", o.file, "POST /api/ingest → allowlist and size check → preserve original images or extract document text. Editor order is saved with the run; original images and surrounding text reach the model together."),
       n("url", "Fetch a URL", "api", o.url, "POST /api/ingest → check scheme/address → validate DNS and every redirect → bounded text extraction. No credentials sent to the source."),
       n("kb", "Pick existing solutions", "api", o.existing, "GET /api/kb/search → RA Neural search → user picks IDs → fetch full articles. Preserve IDs, templates and source versions."),
       n("empty", "No source content", "stop", !content, o.gaps ? "Gap discovery may run alone. Suggestions are research tasks, not articles." : "Stop: add source material or enable Find gaps."),
@@ -62,7 +63,7 @@ export function buildFlow(o: FlowOptions): FlowNode[] {
       n("merge", "Merge → choose survivor → confirm sources", "human", merge, "The author chooses the retained article and confirms the group. Unselected own candidates are excluded; external duplicate members remain included."),
       n("deselect", "Deselect a candidate", "human", true, "No write for that candidate. A deselected candidate is also omitted from its merge."),
     ]),
-    n("metadata", "4 · Metadata and draft editing", "human", submit, "Set collection, language classification, standards and new-draft templates. Save a coherent decision snapshot; reload restores survivor choices and toggles. Source/title edits persist. No AI call at this stage."),
+    n("metadata", "4 · Metadata and draft editing", "human", submit, "Set global or per-article collections, taxonomies, language and templates. Optional metadata research uses the resulting article and its merge sources, retrieves similar solutions and explores taxonomy branches. Review concise evidence and choose which suggestions to use. Metadata changes invalidate prepared approvals.", [n("metadata_research", "Discover and suggest metadata", "ai", submit && !!o.metadataSuggest, "For each resulting article: read proposed content and merge sources, retrieve published examples, explore taxonomy branches, validate suggestions and show short evidence. Choose global defaults or per-article overrides; no write occurs during research.")]),
     n("submit", "5 · Prepare drafts without KB writes", "logic", submit, "Server validates ownership and candidate/group identities, then saves a mutable preparation plan under a run lock. Changing sources, decisions or metadata invalidates its prepared drafts. No KB writes or comments are allowed here.", [
       n("merge_ai", "Merge selected source content", "ai", merge, "Read current existing sources; combine against the survivor's template. Retain conflicts, contributions and template warnings. Detect source changes before writing.", undefined, "mergeSections"),
       n("author", "Restructure an unmerged article", "ai", !merge && o.restructure, "Original source + reviewed scope plan (guidance, not facts) → final template fields, title, summary and keywords. Preserve user/optimized title choices. Never guess missing technical facts.", undefined, "restructure"),
