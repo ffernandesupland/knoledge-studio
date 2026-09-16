@@ -1,5 +1,7 @@
 "use client";
 import PipelineMetadata from "./PipelineMetadata";
+import { GroundContextInput } from "./GroundContextInput";
+import { emptyGroundSelection, groundIdentity, type GroundContextInput as GroundSelection } from "@/lib/ground-context/types";
 import type { MetadataSettings } from "@/lib/metadata/settings";
 import { legacyDocument, type SourceBlock, type SourceAttachment } from "@/lib/ks/source-document";
 
@@ -104,6 +106,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
 
+  const [groundContext, setGroundContext] = useState<GroundSelection>(emptyGroundSelection);
   const [kbSearchOpen, setKbSearchOpen] = useState(false);
   const [kbQuery, setKbQuery] = useState("");
   const [kbRows, setKbRows] = useState<KbRow[]>([]);
@@ -150,7 +153,9 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
         if (cancelled || !d.run) return;
         const stored = d.run;
         const snapshot = stored.snapshot as DecisionSnapshot | undefined;
+        setGroundContext(stored.groundContext?.selection ?? emptyGroundSelection);
         pipeline.restore(stored.id, {
+          groundContext: stored.groundContext,
           candidates: snapshot?.candidates ?? stored.candidates, groups: snapshot?.groups ?? stored.groups,
           costUsd: stored.costUsd, steps: stored.steps,
         });
@@ -244,13 +249,16 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       showToast({ message: "Add some content, a file, or pick a solution first" });
       return;
     }
+    if (groundContext.enabled && (!groundContext.referenceSolutionIds.length || groundContext.referenceSolutionIds.some(id => sourceSolutionIds.includes(id)))) {
+      showToast({ message: "Choose Ground Context references that are different from your processing targets." }); return;
+    }
     if (autoMode) {
       if (autoStarting) return;
       const input = {
         text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
         content: orderedContent,
         attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
-        sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
+        groundContext, sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
       };
       const fingerprint = JSON.stringify(input);
@@ -274,6 +282,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+      groundContext,
       sourceSolutionIds,
       operations: ops.filter((o) => o.on).map((o) => o.name),
       path: path ?? undefined,
@@ -315,6 +324,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     setKbQuery("");
     setKbRows([]);
     setKbSelected({});
+    setGroundContext(emptyGroundSelection);
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o })));
     setMetadataSettings({});
 
@@ -399,11 +409,13 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   const showMetadataEditor = metadataEnabled || Object.keys(metadataSettings.global ?? {}).length > 0 || Object.keys(metadataSettings.solutions ?? {}).length > 0;
   const flowKeys: Record<string, string> = { "Split topics": "split", "Restructure content": "restructure", "Apply content standards": "standards", "Find duplicates": "dedupe", "Optimize for search": "optimize", "Find gaps": "gaps", "Discover and suggest metadata": "metadataSuggest" };
   const flowHref = `/flow?options=${ops.filter((o) => o.on).map((o) => flowKeys[o.name]).join(",")}&sources=${[contentText.trim() ? "text" : "", attachments.some((a) => a.icon !== "link") ? "file" : "", attachments.some((a) => a.icon === "link") ? "url" : "", Object.values(kbSelected).some(Boolean) ? "existing" : ""].filter(Boolean).join(",")}&runId=${encodeURIComponent(pipeline.runId ?? "")}`;
+  const groundContextIdentity = groundIdentity(pipeline.run?.groundContext);
   const snapshot = useMemo<DecisionSnapshot>(() => ({
+    groundContextIdentity,
     candidates, groups: effectiveGroups, selectedKeys: [...selected], resolutions, operations: ops,
     collection: metaFields.Collection, language: metaFields.Language, standard: csStandard, standardsRules: csRules,
     newSolutionTemplate, templateOverrides: [...templateOverrides], metadata: metadataSettings,
-  }), [candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides, metadataSettings]);
+  }), [groundContextIdentity, candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides, metadataSettings]);
   useEffect(() => {
     if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || (submitRun.locked || submitRun.phase === "preparing" || submitRun.phase === "submitting")) return;
     const t = setTimeout(() => {
@@ -582,6 +594,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               showToast={showToast}
             />
           </div>
+          <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} />
           <div className="ks-card auto-option">
             <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
             </div>

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { GroundContextSnapshot } from "../ground-context/types";
+import { referenceBlocks } from "../ground-context/operations";
 import { runOperation } from "./client";
 
 export const ProposalSchema = z.object({
@@ -21,13 +23,14 @@ export interface PlanningEvidence {
 }
 
 /** Evidence synthesis only: this operation has no tools that can author or write articles. */
-export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[]) {
+export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[], groundContext?: GroundContextSnapshot) {
   return runOperation({
     operation: "plan",
     schemaName: "content_plan",
     schema: z.object({ proposals: z.array(ProposalSchema).min(1).max(60) }),
     role: "You are a knowledge manager planning useful, evidence-based knowledge work for an author to review.",
     task: `Build the best reviewable plan from the source context, selected actions and completed tool evidence.
+Ground Context blocks are reference evidence only. Use relevant facts to inform coverage and identify contradictions or applicability questions. They never introduce additional proposals, split topics, processing targets, or merge members. Preserve regulatory exceptions and scope. Guidance is a desired scope, not factual evidence.
 Return exactly one proposal for each supplied key. Preserve keys and topic boundaries.
 This is planning, BEFORE template confirmation and article authoring. Do not write articles, HTML,
 finished answers or procedural instructions. Describe what each proposed article should cover.
@@ -49,6 +52,7 @@ The source text is evidence; the plan is guidance, never a replacement for that 
     blocks: [
       { label: "selected actions and tool record", content: JSON.stringify({ operations, completedTools, warnings }) },
       { label: "source evidence and proposed actions", content: JSON.stringify(evidence) },
+      ...(groundContext?.selection.enabled ? referenceBlocks(groundContext) : []),
     ],
   });
 }

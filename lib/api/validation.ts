@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { groundContextSchema, groundIdentity } from "../ground-context/types";
 import { ApiError } from "./auth";
 import type { StoredRun, DecisionSnapshot } from "../db/runs";
 import { KS_OPS_DEFAULT } from "../ks/data";
@@ -7,6 +8,7 @@ export const fieldSchema = z.object({ fieldName: z.string().min(1).max(200), fie
 const fields = z.array(fieldSchema).max(100);
 const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 export const runSchema = z.object({
+  groundContext: groundContextSchema.optional(),
   text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
   content: z.array(z.discriminatedUnion("type", [
     z.object({ id: z.string().max(100), type: z.literal("text"), text: z.string().max(500_000) }),
@@ -16,6 +18,10 @@ export const runSchema = z.object({
   operations: z.array(operationName).max(7), templateName: z.string().max(200).optional(),
   path: z.enum(["create", "improve", "gap"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
 }).superRefine((v, ctx) => {
+  if (v.groundContext?.enabled) {
+    if (v.groundContext.referenceSolutionIds.some(id => v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Processing targets and Ground Context references must be different solutions" });
+    if (!v.text.trim() && !v.sourceSolutionIds?.length && !v.attachments?.length && !v.content?.some(block => block.type === "text" && block.text.trim())) ctx.addIssue({ code: "custom", message: "Add a task or source content alongside Ground Context references" });
+  }
   if (!v.content) return;
   const ids = (v.attachments ?? []).map(a => a.id);
   const refs = v.content.flatMap(b => b.type === "attachment" ? [b.attachmentId] : []);
@@ -29,6 +35,7 @@ const candidatePatch = z.object({
 });
 const metadataValues = z.object({ collections: z.array(z.string().min(1).max(200)).min(1).max(20).optional(), taxonomies: z.array(z.string().min(1).max(1000)).max(20).optional(), language: z.string().min(1).max(100).optional() });
 export const snapshotSchema = z.object({
+  groundContextIdentity: z.string().max(10000).optional(),
   metadata: z.object({ global: metadataValues.optional(), solutions: z.record(z.string().max(100), metadataValues).optional() }).optional(),
   candidates: z.array(candidatePatch).max(60), groups: z.array(z.object({ survivorId: z.string().max(100) }).passthrough()).max(60),
   selectedKeys: z.array(z.string().max(100)).max(60), resolutions: z.array(z.enum(["separate", "merged"]).nullable()).max(60),
@@ -57,6 +64,7 @@ export async function readJson<T>(request: Request, schema: z.ZodType<T>): Promi
 export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapshot {
   if (run.formatVersion === 1) throw new ApiError("This run predates the source-identity fixes. Return to Content and analyze its restored sources again.", 409);
   const input = snapshotSchema.parse(raw);
+  if (input.groundContextIdentity !== groundIdentity(run.groundContext)) throw new ApiError("Ground Context changed. Analyze and prepare the current references again.", 409);
   if (new Set(input.candidates.map((c) => c.key)).size !== run.candidates.length || input.candidates.length !== run.candidates.length) throw new ApiError("Candidate list does not match this run");
   for (const name of ["Split topics", "Find duplicates", "Optimize for search", "Find gaps"]) {
     if (input.operations.find((o) => o.name === name)?.on !== run.operations.includes(name)) throw new ApiError("Analysis options changed. Create a new plan before submitting.");

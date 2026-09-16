@@ -1,3 +1,4 @@
+import { assertReferenceOnlyPlan } from "@/lib/ground-context/server";
 import { validatePlanMetadata } from "@/lib/metadata/validate";
 import { assertGuided } from "@/lib/autonomous/store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
     await assertGuided(run.id);
     const snapshot = canonicalSnapshot(run, body.snapshot);
     const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions, metadata: snapshot.metadata });
+    assertReferenceOnlyPlan(plan, run.groundContext);
     if (!plan.length) throw new Error("Select at least one article to submit");
     if (body.dryRun) return Response.json({ plan });
     await validatePlanMetadata(plan, { impUser: user });

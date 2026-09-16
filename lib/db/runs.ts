@@ -1,6 +1,7 @@
 import type { SourceAttachment, SourceBlock } from "@/lib/ks/source-document";
 import type { Operation } from "../ks/data";
 export interface DecisionSnapshot {
+  groundContextIdentity?: string;
   metadata?: import("../metadata/settings").MetadataSettings;
   candidates: ViewCandidate[];
   groups: ViewDupeGroup[];
@@ -22,6 +23,7 @@ import type { RunOutput } from "../pipeline/run";
 export type RunStatus = "running" | "done" | "error" | "submitted" | "partial" | "discarded";
 
 export interface StoredRun {
+  groundContext?: import("../ground-context/types").GroundContextSnapshot;
   id: string;
   formatVersion?: number;
   createdAt: string;
@@ -75,6 +77,7 @@ interface DecisionRow {
 const now = () => new Date().toISOString();
 
 export async function createRun(args: {
+  groundContext?: import("../ground-context/types").GroundContextSnapshot;
   id: string;
   author: string;
   path: string | null;
@@ -100,6 +103,7 @@ export async function createRun(args: {
         operations: JSON.stringify(args.operations),
       }));
     (await db().prepare("INSERT INTO run_sources(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.attachments ?? [])));
+    if (args.groundContext) await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.groundContext));
     if (args.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.content));
   })();
 }
@@ -188,6 +192,7 @@ async function hydrate(row: RunRow, decision?: DecisionRow): Promise<StoredRun> 
     inputText: row.input_text ?? "",
     attachments: JSON.parse(((await db().prepare("SELECT payload FROM run_sources WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "[]"),
     content: JSON.parse(((await db().prepare("SELECT payload FROM run_source_documents WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "null") ?? undefined,
+    groundContext: JSON.parse(((await db().prepare("SELECT payload FROM run_ground_context WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "null") ?? undefined,
     sourceIds: JSON.parse(row.source_ids),
     operations: JSON.parse(row.operations),
     costUsd: row.cost_usd,

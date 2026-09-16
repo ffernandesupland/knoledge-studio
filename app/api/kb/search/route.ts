@@ -8,6 +8,7 @@ export interface KbSearchRow {
   id: string;
   title: string;
   meta: string;
+  status?: string;
 }
 
 /** KB picker behind the Content step's smart input. */
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     const rows: KbSearchRow[] = result.solutions.slice(0, 10).map((s) => {
       const v = s.verboseSolutionResult;
       const parts = [v?.templateName, v?.status].filter(Boolean);
-      return { id: s.id, title: s.title, meta: parts.join(" · ") || "Solution" };
+      return { id: s.id, title: s.title, status: v?.status, meta: parts.join(" · ") || "Solution" };
     });
     return NextResponse.json({ rows, totalHits: result.totalHits });
   } catch (err) {

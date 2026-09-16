@@ -51,7 +51,7 @@ export async function runOperation<T>(args: RunArgs<T>): Promise<RunResult<T>> {
   const usesOriginals = ["split", "plan", "chooseTemplate", "restructure", "compose", "mergeSections", "autonomousReview", "metadataExplore", "metadataRecommend"].includes(args.operation);
   args = { ...args, contextBlocks: args.contextBlocks ?? (usesOriginals ? sourceContext() : []) };
   if (inspection.getStore()) throw new PromptCapture(args as RunArgs<unknown>);
-  if ((args.blocks ?? []).reduce((n, b) => n + b.content.length, 0) > 500_000) throw new Error("Model input exceeds 500,000 characters; use a smaller batch.");
+  if ([...(args.blocks ?? []), ...(args.contextBlocks ?? [])].reduce((n, b) => n + b.content.length, 0) > 500_000) throw new Error("Model input exceeds 500,000 characters; use a smaller batch.");
   const model = modelFor(args.operation);
   const input = [
     { role: "system" as const, content: systemPrompt(args.role) },

@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { submissionMermaid, type SubmissionGraphModel, type SubmissionRow, type GraphSource } from "@/lib/ks/submission-graph";
 import type { ContentReview, OpResult } from "@/lib/pipeline/execute";
+import { GroundContextReport } from "./GroundContextReport";
 import { ArticlePreview } from "./ArticlePreview";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
@@ -84,9 +85,9 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
               <label>Summary · plain text<textarea name="summary" maxLength={4000} defaultValue={prepared.summary} /></label>
               <label>Keywords, separated by commas<input name="keywords" defaultValue={prepared.keywords.join(", ")} /></label>
               {prepared.fields.map((f, i) => <label key={f.fieldName}>{f.fieldName} · HTML<textarea name={`field-${i}`} defaultValue={f.fieldValue} rows={7} /></label>)}
-              {prepared.sections?.some((s) => s.conflict.present) && <label><input type="checkbox" required /> I resolved the conflicting claims using supported source content.</label>}
+              {(prepared.sections?.some((s) => s.conflict.present) || prepared.grounding?.issues.length) && <label><input type="checkbox" required /> I resolved the conflicting claims using supported source content.</label>}
               <div className="sg-editor-actions"><button type="button" onClick={() => edit(false)}>Cancel edits</button><button type="submit" disabled={busy}>Save and validate draft</button></div>
-            </form> : <><ArticlePreview article={prepared} />{onSave && row.result?.outcome !== "ok" && row.result?.outcome !== "uncertain" && <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => edit(true)}>Edit final article</button>}</>}
+            </form> : <><GroundContextReport prepared={prepared} /><ArticlePreview article={prepared} />{onSave && row.result?.outcome !== "ok" && row.result?.outcome !== "uncertain" && <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => edit(true)}>Edit final article</button>}</>}
             {onSave && row.kind === "create" && !row.merge && row.result?.outcome === "review" && !editing && <form className="sg-regenerate" onSubmit={(e) => { e.preventDefault(); const data = new FormData(e.currentTarget); onSave(row.key, { version: prepared.version, fields: prepared.fields, regenerate: true, templateName: String(data.get("template")) }); }}>
               <label>Template for regeneration<select name="template" defaultValue={prepared.templateName}>{[...new Set([prepared.templateName, ...templates])].map((t) => <option key={t}>{t}</option>)}</select></label>
               <button type="submit" disabled={busy}>Regenerate from saved sources</button><p>Creates a new draft version for review. Completed writes stay saved.</p>

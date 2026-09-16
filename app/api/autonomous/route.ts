@@ -1,3 +1,4 @@
+import { resolveGroundContext } from "@/lib/ground-context/server";
 import { assertImageOwnership } from "@/lib/ingest/image-store";
 import { z } from "zod";
 import { requireActor, apiError, ApiError } from "@/lib/api/auth";
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
     if (!body.input.text.trim() && !body.input.attachments?.some(a => a.text.trim()) && !body.input.sourceSolutionIds?.length) throw new ApiError("Add supported source content before starting an autonomous run");
     await assertImageOwnership(body.input, author);
     const id = `auto-${body.requestId}`;
-    const job = await enqueue(id, author, body.input);
+    const existing = await getJob(id);
+    const groundContext = existing ? undefined : await resolveGroundContext(body.input.groundContext, body.input.sourceSolutionIds, author);
+    const job = await enqueue(id, author, body.input, groundContext);
     return json({ runId: job.runId, status: job.status }, 202);
   } catch (e) { return apiError(e); }
 }

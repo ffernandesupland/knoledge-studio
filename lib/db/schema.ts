@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS source_image_chunks (
   image_id TEXT NOT NULL REFERENCES source_images(id) ON DELETE CASCADE,
   position INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(image_id,position)
 );
+CREATE TABLE IF NOT EXISTS run_ground_context (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS run_source_documents (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
 
 CREATE TABLE IF NOT EXISTS runs (
