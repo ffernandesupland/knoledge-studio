@@ -39,7 +39,9 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
           await event(id, "analysis", "state", "Gathering evidence and building proposals", "started");
           const pending: Promise<unknown>[] = [];
           let logError: unknown;
-          const output = await runPipeline(job.input, p => { pending.push(event(id, "analysis", "state", p.step, p.status === "start" ? "started" : "succeeded").catch(e => { logError = e; })); });
+          const groundContext = (await getRun(id))?.groundContext;
+          if (job.input.groundContext?.enabled && !groundContext) throw new Error("Saved Ground Context is missing. Start a new run.");
+          const output = await runPipeline(job.input, p => { pending.push(event(id, "analysis", "state", p.step, p.status === "start" ? "started" : "succeeded").catch(e => { logError = e; })); }, groundContext);
           await Promise.all(pending);
           if (logError) throw logError;
           await assertLease(id, token);

@@ -55,6 +55,7 @@ export interface ViewDupeGroup {
 }
 
 export interface ViewRun {
+  groundContext?: import("../ground-context/types").GroundContextSnapshot;
   candidates: ViewCandidate[];
   groups: ViewDupeGroup[];
   warnings?: string[];
@@ -124,5 +125,5 @@ export function mapRunToView(run: RunOutput): ViewRun {
     };
   });
 
-  return { candidates, groups, warnings: run.warnings, costUsd: run.costUsd, steps: run.steps };
+  return { groundContext: run.groundContext, candidates, groups, warnings: run.warnings, costUsd: run.costUsd, steps: run.steps };
 }

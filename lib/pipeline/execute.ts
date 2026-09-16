@@ -1,3 +1,6 @@
+import { assertGroundReferencesCurrent, assertReferenceOnlyPlan } from "../ground-context/server";
+import { enrichWithReferences, reviewGrounding } from "../ground-context/operations";
+import type { GroundContextSnapshot, GroundingReport } from "../ground-context/types";
 import type { MetadataValues } from "../metadata/settings";
 import { getRun } from "../db/runs";
 import { orderedSources } from "../ks/source-document";
@@ -16,6 +19,9 @@ import { validateFields, validateSummary } from "./content";
 import { getWriteState, saveWriteState } from "./state";
 
 export interface PreparedContent {
+  groundContext?: GroundContextSnapshot;
+  grounding?: GroundingReport;
+  groundingEnriched?: boolean;
   metadata?: MetadataValues;
   version: string;
   readyForSubmission?: boolean;
@@ -92,10 +98,13 @@ export async function assertPreparedPlan(args: ExecuteArgs) {
 export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void): Promise<OpResult[]> {
   const run = await getRun(args.runId);
   if (run && run.author !== args.user) throw new Error("Run belongs to another author");
+  assertReferenceOnlyPlan(args.plan, run?.groundContext);
+  await assertGroundReferencesCurrent(run?.groundContext, args.user);
+  if (run?.groundContext?.selection.enabled && !args.prepareOnly && !args.requirePrepared) throw new Error("Prepare and review grounded drafts before submitting.");
   const originals = run?.content || run?.attachments?.some(a => a.imageId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
-  return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress));
+  return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
 }
-async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void): Promise<OpResult[]> {
+async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void, groundContext?: GroundContextSnapshot): Promise<OpResult[]> {
   const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [] } = args;
   if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
@@ -127,6 +136,11 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         if (!target) throw new Error("Choose an available template.");
         const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled);
         prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
+        if (groundContext?.selection.enabled) {
+          const enriched = await enrichWithReferences(prepared, groundContext);
+          prepared = { ...prepared, title: op.titleLocked ? op.title : enriched.data.title, summary: enriched.data.summary, keywords: enriched.data.keywords, fields: enriched.data.fields, groundContext, groundingEnriched: true, grounding: { evidence: enriched.data.evidence, issues: enriched.data.issues } };
+          prepared.sourceDocuments = [{ id: op.candidateKey, title: op.title, templateName: target.templateName, body: op.rawContent }];
+        }
         try { prepared.fields = validateFields(prepared.fields, target); } catch (e) { prepared.warnings.push((e as Error).message); }
         result = { ...base, outcome: "review", prepared, message: "Regenerated from saved sources. Review the fields below, then submit. No write has occurred for this item." };
       } else if (op.kind === "flag" && args.prepareOnly) {
@@ -173,10 +187,14 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
           prepared.sourceDocuments ??= [{ id: op.kind === "revise" ? op.solutionId : op.candidateKey, title: op.title, templateName: op.templateName ?? "", body: op.rawContent ?? (op.fields ?? []).map((f) => `${f.fieldName}\n${f.fieldValue}`).join("\n\n") }];
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
         }
+        if (groundContext?.selection.enabled && !prepared.groundingEnriched) {
+          const enriched = await enrichWithReferences(prepared, groundContext);
+          prepared = { ...prepared, title: op.titleLocked ? op.title : enriched.data.title, summary: enriched.data.summary, keywords: enriched.data.keywords, fields: enriched.data.fields, groundContext, grounding: { evidence: enriched.data.evidence, issues: enriched.data.issues }, groundingEnriched: true, readyForSubmission: false };
+        }
         const review = args.reviews?.[op.idempotencyKey];
         if (review) {
           if (review.version !== prepared.version) throw new Error("Review is stale. Reload the current prepared content.");
-          prepared = { ...prepared, version: randomUUID(), title: review.title ?? prepared.title, summary: review.summary ?? prepared.summary, keywords: review.keywords ?? prepared.keywords, fields: review.fields, reviewed: true, standardsApplied: false, readyForSubmission: false };
+          prepared = { ...prepared, version: randomUUID(), title: review.title ?? prepared.title, summary: review.summary ?? prepared.summary, keywords: review.keywords ?? prepared.keywords, fields: review.fields, reviewed: true, standardsApplied: false, readyForSubmission: false, grounding: undefined };
         }
         const target = templates.find((t) => t.templateName === prepared!.templateName);
         if (!target) throw new Error("The prepared template is no longer available.");
@@ -204,6 +222,19 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             onProgress?.({ index, total: plan.length, description, outcome: "review", result: reviewResult });
             continue;
           }
+          if (groundContext?.selection.enabled && (args.prepareOnly || !prepared.grounding)) {
+            prepared.groundContext = groundContext;
+            prepared.grounding = await reviewGrounding(prepared, groundContext);
+            if (prepared.grounding.issues.length) {
+              prepared.readyForSubmission = false;
+              const reviewResult: OpResult = { ...base, outcome: "review", prepared, message: "Resolve Ground Context issues in the article, then save and validate the draft." };
+              await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult });
+              results.push(reviewResult);
+              onProgress?.({ index, total: plan.length, description, outcome: "review", result: reviewResult });
+              continue;
+            }
+          }
+          if (groundContext?.selection.enabled && (!prepared.grounding || prepared.grounding.issues.length)) throw new Error("Ground Context review is incomplete. Prepare the draft again.");
           for (const [id, version] of Object.entries(prepared.sourceVersions ?? {})) {
             if (solutionVersion(await ra.getSolution(id, ctx)) !== version) throw new Error(`Source ${id} changed after preparation. Start a new analysis to include its current content.`);
           }

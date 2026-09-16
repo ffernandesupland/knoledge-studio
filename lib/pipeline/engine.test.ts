@@ -1,3 +1,5 @@
+import * as duplicateEngine from "./dedupe";
+import { referenceFromSolution } from "../ground-context/server";
 import { sourceContext } from "../llm/source-context";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -21,12 +23,13 @@ import { RaError } from "../ra/http";
 
 const mocks = vi.hoisted(() => ({
   templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
-  plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
+  ground: vi.fn(), groundReview: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
 }));
 vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
 vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
 vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
 
+vi.mock("../ground-context/operations", () => ({ enrichWithReferences: mocks.ground, reviewGrounding: mocks.groundReview }));
 const template = { templateName: "How To (RA)", templateType: "standard", kbPrefix: "", fields: ["Solution", "Details"].map((fieldName) => ({ fieldName, required: false, description: "", searchable: true })) };
 const fields = [{ fieldName: "Solution", fieldValue: "<p>Original answer</p>" }, { fieldName: "Details", fieldValue: "" }];
 const source = { id: "260909000000002", title: "Existing article", templateName: template.templateName, status: "Published", fields: fields.map((f) => ({ name: f.fieldName, content: f.fieldValue })) };
@@ -120,7 +123,7 @@ describe("analysis → view → plan contract", () => {
     const view = mapRunToView(await runPipeline({ text: "", sourceSolutionIds: [source.id], operations: [] }));
     const plan = buildWritePlan({ runId, ...view, selected: new Set([source.id]), resolutions: [] });
     expect(view.candidates[0]).toMatchObject({ key: source.id, targetSolutionId: source.id, templateName: source.templateName, action: "Update" });
-    expect(plan[0]).toMatchObject({ kind: "revise", solutionId: source.id });
+    expect(plan[0]).toMatchObject({ kind: "revise", fromMerge: false, solutionId: source.id });
     expect(mocks.choose).not.toHaveBeenCalled();
   });
   it("retains original HTML if restructuring is disabled after analysis", async () => {
@@ -443,4 +446,80 @@ it("preserves per-article metadata through preparation and passes the same choic
   expect(written.every(r=>r.outcome==="ok")).toBe(true);
   expect(mocks.write.mock.calls[0][0]).toMatchObject({collections:"first,second",taxonomies:"Root//A",language:"French"});
   expect(mocks.update.mock.calls[0][1]).toMatchObject({collections:"other",taxonomies:""});
+});
+
+describe("Ground Context preparation contract", () => {
+  const referenceId = "260916000000008";
+  async function attachReferences() {
+    const reference = { ...source, id: referenceId };
+    const groundContext = { selection: { enabled: true, referenceSolutionIds: [referenceId], guidance: "Use the policy." }, references: [referenceFromSolution(reference)], capturedAt: "2026-09-16" };
+    await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(runId, JSON.stringify(groundContext));
+    mocks.ground.mockImplementation(async article => result({ ...article, fields: [{ fieldName: "Solution", fieldValue: "<p>Original answer with supported policy detail.</p>" }, fields[1]], evidence: [], issues: [] }));
+    mocks.groundReview.mockResolvedValue({ evidence: [], issues: [] });
+    return groundContext;
+  }
+  it("restores reference snapshots and enriches an existing article with restructuring disabled", async () => {
+    const groundContext = await attachReferences();
+    expect((await getRun(runId))?.groundContext).toEqual(groundContext);
+    const op: WriteOp = { ...newOp(), kind: "revise", fromMerge: false, solutionId: source.id };
+    const output = await executeWritePlan(args([op], { prepareOnly: true, restructureEnabled: false }));
+    expect(output[0]).toMatchObject({ outcome: "ready", prepared: { groundContext, groundingEnriched: true } });
+    expect(output[0].fields?.[0].fieldValue).toContain("supported policy");
+    expect(mocks.restructure).not.toHaveBeenCalled();
+    expect(mocks.ground).toHaveBeenCalledOnce();
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("blocks reference write plans before invoking any writer or model", async () => {
+    await attachReferences();
+    await expect(executeWritePlan(args([{ ...newOp(), kind: "revise", fromMerge: false, solutionId: referenceId }]))).rejects.toThrow("cannot be written");
+    expect(mocks.ground).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("keeps contradictions in review and rechecks edited content without re-enriching it", async () => {
+    await attachReferences();
+    mocks.groundReview.mockResolvedValueOnce({ evidence: [], issues: ["Conflicting audience requirements."] });
+    const op = newOp();
+    const first = await executeWritePlan(args([op], { prepareOnly: true }));
+    expect(first[0]).toMatchObject({ outcome: "review", prepared: { readyForSubmission: false, grounding: { issues: ["Conflicting audience requirements."] } } });
+    const second = await executeWritePlan(args([op], { prepareOnly: true, reviews: { [op.idempotencyKey]: { version: first[0].prepared!.version, fields } } }));
+    expect(second[0].outcome).toBe("ready");
+    expect(mocks.ground).toHaveBeenCalledOnce();
+    expect(mocks.groundReview).toHaveBeenCalledTimes(2);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("blocks changed references before a prepared article is submitted", async () => {
+    await attachReferences();
+    const op = newOp();
+    const first = await executeWritePlan(args([op], { prepareOnly: true }));
+    expect(first[0].outcome).toBe("ready");
+    mocks.solution.mockImplementation(async id => ({ ...source, id, title: id === referenceId ? "Changed policy" : source.title }));
+    await expect(executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: first[0].prepared!.version } }))).rejects.toThrow("changed");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("retains and reapplies reference evidence when regenerating a review draft", async () => {
+    const groundContext = await attachReferences();
+    mocks.groundReview.mockResolvedValue({ evidence: [], issues: ["Needs clarification."] });
+    const op = newOp();
+    const first = await executeWritePlan(args([op], { prepareOnly: true }));
+    const regenerated = await executeWritePlan(args([op], { prepareOnly: true, reviews: { [op.idempotencyKey]: { version: first[0].prepared!.version, fields, regenerate: true } } }));
+    expect(regenerated[0]).toMatchObject({ outcome: "review", prepared: { groundContext, groundingEnriched: true } });
+    expect(mocks.ground).toHaveBeenCalledTimes(2);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("keeps references out of candidates and duplicate merge groups", async () => {
+    const groundContext = await attachReferences();
+    const duplicateSearch = vi.spyOn(duplicateEngine, "findDuplicatesFor").mockImplementation(async (_candidate, options) => {
+      expect(options?.exclude?.has(referenceId)).toBe(true);
+      return { matches: [], costUsd: 0, retrieval: { searches: [], comparedIds: [], availableCount: 0, limit: 16, excludedIds: [referenceId] } };
+    });
+    const output = await runPipeline({ text: "Write a guide", sourceSolutionIds: [], operations: ["Find duplicates"], groundContext: groundContext.selection }, undefined, groundContext);
+    expect(output.solutions).toHaveLength(1);
+    expect(output.solutions[0].key).toBe("c0");
+    expect(output.solutions[0].sourceIds).toEqual([]);
+    expect(output.groups).toEqual([]);
+    expect(mocks.plan.mock.calls[0][4]).toEqual(groundContext);
+    expect(duplicateSearch).toHaveBeenCalledOnce();
+    duplicateSearch.mockRestore();
+  });
 });

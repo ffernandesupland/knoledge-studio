@@ -1,3 +1,4 @@
+import { referenceFromSolution } from "../ground-context/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -378,4 +379,31 @@ describe("autonomous pipeline with the real preparation and write engine", () =>
     expect(() => validateQuality(prepared, { ...accept(prepared), evidence: [{ sourceId: "c0", quote: "Unverified words not present" }] })).toThrow("not present");
     expect(() => validateQuality(prepared, { ...accept(prepared), title: "Sneaky edit" })).toThrow("silently edit");
   });
+});
+
+it("preserves Ground Context through autonomous checkpoints, enrichment, review and submission", async () => {
+  const referenceId = "260916000000007";
+  const reference = referenceFromSolution(await mocks.solution(referenceId));
+  const groundContext = { selection: { enabled: true, referenceSolutionIds: [referenceId], guidance: "Use the reference policy." }, references: [reference], capturedAt: "2026-09-16" };
+  const usualModel = mocks.model.getMockImplementation()!;
+  mocks.model.mockImplementation(async args => {
+    if (args.operation === "groundEnrich") return result({ ...article, evidence: [{ referenceId, fieldName: "Solution", claim: sourceText, quote: sourceText }], issues: [] });
+    if (args.operation === "groundReview") return result({ evidence: [{ referenceId, fieldName: "Solution", claim: sourceText, quote: sourceText }], issues: [] });
+    if (args.operation === "autonomousReview") {
+      const prepared = JSON.parse(args.blocks.at(-1).content).prepared as PreparedContent;
+      expect(prepared.groundContext).toEqual(groundContext);
+      return result({ ...accept(prepared), evidence: [{ sourceId: referenceId, quote: sourceText }] });
+    }
+    return usualModel(args);
+  });
+  await enqueue(id, "sauser", { ...input, groundContext: groundContext.selection }, groundContext);
+  const lease = (await claim(id))!;
+  await processJob(lease.job, lease.token);
+  expect((await getJob(id))?.status).toBe("completed");
+  expect(mocks.pipeline.mock.calls[0][2]).toEqual(groundContext);
+  expect(mocks.write).toHaveBeenCalledOnce();
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect(mocks.flag).not.toHaveBeenCalled();
+  expect((await getRun(id))?.groundContext).toEqual(groundContext);
+  expect((await executionResults(id))[0].prepared?.grounding?.evidence[0].referenceId).toBe(referenceId);
 });

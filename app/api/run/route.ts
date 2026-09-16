@@ -1,3 +1,4 @@
+import { resolveGroundContext } from "@/lib/ground-context/server";
 import { assertImageOwnership } from "@/lib/ingest/image-store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
 import { runPipeline } from "@/lib/pipeline/run";
@@ -16,8 +17,9 @@ export async function POST(request: Request) {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
     await assertImageOwnership(input, author);
+    const groundContext = await resolveGroundContext(input.groundContext, input.sourceSolutionIds, author);
     const runId = `run-${randomUUID()}`;
-    (await createRun({ id: runId, author, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
+    (await createRun({ id: runId, author, groundContext, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({
@@ -25,7 +27,7 @@ export async function POST(request: Request) {
         const send = (obj: unknown) => { if (connected) { try { controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n")); } catch { connected = false; } } };
         send({ type: "runId", runId });
         try {
-          const result = await withRaActor(author, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }))));
+          const result = await withRaActor(author, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }), groundContext)));
           (await completeRun(runId, mapRunToView(result)));
           (await saveExecutedFlow(runId));
           send({ type: "result", runId, ...result });

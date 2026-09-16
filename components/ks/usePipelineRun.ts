@@ -5,6 +5,7 @@ import type { ProgressEvent, RunOutput } from "@/lib/pipeline/run";
 import { mapRunToView, type ViewCandidate, type ViewRun } from "@/lib/ks/model";
 import { readNdjson } from "@/lib/ks/stream";
 export interface RunRequest {
+  groundContext?: import("@/lib/ground-context/types").GroundContextInput;
   text: string;
   attachments?: SourceAttachment[];
   content?: SourceBlock[];

@@ -11,7 +11,7 @@ export async function getJob(id: string): Promise<AutonomousJob | undefined> {
   const row = await db().prepare("SELECT * FROM autonomous_jobs WHERE run_id=?").get(id) as Row | undefined;
   return row && decode(row);
 }
-export async function enqueue(id: string, author: string, input: AutonomousInput): Promise<AutonomousJob> {
+export async function enqueue(id: string, author: string, input: AutonomousInput, groundContext?: import("../ground-context/types").GroundContextSnapshot): Promise<AutonomousJob> {
   await db().transaction(async () => {
     const existing = await getJob(id);
     if (existing) {
@@ -23,6 +23,7 @@ export async function enqueue(id: string, author: string, input: AutonomousInput
     await db().prepare("INSERT INTO runs(id,created_at,updated_at,author,path,status,input_text,source_ids,operations) VALUES (?,?,?,?,?,'running',?,?,?)")
       .run(id, ts, ts, author, input.path ?? null, input.text, JSON.stringify(input.sourceSolutionIds ?? []), JSON.stringify(input.operations));
     await db().prepare("INSERT INTO run_sources(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(input.attachments ?? []));
+    if (groundContext) await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(groundContext));
     if (input.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(input.content));
     await db().prepare("INSERT INTO autonomous_jobs(run_id,author,input,authorization,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, author, JSON.stringify(input), JSON.stringify(authorization), ts, ts);
     await event(id, "queued", "state", "Autonomous run authorized", "succeeded", { input: { authorization, selectedOptions: input.operations } });

@@ -11,6 +11,7 @@ Development binds to `127.0.0.1:3000`. RA credentials (`RA_BASE_URL`, `RA_COMPAN
 
 Open **http://127.0.0.1:3000/flow** for the interactive engine explorer. **Explore engine flow** in the wizard opens it with the current source/operation choices and run ID. It includes decision branches, exact prompt-builder examples, schemas, Mermaid export, and recorded AI activity. Exploring a scenario never calls AI or writes to the KB.
 
+- [Ground Context reference knowledge](docs/ground-context.md)
 - [Optional autonomous pipeline](docs/autonomous-pipeline.md)
 - [Engine behavior, diagram and recovery guide](docs/engine-guide.md)
 - [Guided Mermaid tree](docs/knowledge-studio-flow.mmd)

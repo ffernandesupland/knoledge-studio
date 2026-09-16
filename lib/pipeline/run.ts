@@ -1,3 +1,5 @@
+import { resolveGroundContext } from "../ground-context/server";
+import type { GroundContextInput, GroundContextSnapshot } from "../ground-context/types";
 import { orderedSources } from "../ks/source-document";
 import { withSourceContext } from "../llm/source-context";
 import type { SourceAttachment, SourceBlock } from "@/lib/ks/source-document";
@@ -26,6 +28,7 @@ export type OperationName =
   | "Find gaps";
 
 export interface RunInput {
+  groundContext?: GroundContextInput;
   text: string;
   /** Text extracted from uploaded files and fetched URLs. */
   attachments?: SourceAttachment[];
@@ -68,6 +71,7 @@ export interface PlannedSolution {
 }
 
 export interface RunOutput {
+  groundContext?: GroundContextSnapshot;
   solutions: PlannedSolution[];
   groups: DuplicateGroup[];
   costUsd: number;
@@ -101,10 +105,12 @@ async function step<T>(
  * Executes the Content → Check plan. Nothing here writes to the knowledge base; the output is
  * the proposal the Check screen renders.
  */
-export async function runPipeline(input: RunInput, onProgress?: OnProgress): Promise<RunOutput> {
-  return withSourceContext(input.content || input.attachments?.some(a => a.imageId) ? orderedSources(input) : [], () => runPipelineImpl(input, onProgress));
+export async function runPipeline(input: RunInput, onProgress?: OnProgress, savedGroundContext?: GroundContextSnapshot): Promise<RunOutput> {
+  const groundContext = savedGroundContext ?? await resolveGroundContext(input.groundContext, input.sourceSolutionIds);
+  if (groundContext?.selection.enabled && !input.text.trim() && !input.sourceSolutionIds?.length && !orderedSources(input).length) throw new Error("Add a task or source content alongside Ground Context references.");
+  return withSourceContext(input.content || input.attachments?.some(a => a.imageId) ? orderedSources(input) : [], () => runPipelineImpl(input, onProgress, groundContext));
 }
-async function runPipelineImpl(input: RunInput, onProgress?: OnProgress): Promise<RunOutput> {
+async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundContext?: GroundContextSnapshot): Promise<RunOutput> {
   const steps: RunOutput["steps"] = [];
   const warnings: string[] = [];
   const has = (op: OperationName) => input.operations.includes(op);
@@ -207,7 +213,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress): Promis
     }));
 
     const matchesByCandidate: Record<string, DuplicateMatch[]> = {};
-    const exclude = new Set(sourceSolutions.map((s) => s.id));
+    const exclude = new Set([...sourceSolutions.map((s) => s.id), ...(groundContext?.selection.enabled ? groundContext.references.map(r => r.id) : [])]);
 
     for (const c of candidates) {
       const matches = await step(`Duplicates: ${c.title}`, onProgress, steps, async () => {
@@ -279,7 +285,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress): Promis
           reason: p.rationale,
           duplicateEvidence: { checked: has("Find duplicates") && !p.researchOnly, matches: p.duplicates, group },
         };
-      }), input.operations, steps.map((s) => s.name), warnings);
+      }), input.operations, steps.map((s) => s.name), warnings, groundContext);
       return { value: r.data.proposals, costUsd: r.costUsd, model: r.model };
     });
     if (proposals.length !== planned.length || new Set(proposals.map((p) => p.key)).size !== planned.length || proposals.some((p) => !planned.some((s) => s.key === p.key))) {
@@ -290,6 +296,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress): Promis
 
   return {
     warnings,
+    groundContext,
     solutions: planned,
     groups,
     costUsd: steps.reduce((s, x) => s + x.costUsd, 0),
