@@ -1,12 +1,14 @@
 import type { PreparedContent } from "@/lib/pipeline/execute";
 import styles from "./GroundContext.module.css";
+import { GroundContextSummary } from "./GroundContextSummary";
 
 export function GroundContextReport({ prepared }: { prepared: PreparedContent }) {
   if (!prepared.groundContext?.selection.enabled) return null;
   const report = prepared.grounding;
   return <section className={styles.evidence} aria-label="Ground Context evidence">
+    <GroundContextSummary context={prepared.groundContext} report={report} />
     <h3>Ground Context references</h3>
-    <p>{prepared.groundContext.references.length} references available · {new Set(report?.evidence.map(item => item.referenceId)).size} cited in this draft</p>
+    <p>{prepared.groundContext.references.length} references selected · {report ? `${new Set(report.evidence.map(item => item.referenceId)).size} cited in this draft` : "Usage pending"}</p>
     {!report && <p>Reference evidence will be checked when this draft is prepared.</p>}
     {report?.issues.map((issue, index) => <p key={index} className={styles.warning}>{issue}</p>)}
     {prepared.groundContext.references.map(reference => <details key={reference.id} className={styles.evidenceItem}>

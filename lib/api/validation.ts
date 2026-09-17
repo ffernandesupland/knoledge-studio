@@ -36,7 +36,9 @@ const candidatePatch = z.object({
 const metadataValues = z.object({ collections: z.array(z.string().min(1).max(200)).min(1).max(20).optional(), taxonomies: z.array(z.string().min(1).max(1000)).max(20).optional(), language: z.string().min(1).max(100).optional() });
 export const snapshotSchema = z.object({
   groundContextIdentity: z.string().max(10000).optional(),
-  metadata: z.object({ global: metadataValues.optional(), solutions: z.record(z.string().max(100), metadataValues).optional() }).optional(),
+  metadata: z.object({ global: metadataValues.optional(), solutions: z.record(z.string().max(100), metadataValues).optional(),
+    decisions: z.record(z.string().max(100), z.record(z.string().max(3000), z.object({ status: z.enum(["accepted", "rejected", "deferred"]), kind: z.enum(["collection", "taxonomy", "attribute"]), value: z.string().max(1000), label: z.string().max(1200), attributeName: z.string().max(200).optional(), attributeSet: z.string().max(200).optional(), sourceEvidence: z.string().max(500), researchIdentity: z.string().max(100) }))).optional(),
+  }).optional(),
   candidates: z.array(candidatePatch).max(60), groups: z.array(z.object({ survivorId: z.string().max(100) }).passthrough()).max(60),
   selectedKeys: z.array(z.string().max(100)).max(60), resolutions: z.array(z.enum(["separate", "merged"]).nullable()).max(60),
   operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).min(6).max(7),

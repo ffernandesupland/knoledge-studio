@@ -1,0 +1,18 @@
+"use client";
+import type { MetadataReport, MetadataSuggestion } from "@/lib/metadata/types";
+import { EvidenceDialog } from "./EvidenceDialog";
+import styles from "./MetadataReview.module.css";
+const normalized = (value: string) => value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+export function MetadataEvidence({ report, suggestion, onClose }: { report: MetadataReport; suggestion?: MetadataSuggestion; onClose: () => void }) {
+  return <EvidenceDialog title={suggestion ? suggestion.option.label : `Metadata evidence · ${report.solution.title}`} onClose={onClose}>
+    <p>This map shows saved excerpts, catalog options and comparison articles. Suggestions concern the proposed article; review their applicability after the final draft is prepared.</p>
+    {(suggestion ? [suggestion] : report.suggestions).map(s => <section key={s.option.id} className={styles.evidenceGroup}>
+      <h3>{s.option.label.replaceAll("//", " › ")}</h3>
+      <div className={styles.evidencePath}><div><span className={styles.eyebrow}>Proposed article · {report.solution.title}</span><blockquote>{s.sourceEvidence}</blockquote><small>{s.sourceFields?.join(" · ")}</small></div><span className={styles.arrow} aria-label="supports">→</span><div><span className={styles.eyebrow}>{s.option.kind} suggestion</span><strong>{s.option.label.replaceAll("//", " › ")}</strong><p>{s.reason}</p><small>{s.option.origin === "catalog" ? "Found in the available catalog" : "Observed value · requires validation"}</small></div></div>
+      {!!report.sources?.length && <details><summary>Which processing sources contain this excerpt?</summary>{report.sources.filter(source => normalized(source.body).includes(normalized(s.sourceEvidence))).map(source => <p key={source.id}><strong>{source.title}</strong> · {source.id}<br />Contains the quoted evidence.</p>)}{!report.sources.some(source => normalized(source.body).includes(normalized(s.sourceEvidence))) && <p>The excerpt is in the proposed article; a direct match to an individual processing source was not recorded.</p>}</details>}
+      {(s.referenceEvidence ?? []).map((e, i) => <div className={styles.evidencePath} key={i}><div><span className={styles.eyebrow}>Selected reference · {report.groundContext?.references.find(r => r.id === e.referenceId)?.title ?? e.referenceId}</span><small>#{e.referenceId}</small><blockquote>{e.quote}</blockquote></div><span className={styles.arrow} aria-label="reference support">→</span><div><strong>{s.option.label}</strong><p>Additional reference support cited for this suggestion. The article excerpt above establishes its subject.</p></div></div>)}
+      {!!s.exampleIds.length && <details open><summary>Similar solutions used for comparison</summary>{s.exampleIds.map(id => { const e = report.examples.find(item => item.id === id); return <div className={styles.suggestion} key={id}><strong>{e?.title ?? id}</strong> · #{id}<p>{e?.summary}</p><p>{s.option.kind === "attribute" ? `${e?.attributeSet ?? ""}: ${e?.attributes?.map(a => `${a.name}: ${a.values.join(", ")}`).join("; ") ?? "Attribute evidence unavailable"}` : s.option.kind === "collection" ? e?.collections.map(c => report.collectionLabels[c] ?? c).join(", ") : e?.taxonomy.map(t => t.replaceAll("//", " › ")).join("; ")}</p><span className={styles.badge}>Comparison evidence · not automatically a Ground Context reference</span></div>; })}</details>}
+    </section>)}
+    <details><summary>Research coverage and limitations</summary><p>{report.coverage.examples} examples · {report.coverage.taxonomyPaths} taxonomy paths</p><ul>{report.limitations.map((limitation, i) => <li key={i}>{limitation}</li>)}</ul></details>
+  </EvidenceDialog>;
+}

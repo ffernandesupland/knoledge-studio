@@ -5,11 +5,13 @@ import { requireActor, apiError } from "@/lib/api/auth";
 import { assertOwner, canonicalSnapshot, readJson } from "@/lib/api/validation";
 import { executionResults, loadExecution, withRunLock } from "@/lib/pipeline/state";
 import type { ExecuteArgs } from "@/lib/pipeline/execute";
+import { db } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const run = (await getResumableRun(await requireActor(request)));
-    return Response.json({ run, execution: run ? (await loadExecution<ExecuteArgs>(run.id)) : undefined, results: run ? (await executionResults(run.id)) : [] });
+    const checks = run ? await db().prepare("SELECT payload FROM reference_checks WHERE run_id=?").get(run.id) as { payload: string } | undefined : undefined;
+    return Response.json({ run, referenceChanges: checks ? JSON.parse(checks.payload) : [], execution: run ? (await loadExecution<ExecuteArgs>(run.id)) : undefined, results: run ? (await executionResults(run.id)) : [] });
   } catch (e) { return apiError(e); }
 }
 export async function DELETE(request: Request) {

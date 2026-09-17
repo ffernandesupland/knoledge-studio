@@ -8,7 +8,7 @@ export async function readNdjson(response: Response, onMessage: (msg: Record<str
   const consume = (line: string) => {
     if (!line.trim()) return;
     const msg = JSON.parse(line) as Record<string, unknown>;
-    if (msg.type === "error") throw new Error(String(msg.message));
+    if (msg.type === "error") { onMessage(msg); throw new Error(String(msg.message)); }
     if (msg.type === "result") terminal = true;
     onMessage(msg);
   };

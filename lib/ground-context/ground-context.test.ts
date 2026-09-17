@@ -88,3 +88,20 @@ it("supplies reference-only evidence to planning and dedicated authoring/review 
   const review = await inspectPrompt(() => reviewGrounding(article, snapshot()));
   expect(review.task).toContain("Do not rewrite");
 });
+
+it("ignores timestamps and field serialization order while detecting material reference changes", async () => {
+  const original = { ...solution, fields: [...solution.fields, { name: "Scope", content: "Employees only." }] };
+  const saved = { ...snapshot(), references: [referenceFromSolution(original)] };
+  mocks.getSolution.mockResolvedValue({ ...original, lastModifiedDate: "2026-09-17T12:00:00.000Z", fields: [...original.fields].reverse() });
+  await expect(assertGroundReferencesCurrent(saved, "author")).resolves.toBeUndefined();
+  mocks.getSolution.mockResolvedValue({ ...original, fields: [{ name: "Policy", content: "A materially different requirement." }] });
+  await expect(assertGroundReferencesCurrent(saved, "author")).rejects.toMatchObject({ changes: [expect.objectContaining({ id, title: solution.title, reason: "Reference content changed", savedBody: expect.any(String), currentBody: expect.any(String) })] });
+});
+
+it("compares legacy saved evidence without forcing a hash migration or replacing content", async () => {
+  const current = referenceFromSolution(solution);
+  const legacy = { ...snapshot(), references: [{ id, title: current.title, status: current.status, body: current.body, version: "old-hash-included-timestamp" }] };
+  mocks.getSolution.mockResolvedValue({ ...solution, lastModifiedDate: "a newer metadata timestamp" });
+  await expect(assertGroundReferencesCurrent(legacy, "author")).resolves.toBeUndefined();
+  expect(legacy.references[0].version).toBe("old-hash-included-timestamp");
+});

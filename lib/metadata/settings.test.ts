@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { effectiveMetadata } from "./settings";
+import { effectiveMetadata, metadataDecisionKey } from "./settings";
 import { buildWritePlan } from "../pipeline/submit";
 import { submissionIdentity } from "../ks/submission-plan";
 import { snapshotSchema, runSchema } from "../api/validation";
@@ -7,6 +7,14 @@ import { KS_OPS_DEFAULT } from "../ks/data";
 import type { ViewCandidate } from "../ks/model";
 import type { DecisionSnapshot } from "../db/runs";
 const c=(key:string):ViewCandidate=>({key,title:key,subtitle:"",action:"New",source:"Your content",why:"",templateName:"How To",fields:[],rawContent:"Content",duplicates:[],dupeGroup:null});
+it("persists attribute triage without turning unvalidated candidates into write assignments", () => {
+ const attribute = { kind: "attribute" as const, value: "Managed", label: "Device: Managed", attributeName: "Device", attributeSet: "Security", sourceEvidence: "managed device", researchIdentity: "research-v1", status: "accepted" as const };
+ const decisions = { a: { [metadataDecisionKey(attribute)]: attribute } };
+ const snapshot = { candidates: [], groups: [], selectedKeys: [], resolutions: [], operations: KS_OPS_DEFAULT, collection: "a", language: "English", standard: "", standardsRules: [], newSolutionTemplate: null, templateOverrides: [], metadata: { decisions } };
+ expect(snapshotSchema.parse(snapshot).metadata?.decisions).toEqual(decisions);
+ expect(metadataDecisionKey(attribute)).not.toBe(metadataDecisionKey({ ...attribute, attributeSet: "Other" }));
+ expect(effectiveMetadata({ decisions }, "a")).toBeUndefined();
+});
 it("merges global defaults with overrides and distinguishes empty taxonomy from inheritance",()=>{
  const settings={global:{collections:["a"],taxonomies:["Root//Topic"],language:"English"},solutions:{c1:{collections:["b"],taxonomies:[]}}};
  expect(effectiveMetadata(settings,"c1")).toEqual({collections:["b"],taxonomies:[],language:"English"});

@@ -568,3 +568,14 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .pm-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pm-fields select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 @media(max-width:650px) { .pm-fields, .ks-meta-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.sg-reference-lane { margin-top: 20px; border-top: 1px dashed #7894b5; padding-top: 14px; display: grid; gap: 10px; }
+.sg-reference { border: 1px dashed #5c88bf; background: #f1f7ff; }
+.sg-reference small { overflow-wrap: anywhere; }
+
+.sg-row { display:block; }
+.sg-primary-row { display:grid; grid-template-columns:30% 24% 30%; justify-content:space-between; align-items:center; position:relative; }
+.sg-reference-lane { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); }
+.sg-reference-lane>.sg-eyebrow { grid-column:1/-1; }
+.sg-view-list .sg-primary-row { display:flex; flex-direction:column; gap:12px; width:100%; }
+.sg-view-list .sg-reference-lane { width:100%; }

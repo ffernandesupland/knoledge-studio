@@ -15,6 +15,8 @@ export interface GroundReference {
   updated?: string;
   body: string;
   version: string;
+  fingerprintVersion?: 2;
+  content?: { summary: string; fields: { name: string; text: string }[] };
 }
 export interface GroundContextSnapshot {
   selection: GroundContextInput;

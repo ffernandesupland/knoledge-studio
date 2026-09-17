@@ -423,6 +423,9 @@ describe("review route and plan invalidation", () => {
     expect(rejected.events.find((e) => e.type === "error").message).toContain("plan changed"); expect(mocks.write).not.toHaveBeenCalled();
     const second = await post({ runId, snapshot: changed, action: "prepare" });
     expect(second.events.find((e) => e.type === "result")!.results[0].prepared.version).not.toBe(old.prepared.version);
+    expect(mocks.restructure).toHaveBeenCalledTimes(1);
+    const history = await db().prepare("SELECT payload FROM draft_history WHERE run_id=?").get(runId) as { payload: string };
+    expect(history.payload).toContain(old.prepared.version);
   });
   it("keeps submitted plans immutable and preserves completed writes", async () => {
     const execution: ExecuteArgs = { ...args([newOp()]), stage: "preparation", reviewIdentity: "first" };
@@ -495,6 +498,9 @@ describe("Ground Context preparation contract", () => {
     expect(first[0].outcome).toBe("ready");
     mocks.solution.mockImplementation(async id => ({ ...source, id, title: id === referenceId ? "Changed policy" : source.title }));
     await expect(executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: first[0].prepared!.version } }))).rejects.toThrow("changed");
+    const diagnostic = await db().prepare("SELECT payload FROM reference_checks WHERE run_id=?").get(runId) as { payload: string };
+    expect(JSON.parse(diagnostic.payload)[0]).toMatchObject({ id: referenceId, reason: "Reference content changed", currentBody: expect.stringContaining("Changed policy") });
+    expect((await getWriteState(op.idempotencyKey))?.prepared?.version).toBe(first[0].prepared!.version);
     expect(mocks.write).not.toHaveBeenCalled();
   });
   it("retains and reapplies reference evidence when regenerating a review draft", async () => {
@@ -505,6 +511,18 @@ describe("Ground Context preparation contract", () => {
     const regenerated = await executeWritePlan(args([op], { prepareOnly: true, reviews: { [op.idempotencyKey]: { version: first[0].prepared!.version, fields, regenerate: true } } }));
     expect(regenerated[0]).toMatchObject({ outcome: "review", prepared: { groundContext, groundingEnriched: true } });
     expect(mocks.ground).toHaveBeenCalledTimes(2);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("retains the draft and references after enrichment fails and retries without generating the base article again", async () => {
+    const groundContext = await attachReferences();
+    const op = newOp();
+    mocks.ground.mockRejectedValueOnce(new Error("Model temporarily unavailable"));
+    const failed = await executeWritePlan(args([op], { prepareOnly: true }));
+    expect(failed[0]).toMatchObject({ outcome: "error", prepared: { groundContext, readyForSubmission: false } });
+    expect((await getWriteState(op.idempotencyKey))?.prepared?.groundContext).toEqual(groundContext);
+    const recovered = await executeWritePlan(args([op], { prepareOnly: true }));
+    expect(recovered[0].outcome).toBe("ready");
+    expect(mocks.restructure).toHaveBeenCalledTimes(1);
     expect(mocks.write).not.toHaveBeenCalled();
   });
   it("keeps references out of candidates and duplicate merge groups", async () => {
