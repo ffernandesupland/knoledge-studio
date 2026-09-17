@@ -5,6 +5,11 @@ export interface MetadataSettings { global?: MetadataValues; solutions?: Record<
 export function metadataDecisionKey(option: { kind: string; value: string; attributeName?: string; attributeSet?: string }) {
   return JSON.stringify([option.kind, option.attributeSet ?? "", option.attributeName ?? "", option.value]);
 }
+export function removeAcceptedMetadataValue(field: "collections" | "taxonomies", values: string[], value: string): string[] {
+  const remaining = values.filter(v => v !== value);
+  if (field === "collections" && !remaining.length) throw new Error("Choose a replacement collection in Values that will be submitted before rejecting or deferring the only selected collection. Your accepted decision has been kept.");
+  return remaining;
+}
 export function effectiveMetadata(settings: MetadataSettings | undefined, key: string): MetadataValues | undefined {
   const value = { ...settings?.global, ...settings?.solutions?.[key] };
   return Object.keys(value).length ? value : undefined;

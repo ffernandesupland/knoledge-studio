@@ -8,6 +8,7 @@ import { assertGuided } from "@/lib/autonomous/store";
 import { buildWritePlan } from "@/lib/pipeline/submit";
 import { researchPipelineMetadata } from "@/lib/metadata/pipeline";
 import { ra } from "@/lib/ra/client";
+import { GroundReferenceChangedError } from "@/lib/ground-context/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 export async function GET(request: Request) {
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
       async start(controller) {
         const send = (value:unknown) => { if(connected) try{controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));}catch{connected=false;abort.abort();} };
         try { const report = await withSourceContext(orderedSources({text:run.inputText,attachments:run.attachments,content:run.content}),()=>researchPipelineMetadata(run.id,op,{impUser:actor},message=>send({type:"progress",message}),abort.signal)); send({type:"result",report}); }
-        catch(e){send({type:"error",message:e instanceof Error?e.message:"Metadata research failed"});}
+        catch(e){send({type:"error",message:e instanceof Error?e.message:"Metadata research failed", ...(e instanceof GroundReferenceChangedError ? { referenceChanges: e.changes } : {})});}
         finally{if(connected)controller.close();}
       },cancel(){connected=false;abort.abort();}
     }),{headers:{"Content-Type":"application/x-ndjson; charset=utf-8","Cache-Control":"no-store"}});

@@ -1,4 +1,5 @@
 import { assertReferenceOnlyPlan, GroundReferenceChangedError } from "@/lib/ground-context/server";
+import { checkRunReferences } from "@/lib/ground-context/check-run";
 import { validatePlanMetadata } from "@/lib/metadata/validate";
 import { assertGuided } from "@/lib/autonomous/store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
               if (!stored) throw new Error("Prepare and review the drafts before submitting.");
               if (stored.reviewIdentity && stored.reviewIdentity !== reviewIdentity) throw new Error("The plan changed. Prepare and review the updated drafts before submitting.");
               await assertPreparedPlan({ ...stored, approvals: body.approvals, reviews: body.reviews });
+              await checkRunReferences(run, user);
               args = await freezePreparedPlan(run.id, stored);
               await markPartial(run.id);
             }

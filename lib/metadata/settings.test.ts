@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { effectiveMetadata, metadataDecisionKey } from "./settings";
+import { effectiveMetadata, metadataDecisionKey, removeAcceptedMetadataValue } from "./settings";
 import { buildWritePlan } from "../pipeline/submit";
 import { submissionIdentity } from "../ks/submission-plan";
 import { snapshotSchema, runSchema } from "../api/validation";
@@ -7,6 +7,11 @@ import { KS_OPS_DEFAULT } from "../ks/data";
 import type { ViewCandidate } from "../ks/model";
 import type { DecisionSnapshot } from "../db/runs";
 const c=(key:string):ViewCandidate=>({key,title:key,subtitle:"",action:"New",source:"Your content",why:"",templateName:"How To",fields:[],rawContent:"Content",duplicates:[],dupeGroup:null});
+it("requires a replacement before rejecting the only accepted collection", () => {
+ expect(() => removeAcceptedMetadataValue("collections", ["support"], "support")).toThrow("replacement collection");
+ expect(removeAcceptedMetadataValue("collections", ["support", "internal"], "support")).toEqual(["internal"]);
+ expect(removeAcceptedMetadataValue("taxonomies", ["Root//Topic"], "Root//Topic")).toEqual([]);
+});
 it("persists attribute triage without turning unvalidated candidates into write assignments", () => {
  const attribute = { kind: "attribute" as const, value: "Managed", label: "Device: Managed", attributeName: "Device", attributeSet: "Security", sourceEvidence: "managed device", researchIdentity: "research-v1", status: "accepted" as const };
  const decisions = { a: { [metadataDecisionKey(attribute)]: attribute } };

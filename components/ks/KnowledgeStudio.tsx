@@ -1006,7 +1006,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               <div className="ks-meta-group">
                 <span className="ms">auto_awesome</span>Suggested from your knowledge base
               </div>
-              {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} />}
+              {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} onReviewReferences={() => setScreen("input")} />}
               <div className="ks-meta-grid">
                 <div className="form-field">
                   <div className="form-label">Template</div>

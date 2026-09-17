@@ -95,7 +95,7 @@ it("ignores timestamps and field serialization order while detecting material re
   mocks.getSolution.mockResolvedValue({ ...original, lastModifiedDate: "2026-09-17T12:00:00.000Z", fields: [...original.fields].reverse() });
   await expect(assertGroundReferencesCurrent(saved, "author")).resolves.toBeUndefined();
   mocks.getSolution.mockResolvedValue({ ...original, fields: [{ name: "Policy", content: "A materially different requirement." }] });
-  await expect(assertGroundReferencesCurrent(saved, "author")).rejects.toMatchObject({ changes: [expect.objectContaining({ id, title: solution.title, reason: "Reference content changed", savedBody: expect.any(String), currentBody: expect.any(String) })] });
+  await expect(assertGroundReferencesCurrent(saved, "author")).rejects.toMatchObject({ changes: [expect.objectContaining({ id, title: solution.title, reason: "Reference content changed (field: Policy, field: Scope)", savedBody: expect.any(String), currentBody: expect.any(String) })] });
 });
 
 it("compares legacy saved evidence without forcing a hash migration or replacing content", async () => {
