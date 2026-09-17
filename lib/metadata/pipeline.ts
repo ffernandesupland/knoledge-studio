@@ -9,7 +9,7 @@ import { withAiAudit } from "../llm/audit";
 import type { MetadataReport } from "./types";
 import { getRun } from "../db/runs";
 import { groundIdentity } from "../ground-context/types";
-import { assertGroundReferencesCurrent } from "../ground-context/server";
+import { checkRunReferences } from "../ground-context/check-run";
 
 export async function metadataSource(op: Exclude<WriteOp, {kind:"flag"}>, ctx: RaContext): Promise<WSSolution> {
   const parent = op.kind === "revise" ? await ra.getSolution(op.solutionId, ctx) : undefined;
@@ -25,7 +25,8 @@ export async function researchPipelineMetadata(runId: string, op: Exclude<WriteO
   const source = await metadataSource(op, ctx);
   const run = await getRun(runId);
   const groundContext = run?.groundContext;
-  if (groundContext?.selection.enabled) await assertGroundReferencesCurrent(groundContext, ctx.impUser ?? run!.author);
+  if (!run) throw new Error("Run not found");
+  await checkRunReferences(run, ctx.impUser ?? run.author);
   const identity = createHash("sha256").update(JSON.stringify({ source, groundContext: groundIdentity(groundContext), version: 4 })).digest("hex");
   return withRunLock(`metadata:${runId}:${op.candidateKey}`, async () => {
     const saved = await db().prepare("SELECT identity, report FROM metadata_research WHERE run_id=? AND candidate_key=?").get(runId,op.candidateKey) as {identity:string;report:string}|undefined;

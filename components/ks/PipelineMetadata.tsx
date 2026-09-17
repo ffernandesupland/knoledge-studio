@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import type { DecisionSnapshot } from "@/lib/db/runs";
 import type { WriteOp } from "@/lib/pipeline/submit";
 import type { MetadataOptions } from "@/app/api/metadata/route";
-import { effectiveMetadata, metadataDecisionKey, type MetadataDecision, type MetadataSettings, type MetadataValues } from "@/lib/metadata/settings";
+import { effectiveMetadata, metadataDecisionKey, removeAcceptedMetadataValue, type MetadataDecision, type MetadataSettings, type MetadataValues } from "@/lib/metadata/settings";
 import type { MetadataReport, MetadataSuggestion } from "@/lib/metadata/types";
 import type { WSSolution } from "@/lib/ra/types";
+import type { ReferenceChange } from "@/lib/ground-context/server";
 import { readNdjson } from "@/lib/ks/stream";
 import { MetadataEvidence } from "./MetadataEvidence";
 import styles from "./MetadataReview.module.css";
@@ -15,13 +16,15 @@ function Multi({ title, values, options, onChange, allowEmpty = true }: { title:
   const [query, setQuery] = useState("");
   return <div><label>{title}<input aria-label={`Search ${title}`} placeholder="Search available values" value={query} onChange={e => setQuery(e.target.value)} /></label><div className={styles.chips}>{values.map(value => <button type="button" key={value} disabled={!allowEmpty && values.length === 1} onClick={() => onChange(values.filter(v => v !== value))} aria-label={`Remove ${value}`}>{label(options.find(o => o.value === value)?.label ?? value)} ×</button>)}</div><select aria-label={`Add ${title}`} value="" onChange={e => { if (e.target.value) onChange([...new Set([...values, e.target.value])]); }}><option value="">Choose a value…</option>{options.filter(o => !values.includes(o.value) && o.label.toLowerCase().includes(query.toLowerCase())).slice(0, 100).map(o => <option key={o.value} value={o.value}>{label(o.label)}</option>)}</select></div>;
 }
-export default function PipelineMetadata({ enabled, runId, snapshot, plan, options, value, onChange, onBusy }: { enabled: boolean; runId: string; snapshot: DecisionSnapshot; plan: WriteOp[]; options: MetadataOptions; value: MetadataSettings; onChange: (value: MetadataSettings) => void; onBusy: (busy: boolean) => void }) {
+export default function PipelineMetadata({ enabled, runId, snapshot, plan, options, value, onChange, onBusy, onReviewReferences }: { enabled: boolean; runId: string; snapshot: DecisionSnapshot; plan: WriteOp[]; options: MetadataOptions; value: MetadataSettings; onChange: (value: MetadataSettings) => void; onBusy: (busy: boolean) => void; onReviewReferences: () => void }) {
   const outputs = plan.filter((op): op is Exclude<WriteOp, { kind: "flag" }> => op.kind !== "flag");
-  const sourceKey = JSON.stringify({ context: snapshot.groundContextIdentity, outputs: outputs.map(op => ({ ...op, metadata: undefined })) });
+  const sourceKey = JSON.stringify({ runId, context: snapshot.groundContextIdentity, outputs: outputs.map(op => ({ ...op, metadata: undefined })) });
   const [research, setResearch] = useState<{ key: string; reports: Record<string, MetadataReport> }>({ key: "", reports: {} });
   const reports = research.key === sourceKey ? research.reports : {};
   const savedReports = useRef(research); useEffect(() => { savedReports.current = research; }, [research]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [referenceFailure, setReferenceFailure] = useState<{ key: string; changes: ReferenceChange[] } | null>(null);
+  const [decisionError, setDecisionError] = useState("");
   const [existing, setExisting] = useState<Record<string, WSSolution>>({});
   const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
   const [attempt, setAttempt] = useState(0);
@@ -55,7 +58,7 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
       await Promise.resolve(); if (stopped) return;
       if (!enabled) { setBusy(false); onBusy(false); setStatus("AI research is off. Choose metadata manually below."); return; }
       const completed = savedReports.current.key === sourceKey ? { ...savedReports.current.reports } : {};
-      setErrors({}); setBusy(true); onBusy(true); let failed = 0;
+      setErrors({}); setReferenceFailure(null); setBusy(true); onBusy(true); let failed = 0, referenceBlocked = false;
       try {
         const work = JSON.parse(sourceKey).outputs as Exclude<WriteOp, { kind: "flag" }>[];
         for (const [index, op] of work.entries()) {
@@ -67,12 +70,13 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
             await readNdjson(response, message => {
               if (stopped) return;
               if (message.type === "progress") setStatus(`${op.title} · ${message.message}`);
+              if (message.type === "error" && Array.isArray(message.referenceChanges)) { referenceBlocked = true; setReferenceFailure({ key: sourceKey, changes: message.referenceChanges as ReferenceChange[] }); controller.abort(); }
               if (message.type === "result") { completed[op.candidateKey] = message.report as MetadataReport; setResearch({ key: sourceKey, reports: { ...completed } }); }
             });
           } catch (error) { if (!stopped && !controller.signal.aborted) { failed++; setErrors(previous => ({ ...previous, [op.candidateKey]: error instanceof Error ? error.message : "Research failed" })); } }
         }
       } finally {
-        if (!stopped) { setBusy(false); onBusy(false); setStatus(controller.signal.aborted ? "Research stopped. Completed suggestions are kept; resume or choose values manually." : failed ? `${failed} article(s) need a research retry. Completed suggestions are ready for review.` : "Research complete. Review each suggestion; nothing is applied automatically."); }
+        if (!stopped) { setBusy(false); onBusy(false); setStatus(referenceBlocked ? "Research stopped. Review the reference changes below, then analyze again from Content." : controller.signal.aborted ? "Research stopped. Completed suggestions are kept; resume or choose values manually." : failed ? `${failed} article(s) need a research retry. Completed suggestions are ready for review.` : "Research complete. Review each suggestion; nothing is applied automatically."); }
       }
     })();
     return () => { stopped = true; controller.abort(); onBusy(false); };
@@ -92,6 +96,7 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
   function editFields(patch: MetadataValues) { if (selected) onChange({ ...value, solutions: { ...value.solutions, [selected.candidateKey]: { ...override, ...patch } } }); }
   function decide(suggestion: MetadataSuggestion, status: MetadataDecision["status"]) {
     if (!selected || !report) return;
+    setDecisionError("");
     const key = metadataDecisionKey(suggestion.option), old = decisions(selected.candidateKey)[key];
     const decision: MetadataDecision = { status, kind: suggestion.option.kind, value: suggestion.option.value, label: suggestion.option.label, attributeName: suggestion.option.attributeName, attributeSet: suggestion.option.attributeSet, sourceEvidence: suggestion.sourceEvidence, researchIdentity: report.identity ?? report.generatedAt };
     let settings = { ...override };
@@ -99,7 +104,10 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
       const field = suggestion.option.kind === "collection" ? "collections" : "taxonomies";
       const existing = shown[field] ?? (field === "collections" ? [fallback].filter(Boolean) : []);
       if (status === "accepted") settings = { ...settings, [field]: [...new Set([...existing, suggestion.option.value])] };
-      else if (old?.status === "accepted" && !suggestion.alreadyAssigned) { const remaining = existing.filter(v => v !== suggestion.option.value); if (field !== "collections" || remaining.length) settings = { ...settings, [field]: remaining }; }
+      else if (old?.status === "accepted" && !suggestion.alreadyAssigned) {
+        try { settings = { ...settings, [field]: removeAcceptedMetadataValue(field, existing, suggestion.option.value) }; }
+        catch (error) { setDecisionError((error as Error).message); return; }
+      }
     }
     onChange({ ...value, solutions: { ...value.solutions, [selected.candidateKey]: settings }, decisions: { ...value.decisions, [selected.candidateKey]: { ...decisions(selected.candidateKey), [key]: decision } } });
   }
@@ -112,6 +120,8 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
     catch (error) { setBrowseError(error instanceof Error ? error.message : "Could not load taxonomy branches"); }
   }
   return <section className={styles.workspace} aria-label="Metadata review workspace">
+    {referenceFailure?.key === sourceKey && <section className={styles.warning} role="alert"><h3>Reference knowledge needs review</h3><p>Metadata research stopped because a selected reference changed or became unavailable. Manual metadata choices will not resolve this reference check.</p>{referenceFailure.changes.map(change => <details key={change.id}><summary>{change.title} · #{change.id} · {change.reason}</summary><h4>Saved reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.savedBody}</pre><h4>Current reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.currentBody ?? "Current content is unavailable."}</pre></details>)}<button type="button" onClick={onReviewReferences}>Review references in Content</button></section>}
+    {decisionError && <p className={styles.warning} role="alert">{decisionError}</p>}
     <div className={styles.heading}><div><span className={styles.eyebrow}>Classify your articles</span><h3>Review metadata suggestions</h3><p>{outputs.length} articles · {done} of {total} suggestions triaged</p></div><span className={styles.badge}>Your choices control the final values</span></div>
     <div className={styles.status} role="status">{status}<div className={styles.actions}>{busy ? <button type="button" onClick={() => abort.current?.abort()}>Stop research</button> : enabled && <button type="button" onClick={() => setAttempt(n => n + 1)}>Resume / retry unfinished research</button>}</div></div>
     <div className={styles.layout}><nav className={styles.articles} aria-label="Articles to classify">{outputs.map(op => <button key={op.candidateKey} type="button" aria-pressed={selected?.candidateKey === op.candidateKey} onClick={() => setActive(op.candidateKey)}><strong>{op.title}</strong><small>{op.kind === "revise" ? "Revision" : "New article"}{op.mergeSources?.length ? " · Combined sources" : ""}</small><small>{errors[op.candidateKey] ? "Research needs attention" : reports[op.candidateKey] ? `${reviewed(op.candidateKey)}/${reports[op.candidateKey].suggestions.length} decisions recorded` : enabled ? "Awaiting research" : "Manual selection"}</small></button>)}</nav>

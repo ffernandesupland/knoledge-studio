@@ -15,6 +15,8 @@ import { freezeExecution, getWriteState, saveWriteState, withRunLock } from "./s
 import { canonicalSnapshot } from "../api/validation";
 import { KS_OPS_DEFAULT } from "../ks/data";
 import { POST as submitRoute } from "../../app/api/submit/route";
+import { POST as metadataRoute } from "../../app/api/pipeline-metadata/route";
+import { groundIdentity } from "../ground-context/types";
 import { submissionIdentity } from "../ks/submission-plan";
 import { readExecutedFlow } from "../flow/executions";
 import { loadExecution, savePreparationPlan, freezePreparedPlan } from "./state";
@@ -23,13 +25,14 @@ import { RaError } from "../ra/http";
 
 const mocks = vi.hoisted(() => ({
   templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
-  ground: vi.fn(), groundReview: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
+  metadata: vi.fn(), ground: vi.fn(), groundReview: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
 }));
 vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
 vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
 vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
 
 vi.mock("../ground-context/operations", () => ({ enrichWithReferences: mocks.ground, reviewGrounding: mocks.groundReview }));
+vi.mock("../metadata/engine", () => ({ analyzeMetadataSource: mocks.metadata }));
 const template = { templateName: "How To (RA)", templateType: "standard", kbPrefix: "", fields: ["Solution", "Details"].map((fieldName) => ({ fieldName, required: false, description: "", searchable: true })) };
 const fields = [{ fieldName: "Solution", fieldValue: "<p>Original answer</p>" }, { fieldName: "Details", fieldValue: "" }];
 const source = { id: "260909000000002", title: "Existing article", templateName: template.templateName, status: "Published", fields: fields.map((f) => ({ name: f.fieldName, content: f.fieldValue })) };
@@ -398,6 +401,54 @@ describe("review route and plan invalidation", () => {
     const text = await response.text();
     return { status: response.status, events: text.trim().split("\n").map((line) => JSON.parse(line)) };
   }
+  async function referenceFixture() {
+    const snapshot = await fixture();
+    const reference = referenceFromSolution({ ...source, id: "260916000000008" });
+    const groundContext = { selection: { enabled: true, referenceSolutionIds: [reference.id], guidance: "" }, references: [reference], capturedAt: "2026-09-17" };
+    await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(runId, JSON.stringify(groundContext));
+    snapshot.groundContextIdentity = groundIdentity(groundContext);
+    mocks.ground.mockImplementation(async article => result({ ...article, evidence: [], issues: [] }));
+    mocks.groundReview.mockResolvedValue({ evidence: [], issues: [] });
+    return snapshot;
+  }
+  it("keeps the plan editable when submission detects changed references before writing", async () => {
+    const snapshot = await referenceFixture();
+    const ready = await post({ runId, snapshot, action: "prepare" });
+    const draft = ready.events.find(e => e.type === "result").results[0];
+    mocks.solution.mockImplementation(async id => ({ ...source, id, summary: "Changed reference information" }));
+    const rejected = await post({ runId, snapshot, action: "submit", approvals: { [draft.idempotencyKey]: draft.prepared.version } });
+    expect(rejected.events.find(e => e.type === "error").referenceChanges[0].reason).toContain("summary");
+    expect((await loadExecution<ExecuteArgs>(runId))?.stage).toBe("preparation");
+    expect((await getRun(runId))?.status).not.toBe("partial");
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("returns and persists reference diagnostics from metadata research", async () => {
+    const snapshot = await referenceFixture();
+    snapshot.operations = snapshot.operations.map(o => ({ ...o, on: o.name === "Discover and suggest metadata" }));
+    mocks.solution.mockImplementation(async id => ({ ...source, id, summary: "Changed reference information" }));
+    const response = await metadataRoute(new Request("http://localhost/api/pipeline-metadata", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, key: snapshot.selectedKeys[0], snapshot }) }));
+    const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line));
+    const failure = events.find(e => e.type === "error");
+    expect(failure.referenceChanges[0]).toMatchObject({ reason: "Reference content changed (summary)", currentBody: expect.stringContaining("Changed reference information") });
+    const persisted = await db().prepare("SELECT payload FROM reference_checks WHERE run_id=?").get(runId) as { payload: string };
+    expect(JSON.parse(persisted.payload)).toEqual(failure.referenceChanges);
+    expect(mocks.metadata).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("researches metadata and prepares a draft without altering the saved references", async () => {
+    const snapshot = await referenceFixture();
+    snapshot.operations = snapshot.operations.map(o => ({ ...o, on: o.name === "Discover and suggest metadata" }));
+    const before = (await getRun(runId))!.groundContext;
+    mocks.metadata.mockResolvedValue({ identity: "research", suggestions: [], generatedAt: "2026-09-17" });
+    const response = await metadataRoute(new Request("http://localhost/api/pipeline-metadata", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, key: snapshot.selectedKeys[0], snapshot }) }));
+    const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line));
+    expect(events.find(e => e.type === "result")).toBeDefined();
+    snapshot.metadata = { global: { collections: ["custom_kb"] } };
+    const prepared = await post({ runId, snapshot, action: "prepare" });
+    expect(prepared.events.find(e => e.type === "result").results[0]).toMatchObject({ outcome: "ready", prepared: { groundContext: before, metadata: { collections: ["custom_kb"] } } });
+    expect((await getRun(runId))!.groundContext).toEqual(before);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
   it("enforces preparation at the route, preserves client/server identity, and saves the graph", async () => {
     const snapshot = await fixture();
     const denied = await post({ runId, snapshot, action: "submit" });
@@ -499,7 +550,7 @@ describe("Ground Context preparation contract", () => {
     mocks.solution.mockImplementation(async id => ({ ...source, id, title: id === referenceId ? "Changed policy" : source.title }));
     await expect(executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: first[0].prepared!.version } }))).rejects.toThrow("changed");
     const diagnostic = await db().prepare("SELECT payload FROM reference_checks WHERE run_id=?").get(runId) as { payload: string };
-    expect(JSON.parse(diagnostic.payload)[0]).toMatchObject({ id: referenceId, reason: "Reference content changed", currentBody: expect.stringContaining("Changed policy") });
+    expect(JSON.parse(diagnostic.payload)[0]).toMatchObject({ id: referenceId, reason: "Reference content changed (title)", currentBody: expect.stringContaining("Changed policy") });
     expect((await getWriteState(op.idempotencyKey))?.prepared?.version).toBe(first[0].prepared!.version);
     expect(mocks.write).not.toHaveBeenCalled();
   });

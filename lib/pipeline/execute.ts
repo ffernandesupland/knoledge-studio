@@ -1,4 +1,5 @@
-import { assertGroundReferencesCurrent, assertReferenceOnlyPlan, GroundReferenceChangedError } from "../ground-context/server";
+import { assertReferenceOnlyPlan } from "../ground-context/server";
+import { checkRunReferences } from "../ground-context/check-run";
 import { enrichWithReferences, reviewGrounding } from "../ground-context/operations";
 import type { GroundContextSnapshot, GroundingReport } from "../ground-context/types";
 import type { MetadataValues, MetadataDecision } from "../metadata/settings";
@@ -105,13 +106,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   if (run && run.author !== args.user) throw new Error("Run belongs to another author");
   assertReferenceOnlyPlan(args.plan, run?.groundContext);
   onProgress?.({ index: 0, total: args.plan.length, description: "Checking selected reference versions and access…" });
-  try {
-    await assertGroundReferencesCurrent(run?.groundContext, args.user);
-    if (run) await db().prepare("DELETE FROM reference_checks WHERE run_id=?").run(run.id);
-  } catch (error) {
-    if (run && error instanceof GroundReferenceChangedError) await db().prepare("INSERT INTO reference_checks(run_id,payload) VALUES (?,?) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload").run(run.id, JSON.stringify(error.changes));
-    throw error;
-  }
+  if (run) await checkRunReferences(run, args.user);
   if (run?.groundContext?.selection.enabled && !args.prepareOnly && !args.requirePrepared) throw new Error("Prepare and review grounded drafts before submitting.");
   const originals = run?.content || run?.attachments?.some(a => a.imageId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));

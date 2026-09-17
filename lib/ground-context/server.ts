@@ -15,6 +15,18 @@ function referenceFingerprint(title: string, summary: string, fields: { name: st
     fields: fields.map(f => ({ name: normalize(f.name), text: normalize(f.text) })).sort((a, b) => a.name.localeCompare(b.name) || a.text.localeCompare(b.text)) })).digest("hex");
 }
 export interface ReferenceChange { id: string; title: string; reason: string; savedUpdated?: string; currentUpdated?: string; savedBody: string; currentBody?: string }
+function changedContent(saved: GroundReference, current: GroundReference): string[] {
+  if (!saved.content || !current.content) return [];
+  const changes: string[] = [];
+  if (normalize(saved.title) !== normalize(current.title)) changes.push("title");
+  if (normalize(saved.content.summary) !== normalize(current.content.summary)) changes.push("summary");
+  const names = new Set([...saved.content.fields, ...current.content.fields].map(f => normalize(f.name)));
+  for (const name of names) {
+    const values = (reference: GroundReference) => reference.content!.fields.filter(f => normalize(f.name) === name).map(f => normalize(f.text)).sort();
+    if (JSON.stringify(values(saved)) !== JSON.stringify(values(current))) changes.push(`field: ${name}`);
+  }
+  return changes;
+}
 export class GroundReferenceChangedError extends Error {
   constructor(public changes: ReferenceChange[]) {
     super(`Reference knowledge needs attention: ${changes.map(c => `${c.title} (${c.id}): ${c.reason}`).join("; ")}. Review the changes, then return to Content and analyze again. Your saved drafts remain available.`);
@@ -57,7 +69,10 @@ export async function assertGroundReferencesCurrent(snapshot: GroundContextSnaps
       // Legacy snapshots contain the exact model input. Compare it conservatively;
       // never reinterpret an old hash as a new fingerprint or silently replace evidence.
       const same = reference.fingerprintVersion === 2 ? current.version === reference.version : normalize(current.body) === normalize(reference.body);
-      if (!same) changes.push({ id: reference.id, title: reference.title, reason: "Reference content changed", savedUpdated: reference.updated, currentUpdated: current.updated, savedBody: reference.body, currentBody: current.body });
+      if (!same) {
+        const fields = changedContent(reference, current);
+        changes.push({ id: reference.id, title: reference.title, reason: `Reference content changed${fields.length ? ` (${fields.join(", ")})` : ""}`, savedUpdated: reference.updated, currentUpdated: current.updated, savedBody: reference.body, currentBody: current.body });
+      }
     } catch (error) {
       changes.push({ id: reference.id, title: reference.title, reason: error instanceof Error ? error.message : "Reference is unavailable", savedUpdated: reference.updated, savedBody: reference.body });
     }
