@@ -1,6 +1,7 @@
 "use client";
 import PipelineMetadata from "./PipelineMetadata";
 import { GroundContextInput } from "./GroundContextInput";
+import { GroundContextSummary } from "./GroundContextSummary";
 import { emptyGroundSelection, groundIdentity, type GroundContextInput as GroundSelection } from "@/lib/ground-context/types";
 import type { MetadataSettings } from "@/lib/metadata/settings";
 import { legacyDocument, type SourceBlock, type SourceAttachment } from "@/lib/ks/source-document";
@@ -177,7 +178,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
         setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
         setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, { id, title: `Solution ${id}`, meta: "Selected source" }])));
-        if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? [], d.execution.stage, d.execution.reviewIdentity); setScreen("submit"); }
+        if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? [], d.execution.stage, d.execution.reviewIdentity, d.referenceChanges ?? []); setScreen("submit"); }
         else setScreen("check");
         showToast({ message: "Resumed your last session — use Reset to start clean instead.", icon: "history" });
       })
@@ -441,8 +442,8 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
   const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot);
   const preparedMatches = submitRun.identity === currentIdentity;
   const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
-  const displayResults = preparedMatches || submitRun.locked ? submitRun.results : [];
-  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groups: effectiveGroups, restructureEnabled: ops.some((o) => o.name === "Restructure content" && o.on), standardsRules: ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : [] });
+  const displayResults = preparedMatches || submitRun.locked ? submitRun.results : submitRun.results.filter(result => displayPlan.some(op => op.idempotencyKey === result.idempotencyKey)).map(result => ({ ...result, outcome: "review" as const, message: "Previous draft retained for comparison. Prepare the updated plan before editing or submitting this version.", prepared: result.prepared ? { ...result.prepared, readyForSubmission: false } : undefined }));
+  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groundContext: pipeline.run?.groundContext, groups: effectiveGroups, restructureEnabled: ops.some((o) => o.name === "Restructure content" && o.on), standardsRules: ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : [] });
   const submissionBusy = submitRun.phase === "preparing" || submitRun.phase === "submitting";
   const draftsReady = displayPlan.some((op) => op.kind !== "flag") && (preparedMatches || submitRun.locked) && displayPlan.every((op) => op.kind === "flag" || displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && (r.outcome === "ok" || (r.prepared?.readyForSubmission && r.outcome !== "uncertain"))));
   const completion = submissionStatus(displayPlan, displayResults);
@@ -706,6 +707,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     return (
       <div className="ks-scroll">
         <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+          <GroundContextSummary context={pipeline.run?.groundContext} />
           <div className="ks-triage">
             <span className="ms">insights</span>
             <div>
@@ -983,14 +985,15 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     const availRules = KS_CS_ALL_RULES.filter((r) => !csRules.includes(r));
     return (
       <div className="ks-scroll">
-        <div style={{ maxWidth: 880, margin: "0 auto" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
           <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
-            Set metadata
+            Review classification and article settings
           </div>
           <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
-            Confirm the final templates and shared fields. Submission prepares new articles with summary, keywords and relevant template fields. Restructuring controls rewriting.
+            Review AI suggestions for each article, inspect their evidence, and choose the final values. Next, prepare the drafts and review the actual content before submission.
           </div>
 
+          <GroundContextSummary context={pipeline.run?.groundContext} />
           {metaError && (
             <div className="ks-merge-warn" style={{ marginBottom: 16 }}>
               <span className="ms">error</span>
@@ -1215,12 +1218,16 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       <div className="sg-phase-strip" aria-live="polite"><span className={submitRun.phase === "idle" ? "active" : ""}>1 · Review plan</span><span className={submitRun.phase === "preparing" ? "active" : ""}>2 · Prepare drafts</span><span className={draftsReady && !allWritten ? "active" : ""}>3 · Review final articles</span><span className={submitRun.phase === "submitting" || allWritten ? "active" : ""}>4 · Submit</span></div>
       {submitRun.locked && <p className={allWritten ? "ks-card" : "sg-warning"} role="status">{completion.message} {allWritten ? "Your execution is saved in Past executions. You can finish now." : completion.uncertain ? "A write needs verification in RightAnswers before continuing. See the verification section below; completed writes will not be sent again." : "Only unfinished operations will be retried."}</p>}
       {submitRun.error && <p className="sg-warning" role="alert">{submitRun.error}</p>}
+      {!!submitRun.referenceChanges.length && <section className="ks-card" style={{ padding: 20 }}><h2>Review changed reference knowledge</h2><p>Your original input, selected references and saved drafts are retained. Review the differences before starting a fresh analysis.</p>{submitRun.referenceChanges.map(change => <details key={change.id}><summary>{change.title} · #{change.id} · {change.reason}</summary><p>Saved update: {change.savedUpdated ?? "Not provided"} · Current update: {change.currentUpdated ?? "Not available"}</p><h4>Saved reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.savedBody}</pre><h4>Current reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.currentBody ?? "Could not retrieve current content."}</pre></details>)}<div style={{ display: "flex", gap: 12, marginTop: 16 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={draftEditing} onClick={() => setScreen("input")}>Review references in Content</button><button type="button" className="ds-btn ds-btn-secondary" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(displayResults, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "saved-drafts.json"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download saved drafts</button></div><p>Creating a new plan retrieves the current references. The previous run remains in execution history.</p></section>}
+      <GroundContextSummary context={pipeline.run?.groundContext} scope="the saved drafts below" report={displayResults.some(r => r.prepared?.grounding) ? { evidence: displayResults.flatMap(r => r.prepared?.grounding?.evidence ?? []), issues: displayResults.flatMap(r => r.prepared?.grounding?.issues ?? []) } : undefined} />
+      {pipeline.runId && <a href={"/api/runs/drafts?runId=" + encodeURIComponent(pipeline.runId)} className="ds-btn ds-btn-secondary">Download previous draft versions</a>}
+      {submissionBusy && <p role="status">{submitRun.progress}</p>}
       {proposedWritePlan.error && !submitRun.locked && <p role="alert">{proposedWritePlan.error}</p>}
       {submitRun.identity && !preparedMatches && !submitRun.locked && <p className="sg-warning">The plan or metadata changed. Prepare the updated drafts before submitting.</p>}
       {draftEditing && <p className="sg-warning">Save or cancel your article edits before changing the plan or submitting.</p>}
       {submissionBusy && <div className="ks-card"><LoadingProgress key={submitRun.phase} label={submitRun.phase === "preparing" ? "Preparing drafts — no articles are being written to RightAnswers." : "Writing the reviewed drafts to RightAnswers…"} /></div>}
       <SubmissionGraph templates={templateOptions} model={submissionGraph} busy={submissionBusy} currentKey={submitRun.currentKey} mode={submitRun.phase === "preparing" ? "preparation" : submitRun.locked ? "submission" : "preparation"}
-        onSave={(key, review) => prepareCurrent({ [key]: review })} onDirtyChange={setDraftEditing}
+        onSave={preparedMatches ? (key, review) => prepareCurrent({ [key]: review }) : undefined} onDirtyChange={setDraftEditing}
         onChangePlan={!submitRun.locked ? () => setScreen("check") : undefined} flowHref={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId ?? "")}`} />
       {displayResults.some((r) => r.outcome === "uncertain") && <section id="pending-write-verification"><SubmissionReview runId={pipeline.runId ?? ""} results={displayResults.filter((r) => r.outcome === "uncertain")} onRetry={() => prepareCurrent()} /></section>}
       {submitRun.costUsd != null && <p className="sg-cost">Recorded AI cost: ${submitRun.costUsd.toFixed(4)}</p>}

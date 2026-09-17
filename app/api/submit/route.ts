@@ -1,4 +1,4 @@
-import { assertReferenceOnlyPlan } from "@/lib/ground-context/server";
+import { assertReferenceOnlyPlan, GroundReferenceChangedError } from "@/lib/ground-context/server";
 import { validatePlanMetadata } from "@/lib/metadata/validate";
 import { assertGuided } from "@/lib/autonomous/store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
             (await saveExecutedFlow(run.id));
             send({ type: "result", results, stage: args.stage, reviewIdentity: args.reviewIdentity, costUsd: (await getRun(run.id))?.costUsd });
           });
-        } catch (err) { send({ type: "error", message: (err as Error).message }); }
+        } catch (err) { send({ type: "error", message: (err as Error).message, ...(err instanceof GroundReferenceChangedError ? { referenceChanges: err.changes } : {}) }); }
         finally { if (connected) controller.close(); }
       }, cancel() { connected = false; },
     });

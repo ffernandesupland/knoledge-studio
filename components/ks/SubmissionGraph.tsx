@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import { submissionMermaid, type SubmissionGraphModel, type SubmissionRow, type GraphSource } from "@/lib/ks/submission-graph";
 import type { ContentReview, OpResult } from "@/lib/pipeline/execute";
 import { GroundContextReport } from "./GroundContextReport";
+import { GroundContextSummary } from "./GroundContextSummary";
+import { MetadataEvidence } from "./MetadataEvidence";
 import { ArticlePreview } from "./ArticlePreview";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
@@ -14,6 +16,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
   const [view, setView] = useState<"graph" | "list">("graph");
   const [zoom, setZoom] = useState(1);
   const [editing, setEditing] = useState(false);
+  const [metadataEvidence, setMetadataEvidence] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
   const row = model.rows.find((r) => r.key === selection?.key) ?? model.rows[0];
   const source = row?.sources.find((s) => s.id === selection?.source);
@@ -45,13 +48,14 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
         <div className="sg-viewport" ref={viewport}>
           <div className={`sg-canvas sg-view-${view}`} style={view === "graph" ? { zoom, minWidth: 760 } : undefined}>
             {view === "graph" && <div className="sg-column-labels"><span>Sources</span><span>Actions</span><span>Results</span></div>}
-            {model.rows.map((r) => <div className="sg-row" key={r.key}>
+            {model.rows.map((r) => <div className="sg-row" key={r.key}><div className="sg-primary-row">
               {view === "graph" && <svg className="sg-wires" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{r.sources.map((s, i) => <path key={s.id} d={`M 26 ${(i + .5) * 100 / r.sources.length} C 34 ${(i + .5) * 100 / r.sources.length}, 34 50, 40 50`} />)}<path d="M 60 50 L 74 50" /></svg>}
               <div className="sg-sources">{r.sources.map((s) => <div key={s.id}>{node(r, "source", s)}</div>)}</div>
               <div className="sg-action-wrap">{node(r, "action")}</div>
               <div className="sg-output">{node(r, "result")}
                 {r.comments.map((c) => <button type="button" className="sg-comment" key={c.key} disabled={editing} onClick={() => choose({ key: r.key, comment: c.key })}>↳ {c.result?.outcome === "ok" ? "Comment saved" : "Tracking comment"}: {c.title}<small>{statusLabel(c.result)} · after merge succeeds</small></button>)}
               </div>
+              </div>{r.groundContext?.selection.enabled && <div className="sg-reference-lane"><span className="sg-eyebrow">Reference solutions · unchanged</span>{r.groundContext.references.map(reference => { const report = r.result?.prepared?.grounding; const evidence = report?.evidence.filter(e => e.referenceId === reference.id); return <button type="button" className="sg-node sg-reference" key={reference.id} disabled={editing} onClick={() => choose({ key: r.key })}><strong>{reference.title}</strong><small>#{reference.id}</small><small>{report ? evidence?.length ? `Supports ${evidence.length} passage(s) → draft` : "No citation in this draft" : "Reference → usage pending"}</small>{evidence?.slice(0, 2).map((e, i) => <small key={i}>{e.fieldName}: {e.claim}</small>)}</button>; })}</div>}
             </div>)}
           </div>
         </div>
@@ -61,6 +65,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
         {!row ? <p>No articles in this plan.</p> : <>
           <span className="sg-eyebrow">{source ? "Source material" : comment ? "Tracking comment" : selection?.action ? "Action details" : "Resulting article"}</span>
           <h2>{source?.title ?? comment?.title ?? prepared?.title ?? row.title}</h2>
+          {!source && !comment && !prepared && <GroundContextSummary context={row.groundContext} />}
           {comment ? <><p>{comment.result?.message ?? `After the retained article is written successfully, add an internal comment to ${comment.sourceId} identifying the retained destination. The source stays in place.`}</p><p>{statusLabel(comment.result)}</p></> : source ? <>
             <p>{source.existing ? `Existing article · ${source.id}` : "Proposed topic · no article has been created"}</p>
             {source.labels?.length ? <p>From {source.labels.join(" · ")}</p> : null}
@@ -76,6 +81,9 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
             <p className={`sg-status sg-status-${row.result?.outcome}`}>{statusLabel(row.result)}</p>
             {row.result?.message && <p>{row.result.message}</p>}
             {prepared.metadata && <div className="sg-warning"><strong>Selected metadata</strong><p>Collections: {prepared.metadata.collections?.join(", ") ?? "Default / existing"}</p><p>Taxonomies: {prepared.metadata.taxonomies?.map(p => p.replaceAll("//", " › ")).join("; ") || "None / existing"}</p><p>Language: {prepared.metadata.language ?? "Default / existing"}</p></div>}
+            {prepared.metadataEvidenceChanged && <p className="sg-warning">The final wording differs from an accepted metadata suggestion’s original excerpt. Review the classification against this draft before approving it.</p>}
+            {prepared.metadataResearch && <button type="button" onClick={() => setMetadataEvidence(true)}>Review metadata evidence map</button>}
+            {!!Object.keys(prepared.metadataDecisions ?? {}).length && <details><summary>Metadata and attribute decisions</summary>{Object.entries(prepared.metadataDecisions ?? {}).map(([key, decision]) => <p key={key}><strong>{decision.label}</strong> · {decision.kind === "attribute" && decision.status === "accepted" ? "Kept for validation — not submitted" : decision.status}{decision.attributeSet ? ` · ${decision.attributeSet}` : ""}</p>)}</details>}
             {prepared.warnings.map((w, i) => <p className="sg-warning" key={i}>{w}</p>)}
             {editing && onSave ? <form key={prepared.version} onSubmit={(e) => {
               e.preventDefault(); const data = new FormData(e.currentTarget);
@@ -97,6 +105,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
           {flowHref && <details className="sg-engine"><summary>Engine details</summary><p>Preparation uses the selected merge, authoring and standards operations. Submission writes the reviewed version and then adds dependent tracking comments.</p><ul>{row.preparation.filter((p) => p.prompt).map((p, i) => <li key={i}>Prompt: <code>{p.prompt}</code></li>)}</ul><a href={flowHref} target="_blank" rel="noreferrer">Inspect recorded prompts, inputs and results ↗</a></details>}
         </>}
       </aside>
+      {metadataEvidence && prepared?.metadataResearch && <MetadataEvidence report={prepared.metadataResearch} onClose={() => setMetadataEvidence(false)} />}
     </div>
   </section>;
 }

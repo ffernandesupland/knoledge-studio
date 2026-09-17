@@ -1,5 +1,17 @@
 # Ground Context
 
+## Reference and metadata review
+
+Selected references now show solution titles and IDs, including when you reopen a run. Reference summaries appear in plan review, metadata review and final review. Use **View reference evidence** to inspect saved excerpts and the exact draft passages they support. The final graph separates reference solutions from articles being processed; its exported diagram includes supporting excerpts.
+
+The metadata step provides an article list and individual **Accept**, **Reject** and **Defer** decisions. **Why this suggestion?** opens an evidence map connecting proposed article excerpts, selected reference excerpts and similar articles used for comparison. Similar articles are not automatically Ground Context references. Accepted classifications are checked for changed source wording when the final draft is prepared; review any warning before submitting.
+
+**Attribute triage** records candidates by attribute set and name. **Keep for validation** retains a candidate for review; it does not submit an attribute change. The current integration has no verified administrative attribute catalog or validated attribute-write contract. Existing controlled collection, taxonomy and language changes continue through the normal validation and submission path.
+
+Reference freshness checks now compare content independently of timestamps and field serialization order. Real changes or lost access show named references and saved/current content. Older snapshots are compared conservatively against their saved text. Review references in Content and create a fresh plan to use changed evidence; saved drafts and the previous run remain available. Metadata-only changes retain draft text and invalidate its approval. **Download previous draft versions** retrieves archived versions from before plan changes.
+
+For the design and remaining live integration checks, see [the UX implementation plan](ground-context-metadata-ux-plan.md).
+
 Ground Context selects existing published KB solutions as reference evidence for creating or enriching an article. Reference selection is separate from selecting articles to process.
 
 ## Use it

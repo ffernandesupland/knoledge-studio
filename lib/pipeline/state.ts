@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db";
-import type { OpResult, PreparedContent } from "./execute";
+import type { OpResult, PreparedContent, ExecuteArgs } from "./execute";
 
 export interface WriteState {
   status: "prepared" | "review" | "writing" | "ok" | "error" | "uncertain";
@@ -54,6 +54,12 @@ export async function withRunLock<T>(runId: string, fn: () => Promise<T>, leaseM
 }
 
 /** Caller holds the run lock. Preparation can change until submission is frozen. */
+function authoredInputs(payload: { reviewIdentity?: string }) {
+  const args = payload as Partial<ExecuteArgs>;
+  let context: unknown;
+  try { context = JSON.parse(args.reviewIdentity ?? "{}").groundContextIdentity; } catch { context = args.reviewIdentity; }
+  return JSON.stringify({ plan: args.plan?.map(op => op.kind === "flag" ? op : { ...op, metadata: undefined }), context, restructure: !!args.restructureEnabled, standards: args.standardsRules ?? [] });
+}
 export async function savePreparationPlan<T extends { stage?: string; reviewIdentity?: string }>(runId: string, payload: T): Promise<T> {
   return db().transaction(async () => {
     const existing = await loadExecution<T>(runId);
@@ -64,7 +70,15 @@ export async function savePreparationPlan<T extends { stage?: string; reviewIden
     if (existing && existing.reviewIdentity !== payload.reviewIdentity) {
       const written = await db().prepare("SELECT key FROM write_state WHERE run_id=? AND status IN ('writing','ok','uncertain') LIMIT 1").get(runId);
       if (written) throw new Error("This run has write attempts and cannot change its plan.");
-      await db().prepare("DELETE FROM write_state WHERE run_id=?").run(runId);
+      const previous = await db().prepare("SELECT key,status,prepared,result FROM write_state WHERE run_id=?").all(runId) as { key: string; status: WriteState["status"]; prepared: string | null; result: string | null }[];
+      if (previous.length) await db().prepare("INSERT INTO draft_history(run_id,saved_at,payload) VALUES (?,?,?)").run(runId, new Date().toISOString(), JSON.stringify(previous));
+      if (authoredInputs(existing) === authoredInputs(payload)) {
+        for (const row of previous) if (row.prepared) {
+          const prepared: PreparedContent = { ...JSON.parse(row.prepared), version: randomUUID(), readyForSubmission: false };
+          const result: OpResult | undefined = row.result ? { ...JSON.parse(row.result), prepared, outcome: "review", message: "Metadata changed. Draft content retained; prepare it again to validate the new settings." } : undefined;
+          await saveWriteState(runId, row.key, { status: "review", prepared, result });
+        }
+      } else await db().prepare("DELETE FROM write_state WHERE run_id=?").run(runId);
     }
     await db().prepare("INSERT INTO execution_plans(run_id,payload) VALUES (?,?) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload").run(runId, JSON.stringify(payload));
     return payload;

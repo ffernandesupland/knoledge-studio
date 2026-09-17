@@ -9,13 +9,26 @@ import { groundContextSchema, type GroundContextInput, type GroundContextSnapsho
 export function plainEvidence(value: string): string {
   return sanitizeHtml(value, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, " ").trim();
 }
+const normalize = (text: string) => plainEvidence(text).normalize("NFC");
+function referenceFingerprint(title: string, summary: string, fields: { name: string; text: string }[]) {
+  return createHash("sha256").update(JSON.stringify({ title: normalize(title), summary: normalize(summary),
+    fields: fields.map(f => ({ name: normalize(f.name), text: normalize(f.text) })).sort((a, b) => a.name.localeCompare(b.name) || a.text.localeCompare(b.text)) })).digest("hex");
+}
+export interface ReferenceChange { id: string; title: string; reason: string; savedUpdated?: string; currentUpdated?: string; savedBody: string; currentBody?: string }
+export class GroundReferenceChangedError extends Error {
+  constructor(public changes: ReferenceChange[]) {
+    super(`Reference knowledge needs attention: ${changes.map(c => `${c.title} (${c.id}): ${c.reason}`).join("; ")}. Review the changes, then return to Content and analyze again. Your saved drafts remain available.`);
+    this.name = "GroundReferenceChangedError";
+  }
+}
 export function referenceFromSolution(solution: WSSolution): GroundReference {
   if (!isLive(solution.status)) throw new Error("Ground Context reference " + solution.id + " must be published.");
   const body = [solution.title, solution.summary, ...(solution.fields ?? []).map(field => field.name + "\n" + plainEvidence(field.content))].filter(Boolean).join("\n\n");
   if (!(solution.fields ?? []).some(field => plainEvidence(field.content)) && !solution.summary?.trim()) throw new Error("Ground Context reference " + solution.id + " has no readable content.");
+  const content = { summary: solution.summary ?? "", fields: (solution.fields ?? []).map(f => ({ name: f.name, text: plainEvidence(f.content) })) };
   return {
     id: solution.id, title: solution.title, status: solution.status, ...(solution.lastModifiedDate ? { updated: solution.lastModifiedDate } : {}),
-    body, version: createHash("sha256").update(JSON.stringify({ body, status: solution.status, updated: solution.lastModifiedDate })).digest("hex"),
+    body, content, fingerprintVersion: 2, version: referenceFingerprint(solution.title, content.summary, content.fields),
   };
 }
 export async function resolveGroundContext(input?: GroundContextInput, sourceIds: string[] = [], user?: string): Promise<GroundContextSnapshot | undefined> {
@@ -35,12 +48,21 @@ export async function resolveGroundContext(input?: GroundContextInput, sourceIds
 /** Checks current access and content before preparation and before any write. */
 export async function assertGroundReferencesCurrent(snapshot: GroundContextSnapshot | undefined, user: string) {
   if (!snapshot?.selection.enabled) return;
+  const changes: ReferenceChange[] = [];
   for (const reference of snapshot.references) {
-    const solution = await ra.getSolution(reference.id, { impUser: user });
-    if (solution.id !== reference.id || referenceFromSolution(solution).version !== reference.version) {
-      throw new Error("Ground Context reference " + reference.id + " changed. Return to Content and analyze again before preparing or submitting.");
+    try {
+      const solution = await ra.getSolution(reference.id, { impUser: user });
+      if (solution.id !== reference.id) throw new Error("Retrieved a different solution");
+      const current = referenceFromSolution(solution);
+      // Legacy snapshots contain the exact model input. Compare it conservatively;
+      // never reinterpret an old hash as a new fingerprint or silently replace evidence.
+      const same = reference.fingerprintVersion === 2 ? current.version === reference.version : normalize(current.body) === normalize(reference.body);
+      if (!same) changes.push({ id: reference.id, title: reference.title, reason: "Reference content changed", savedUpdated: reference.updated, currentUpdated: current.updated, savedBody: reference.body, currentBody: current.body });
+    } catch (error) {
+      changes.push({ id: reference.id, title: reference.title, reason: error instanceof Error ? error.message : "Reference is unavailable", savedUpdated: reference.updated, savedBody: reference.body });
     }
   }
+  if (changes.length) throw new GroundReferenceChangedError(changes);
 }
 export function assertReferenceOnlyPlan(plan: WriteOp[], snapshot?: GroundContextSnapshot) {
   if (!snapshot?.selection.enabled) return;

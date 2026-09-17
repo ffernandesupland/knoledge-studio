@@ -1,10 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { WSSolution } from "../ra/types";
 import type { MetadataOption } from "./types";
+import { zodTextFormat } from "openai/helpers/zod";
 const mocks = vi.hoisted(() => ({ getSolution: vi.fn(), getCollections: vi.fn(), getBrowsePaths: vi.fn(), search: vi.fn(), runOperation: vi.fn() }));
 vi.mock("../ra/client", () => ({ ra: mocks }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.runOperation }));
-import { analyzeMetadata, shortlist, sourceText, usableExamples, validateRecommendations } from "./engine";
+import { analyzeMetadata, shortlist, sourceText, usableExamples, validateRecommendations, RecommendationSchema } from "./engine";
+it("builds an API-compatible structured-output schema including reference evidence", () => {
+ expect(() => zodTextFormat(RecommendationSchema, "metadata_recommendations")).not.toThrow();
+});
 const target: WSSolution = { id: "target", title: "Reset a RightAnswers password", status: "Published", collections: ["support"], taxonomy: ["Wrong label"], fields: [{ name: "Steps", content: "Use the password reset link in RightAnswers." }] };
 const option: MetadataOption = { id: "c:support", kind: "collection", value: "support", label: "Support", origin: "catalog" };
 const suggestion = { candidateId: option.id, reason: "Support task", sourceEvidence: "password reset link", exampleIds: ["example"] };
@@ -52,4 +56,15 @@ it("stops before model calls when cancelled", async () => {
  mocks.getSolution.mockResolvedValue(target); const abort = new AbortController(); abort.abort();
  await expect(analyzeMetadata("target", {}, ()=>{}, abort.signal)).rejects.toThrow("cancelled");
  expect(mocks.runOperation).not.toHaveBeenCalled();
+});
+
+it("validates selected reference excerpts and records the supporting article field", () => {
+  const context = { selection: { enabled: true, referenceSolutionIds: ["123456789012345"], guidance: "" }, capturedAt: "today", references: [{ id: "123456789012345", title: "Policy", status: "Published", body: "Employees must use the password reset link.", version: "v1" }] };
+  const evidence = { referenceId: context.references[0].id, quote: "Employees must use the password reset link." };
+  const data = { rationale: "", uncertainties: [], suggestions: [{ ...suggestion, referenceEvidence: [evidence] }] };
+  const result = validateRecommendations(data, [option], [example], target, context);
+  expect(result[0].referenceEvidence).toEqual([evidence]);
+  expect(result[0].sourceFields).toEqual(["Steps"]);
+  expect(() => validateRecommendations(data, [option], [example], target)).toThrow("absent");
+  expect(() => validateRecommendations({ ...data, suggestions: [{ ...suggestion, referenceEvidence: [{ ...evidence, quote: "A fabricated statement about this policy." }] }] }, [option], [example], target, context)).toThrow("absent");
 });

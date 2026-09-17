@@ -1,7 +1,9 @@
-import { assertGroundReferencesCurrent, assertReferenceOnlyPlan } from "../ground-context/server";
+import { assertGroundReferencesCurrent, assertReferenceOnlyPlan, GroundReferenceChangedError } from "../ground-context/server";
 import { enrichWithReferences, reviewGrounding } from "../ground-context/operations";
 import type { GroundContextSnapshot, GroundingReport } from "../ground-context/types";
-import type { MetadataValues } from "../metadata/settings";
+import type { MetadataValues, MetadataDecision } from "../metadata/settings";
+import type { MetadataReport } from "../metadata/types";
+import { db } from "../db";
 import { getRun } from "../db/runs";
 import { orderedSources } from "../ks/source-document";
 import { withSourceContext } from "../llm/source-context";
@@ -23,6 +25,9 @@ export interface PreparedContent {
   grounding?: GroundingReport;
   groundingEnriched?: boolean;
   metadata?: MetadataValues;
+  metadataResearch?: MetadataReport;
+  metadataDecisions?: Record<string, MetadataDecision>;
+  metadataEvidenceChanged?: boolean;
   version: string;
   readyForSubmission?: boolean;
   sourceVersions?: Record<string, string>;
@@ -99,7 +104,14 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   const run = await getRun(args.runId);
   if (run && run.author !== args.user) throw new Error("Run belongs to another author");
   assertReferenceOnlyPlan(args.plan, run?.groundContext);
-  await assertGroundReferencesCurrent(run?.groundContext, args.user);
+  onProgress?.({ index: 0, total: args.plan.length, description: "Checking selected reference versions and access…" });
+  try {
+    await assertGroundReferencesCurrent(run?.groundContext, args.user);
+    if (run) await db().prepare("DELETE FROM reference_checks WHERE run_id=?").run(run.id);
+  } catch (error) {
+    if (run && error instanceof GroundReferenceChangedError) await db().prepare("INSERT INTO reference_checks(run_id,payload) VALUES (?,?) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload").run(run.id, JSON.stringify(error.changes));
+    throw error;
+  }
   if (run?.groundContext?.selection.enabled && !args.prepareOnly && !args.requirePrepared) throw new Error("Prepare and review grounded drafts before submitting.");
   const originals = run?.content || run?.attachments?.some(a => a.imageId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
@@ -137,6 +149,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled);
         prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
         if (groundContext?.selection.enabled) {
+          prepared.groundContext = groundContext;
           const enriched = await enrichWithReferences(prepared, groundContext);
           prepared = { ...prepared, title: op.titleLocked ? op.title : enriched.data.title, summary: enriched.data.summary, keywords: enriched.data.keywords, fields: enriched.data.fields, groundContext, groundingEnriched: true, grounding: { evidence: enriched.data.evidence, issues: enriched.data.issues } };
           prepared.sourceDocuments = [{ id: op.candidateKey, title: op.title, templateName: target.templateName, body: op.rawContent }];
@@ -163,7 +176,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
       } else {
         if (!prepared) {
           if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare this draft before submitting.");
-          prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [] };
+          prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [], ...(groundContext?.selection.enabled ? { groundContext } : {}) };
           if (op.mergeSources?.length) {
             const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion });
             prepared.fields = merged.fields;
@@ -176,6 +189,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             prepared.sourceDocuments = merged.sourceDocuments;
             if (merged.templateWarning) prepared.warnings.push(merged.templateWarning);
           } else if ((op.kind === "create" || restructureEnabled) && op.rawContent) {
+            onProgress?.({ index, total: plan.length, description: `Generating draft: ${op.title}` });
             const target = templates.find((t) => t.templateName === op.templateName);
             if (!target) throw new Error("Final template is unavailable; choose a valid template in a new run.");
             const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled);
@@ -188,6 +202,8 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
         }
         if (groundContext?.selection.enabled && !prepared.groundingEnriched) {
+          prepared.groundContext = groundContext;
+          onProgress?.({ index, total: plan.length, description: `Applying reference information: ${op.title}` });
           const enriched = await enrichWithReferences(prepared, groundContext);
           prepared = { ...prepared, title: op.titleLocked ? op.title : enriched.data.title, summary: enriched.data.summary, keywords: enriched.data.keywords, fields: enriched.data.fields, groundContext, grounding: { evidence: enriched.data.evidence, issues: enriched.data.issues }, groundingEnriched: true, readyForSubmission: false };
         }
@@ -195,6 +211,12 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         if (review) {
           if (review.version !== prepared.version) throw new Error("Review is stale. Reload the current prepared content.");
           prepared = { ...prepared, version: randomUUID(), title: review.title ?? prepared.title, summary: review.summary ?? prepared.summary, keywords: review.keywords ?? prepared.keywords, fields: review.fields, reviewed: true, standardsApplied: false, readyForSubmission: false, grounding: undefined };
+        }
+        prepared.metadata = op.metadata;
+        if (args.prepareOnly) {
+          const savedResearch = await db().prepare("SELECT report FROM metadata_research WHERE run_id=? AND candidate_key=?").get(runId, op.candidateKey) as { report: string } | undefined;
+          prepared.metadataResearch = savedResearch ? JSON.parse(savedResearch.report) : undefined;
+          prepared.metadataDecisions = (await getRun(runId))?.snapshot?.metadata?.decisions?.[op.candidateKey];
         }
         const target = templates.find((t) => t.templateName === prepared!.templateName);
         if (!target) throw new Error("The prepared template is no longer available.");
@@ -223,6 +245,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             continue;
           }
           if (groundContext?.selection.enabled && (args.prepareOnly || !prepared.grounding)) {
+            onProgress?.({ index, total: plan.length, description: `Verifying exact reference excerpts: ${op.title}` });
             prepared.groundContext = groundContext;
             prepared.grounding = await reviewGrounding(prepared, groundContext);
             if (prepared.grounding.issues.length) {
@@ -247,6 +270,12 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
           }
           if (!prepared.title.trim()) throw new Error("Article title must not be empty.");
           prepared.metadata = op.metadata;
+          if (args.prepareOnly) {
+            const normalizeText = (value: string) => value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").toLowerCase();
+            const finalText = normalizeText([prepared.title, prepared.summary, ...prepared.fields.map(f => f.fieldValue)].join(" "));
+            const researchIdentity = prepared.metadataResearch?.identity;
+            prepared.metadataEvidenceChanged = (!!prepared.metadataResearch && prepared.metadataResearch.planSourceKey !== JSON.stringify({ ...op, metadata: undefined })) || Object.values(prepared.metadataDecisions ?? {}).some(d => d.status === "accepted" && d.kind !== "attribute" && (!finalText.includes(normalizeText(d.sourceEvidence)) || d.researchIdentity !== researchIdentity));
+          }
           prepared.readyForSubmission = true;
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));
           if (args.prepareOnly) {
