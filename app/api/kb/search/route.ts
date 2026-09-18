@@ -1,6 +1,7 @@
 import { requireActor, apiError } from "@/lib/api/auth";
 import { NextResponse } from "next/server";
 import { ra } from "@/lib/ra/client";
+import { resolveConnection } from "@/lib/ra/connections";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,8 @@ export interface KbSearchRow {
 export async function GET(request: Request) {
   try {
   const user = await requireActor(request);
-  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q")?.trim() ?? "";
   if (!q) return NextResponse.json({ rows: [] satisfies KbSearchRow[] });
 
     if (q.length > 500) throw new Error("Search query is too long");
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
       verboseResult: true,
       verboseResultFields: "title,status,template_name,collections",
       page: 1,
-    }, { impUser: user });
+    }, { impUser: user, connection: await resolveConnection(user, url.searchParams.get("connectionId")) });
 
     const rows: KbSearchRow[] = result.solutions.slice(0, 10).map((s) => {
       const v = s.verboseSolutionResult;

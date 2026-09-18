@@ -7,9 +7,8 @@ import { isSolutionId } from "@/lib/pipeline/submit";
 import type { ViewDupeGroup } from "@/lib/ks/model";
 
 /**
- * Step one of duplicate review: pick which solution survives. The Sankey confirmation screen
- * (renderDupeModal in KnowledgeStudio.tsx) comes next; the actual content merge happens at
- * submit time, against live content, using the survivor&apos;s own template.
+ * Suggested merges arrive approved. This workspace is only needed when someone wants to
+ * inspect the group, retain a different destination, or keep the items separate.
  */
 export function MergeWorkspaceModal({
   group,
@@ -39,7 +38,7 @@ export function MergeWorkspaceModal({
             <span className="ms" style={{ verticalAlign: "middle", marginRight: 8, color: T.accent }}>
               merge
             </span>
-            {allNew ? `Combine ${group.members.length} proposals?` : `Review ${group.members.length} related items`}
+            {allNew ? `Combined article destination` : `Merge destination`}
           </div>
         </div>
 
@@ -90,9 +89,9 @@ export function MergeWorkspaceModal({
             className="ds-btn ds-btn-primary"
             onClick={() => onContinue(survivorId)}
           >
-            Continue
+            Save destination
             <span className="ms" style={{ fontSize: 18 }}>
-              arrow_forward
+              check
             </span>
           </button>
         </div>

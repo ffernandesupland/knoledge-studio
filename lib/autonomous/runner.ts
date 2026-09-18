@@ -4,7 +4,8 @@ import { validatePlanMetadata } from "../metadata/validate";
 import { autonomousMetadataValues } from "./metadata";
 import { withSourceContext } from "../llm/source-context";
 import { orderedSources } from "../ks/source-document";
-import { ra, withRaActor } from "../ra/client";
+import { ra, withRaConnection } from "../ra/client";
+import { runConnection } from "../ra/connections";
 import { runPipeline } from "../pipeline/run";
 import { mapRunToView } from "../ks/model";
 import { completeRun, getRun, saveSnapshot, type DecisionSnapshot } from "../db/runs";
@@ -23,11 +24,12 @@ import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, 
 
 export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
+  const connection = await runConnection(job.author, id);
   let currentStage = job.stage;
   async function within<T>(name: AutonomousStage, fn: () => Promise<T>): Promise<T> {
     await stage(id, token, name);
     currentStage = name;
-    return withAutonomousContext(id, token, name, () => withRaActor(job.author, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, () => withSourceContext(job.input.content || job.input.attachments?.some(a => a.imageId) ? orderedSources(job.input) : [], fn))));
+    return withAutonomousContext(id, token, name, () => withRaConnection(job.author, connection, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, () => withSourceContext(job.input.content || job.input.attachments?.some(a => a.imageId) ? orderedSources(job.input) : [], fn))));
   }
   // Existing write locks and journals remain authoritative for side effects.
   await withRunLock(id, async () => {

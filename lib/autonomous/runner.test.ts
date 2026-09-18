@@ -26,7 +26,7 @@ vi.mock("../metadata/pipeline", () => ({ researchPipelineMetadata: mocks.researc
 vi.mock("../pipeline/run", () => ({ runPipeline: mocks.pipeline }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.model }));
 vi.mock("../llm/operations", () => ({ restructure: mocks.author, mergeSections: mocks.merge, applyStandards: vi.fn() }));
-vi.mock("../ra/client", () => ({ withRaActor: (_: string, fn: () => unknown) => fn(), ra: {
+vi.mock("../ra/client", () => ({ withRaActor: (_: string, fn: () => unknown) => fn(), withRaConnection: (_: string, _connection: unknown, fn: () => unknown) => fn(), ra: {
   getTemplates: async () => [template], getCollections: async () => [{ code: "support" }], search: mocks.search,
   getBrowsePaths: mocks.browse, getSolution: mocks.solution, getSolutionHtml: mocks.solution, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag,
 } }));

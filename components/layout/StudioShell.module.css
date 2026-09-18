@@ -19,7 +19,7 @@
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { padding: 10px 16px; border-right: 0; border-bottom: 1px solid #e0e3e6; overflow: visible; }
   .brand, .sectionLabel, .sidebarFooter { display: none; }
-  .navigation { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .navigation { grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .navLink { padding: 10px; }
   .navLink strong { font-size: 12px; }
   .navLink small { display: none; }

@@ -1,6 +1,7 @@
 import { requireActor, apiError } from "@/lib/api/auth";
 import { NextResponse } from "next/server";
 import { ra } from "@/lib/ra/client";
+import { resolveConnection } from "@/lib/ra/connections";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,8 @@ export interface MetadataOptions {
 export async function GET(request: Request) {
   try {
     const author = await requireActor(request);
-    const ctx = { impUser: author };
+    const connectionId = new URL(request.url).searchParams.get("connectionId");
+    const ctx = { impUser: author, connection: await resolveConnection(author, connectionId) };
     const [templates, collections, facets] = await Promise.all([
       ra.getTemplates(ctx),
       ra.getCollections(ctx),
