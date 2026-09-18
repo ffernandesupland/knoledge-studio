@@ -43,7 +43,7 @@ function decrypt(value: string) {
   return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
 }
 
-const normalizeToken = (value: string) => value.trim().replace(/^Bearer\s+/i, "");
+export const normalizeToken = (value: string) => value.trim().replace(/^Bearer\s+/i, "");
 
 export function normalizeBaseUrl(value: string) {
   const url = new URL(value.trim());

@@ -10,6 +10,7 @@ export default function RightAnswersConnections() {
   const [form, setForm] = useState(blank);
   const [editing, setEditing] = useState<Connection | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
   const load = useCallback(async () => {
     const response = await fetch("/api/ra-connections");
@@ -41,6 +42,20 @@ export default function RightAnswersConnections() {
     try { const response = await fetch("/api/ra-connections", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, makeDefault: true }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); await load(); setMessage("Default customer updated."); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not change the default."); }
     finally { setBusy(false); }
+  }
+  async function testConnection() {
+    setTesting(true); setMessage("");
+    try {
+      const response = await fetch("/api/ra-connections/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: editing?.id, baseUrl: form.baseUrl, bearerToken: form.bearerToken, user: form.user }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setMessage(`Connection successful. RightAnswers returned ${data.templateCount} article template${data.templateCount === 1 ? "" : "s"}.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not connect to RightAnswers."); }
+    finally { setTesting(false); }
   }
   async function remove(item: Connection) {
     if (!window.confirm(`Delete ${item.name}?`)) return;
@@ -74,7 +89,14 @@ export default function RightAnswersConnections() {
         <label className="form-label">Bearer token<input className="form-input" required={!editing} type="password" autoComplete="new-password" placeholder={editing ? "Leave blank to keep current token" : "Paste bearer token"} value={form.bearerToken} onChange={event => setForm({ ...form, bearerToken: event.target.value })} /></label>
       </div>
       {!editing && <label style={{ display: "flex", gap: 8, marginTop: 18 }}><input type="checkbox" checked={form.makeDefault} onChange={event => setForm({ ...form, makeDefault: event.target.checked })} />Use as default customer</label>}
-      <div style={{ display: "flex", gap: 10, marginTop: 20 }}><button className="ds-btn ds-btn-primary" disabled={busy} type="submit">{busy ? "Saving…" : editing ? "Save changes" : "Add customer"}</button>{editing && <button className="ds-btn ds-btn-secondary" type="button" onClick={() => { setEditing(null); setForm(blank); }}>Cancel</button>}</div>
+      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+        <button className="ds-btn ds-btn-secondary" disabled={busy || testing || !form.baseUrl.trim() || !form.user.trim() || (!editing && !form.bearerToken.trim())} type="button" onClick={testConnection}>
+          <span className="ms" style={{ fontSize: 18 }}>{testing ? "progress_activity" : "wifi_tethering"}</span>
+          {testing ? "Testing…" : "Test connection"}
+        </button>
+        <button className="ds-btn ds-btn-primary" disabled={busy || testing} type="submit">{busy ? "Saving…" : editing ? "Save changes" : "Add customer"}</button>
+        {editing && <button className="ds-btn ds-btn-secondary" disabled={busy || testing} type="button" onClick={() => { setEditing(null); setForm(blank); }}>Cancel</button>}
+      </div>
     </form>
   </main>;
 }
