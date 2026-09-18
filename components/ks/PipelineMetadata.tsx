@@ -16,7 +16,7 @@ function Multi({ title, values, options, onChange, allowEmpty = true }: { title:
   const [query, setQuery] = useState("");
   return <div><label>{title}<input aria-label={`Search ${title}`} placeholder="Search available values" value={query} onChange={e => setQuery(e.target.value)} /></label><div className={styles.chips}>{values.map(value => <button type="button" key={value} disabled={!allowEmpty && values.length === 1} onClick={() => onChange(values.filter(v => v !== value))} aria-label={`Remove ${value}`}>{label(options.find(o => o.value === value)?.label ?? value)} ×</button>)}</div><select aria-label={`Add ${title}`} value="" onChange={e => { if (e.target.value) onChange([...new Set([...values, e.target.value])]); }}><option value="">Choose a value…</option>{options.filter(o => !values.includes(o.value) && o.label.toLowerCase().includes(query.toLowerCase())).slice(0, 100).map(o => <option key={o.value} value={o.value}>{label(o.label)}</option>)}</select></div>;
 }
-export default function PipelineMetadata({ enabled, runId, snapshot, plan, options, value, onChange, onBusy, onReviewReferences }: { enabled: boolean; runId: string; snapshot: DecisionSnapshot; plan: WriteOp[]; options: MetadataOptions; value: MetadataSettings; onChange: (value: MetadataSettings) => void; onBusy: (busy: boolean) => void; onReviewReferences: () => void }) {
+export default function PipelineMetadata({ enabled, runId, connectionId, snapshot, plan, options, value, onChange, onBusy, onReviewReferences }: { enabled: boolean; runId: string; connectionId?: string; snapshot: DecisionSnapshot; plan: WriteOp[]; options: MetadataOptions; value: MetadataSettings; onChange: (value: MetadataSettings) => void; onBusy: (busy: boolean) => void; onReviewReferences: () => void }) {
   const outputs = plan.filter((op): op is Exclude<WriteOp, { kind: "flag" }> => op.kind !== "flag");
   const sourceKey = JSON.stringify({ runId, context: snapshot.groundContextIdentity, outputs: outputs.map(op => ({ ...op, metadata: undefined })) });
   const [research, setResearch] = useState<{ key: string; reports: Record<string, MetadataReport> }>({ key: "", reports: {} });
@@ -44,14 +44,14 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
     const work = JSON.parse(sourceKey).outputs as Exclude<WriteOp, { kind: "flag" }>[];
     void Promise.all(work.filter(op => op.kind === "revise").map(async op => {
       try {
-        const response = await fetch("/api/metadata-lab/solution?id=" + encodeURIComponent(op.solutionId), { signal: controller.signal });
+        const response = await fetch("/api/metadata-lab/solution?id=" + encodeURIComponent(op.solutionId) + (connectionId ? "&connectionId=" + encodeURIComponent(connectionId) : ""), { signal: controller.signal });
         const data = await response.json();
         if (!response.ok || data.solution?.id !== op.solutionId) throw new Error(data.error ?? "Could not read current article metadata");
         if (!controller.signal.aborted) { setExisting(previous => ({ ...previous, [op.candidateKey]: data.solution })); setSourceErrors(previous => ({ ...previous, [op.candidateKey]: "" })); }
       } catch (error) { if (!controller.signal.aborted) setSourceErrors(previous => ({ ...previous, [op.candidateKey]: error instanceof Error ? error.message : "Could not read current metadata" })); }
     }));
     return () => controller.abort();
-  }, [sourceKey, attempt]);
+  }, [sourceKey, attempt, connectionId]);
   useEffect(() => {
     const controller = new AbortController(); abort.current = controller; let stopped = false;
     void (async () => {
@@ -116,7 +116,7 @@ export default function PipelineMetadata({ enabled, runId, snapshot, plan, optio
   }
   async function browsePath(path: string) {
     setBrowseError("");
-    try { const response = await fetch(`/api/pipeline-metadata?path=${encodeURIComponent(path)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error); const values = data.paths.map((p: { value: string }) => p.value); setBrowse(path); setChildren(values); setExtraPaths(previous => [...new Set([...previous, ...values])]); }
+    try { const response = await fetch(`/api/pipeline-metadata?path=${encodeURIComponent(path)}${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ""}`); const data = await response.json(); if (!response.ok) throw new Error(data.error); const values = data.paths.map((p: { value: string }) => p.value); setBrowse(path); setChildren(values); setExtraPaths(previous => [...new Set([...previous, ...values])]); }
     catch (error) { setBrowseError(error instanceof Error ? error.message : "Could not load taxonomy branches"); }
   }
   return <section className={styles.workspace} aria-label="Metadata review workspace">

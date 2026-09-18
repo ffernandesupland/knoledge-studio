@@ -1,7 +1,10 @@
 import { tracked } from "../autonomous/telemetry";
 import { AsyncLocalStorage } from "node:async_hooks";
-const actor = new AsyncLocalStorage<string>();
-export const withRaActor = <T>(user: string, fn: () => Promise<T>) => actor.run(user, fn);
+import type { RaRuntimeConnection } from "./connections";
+type RequestContext = { actor: string; connection?: RaRuntimeConnection };
+const requestContext = new AsyncLocalStorage<RequestContext>();
+export const withRaActor = <T>(user: string, fn: () => Promise<T>) => requestContext.run({ actor: user }, fn);
+export const withRaConnection = <T>(user: string, connection: RaRuntimeConnection, fn: () => Promise<T>) => requestContext.run({ actor: user, connection }, fn);
 import { config } from "../config";
 import { getToken } from "./auth";
 import { parseJson, raFetch, RaError, type RaRequestOptions } from "./http";
@@ -19,6 +22,7 @@ import type {
 export interface RaContext {
   /** Username to impersonate; writes are attributed to this user. */
   impUser?: string;
+  connection?: RaRuntimeConnection;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -30,15 +34,17 @@ async function call<T>(
   opts: Omit<RaRequestOptions, "headers">,
   raw = false,
 ): Promise<T> {
-  const impUser = ctx.impUser ?? actor.getStore();
+  const current = requestContext.getStore();
+  const connection = ctx.connection ?? current?.connection;
+  const impUser = connection?.user ?? ctx.impUser ?? current?.actor;
   return tracked("tool", `${opts.method ?? "GET"} ${opts.path}`, { actor: impUser, path: opts.path, query: opts.query, body: opts.body }, async () => {
-    const token = await getToken(impUser);
-    const { text } = await raFetch(config.ra.baseUrl, {
+    const token = connection?.bearerToken ?? await getToken(impUser);
+    const { text } = await raFetch(connection?.baseUrl ?? config.ra.baseUrl, {
       ...opts,
       timeoutMs: opts.timeoutMs ?? config.ra.timeoutMs,
       headers: { Authorization: `Bearer ${token}` },
       query: {
-        companyCode: config.ra.companyCode,
+        companyCode: connection?.bearerToken ? undefined : config.ra.companyCode,
         appInterface: config.ra.appInterface,
         imp_user: impUser,
         ...opts.query,

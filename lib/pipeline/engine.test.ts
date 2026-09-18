@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
   metadata: vi.fn(), ground: vi.fn(), groundReview: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
 }));
-vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
+vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), withRaConnection: (_user: string, _connection: unknown, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
 vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
 vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
 

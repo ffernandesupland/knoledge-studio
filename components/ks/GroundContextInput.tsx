@@ -5,11 +5,12 @@ import type { GroundContextInput as Selection, GroundReference } from "@/lib/gro
 import type { KbSearchRow } from "@/app/api/kb/search/route";
 import styles from "./GroundContext.module.css";
 
-export function GroundContextInput({ value, onChange, excludedIds, savedReferences = [] }: {
+export function GroundContextInput({ value, onChange, excludedIds, savedReferences = [], connectionId }: {
   value: Selection;
   onChange: (value: Selection) => void;
   excludedIds: string[];
   savedReferences?: GroundReference[];
+  connectionId?: string;
 }) {
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<KbSearchRow[]>([]);
@@ -27,7 +28,7 @@ export function GroundContextInput({ value, onChange, excludedIds, savedReferenc
     const controller = new AbortController();
     void Promise.all(selectedKey.split(",").filter(Boolean).map(async id => {
       try {
-        const response = await fetch("/api/kb/reference?id=" + encodeURIComponent(id), { signal: controller.signal });
+        const response = await fetch("/api/kb/reference?id=" + encodeURIComponent(id) + (connectionId ? "&connectionId=" + encodeURIComponent(connectionId) : ""), { signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error("Unavailable");
         if (!controller.signal.aborted) {
@@ -37,14 +38,14 @@ export function GroundContextInput({ value, onChange, excludedIds, savedReferenc
       } catch { if (!controller.signal.aborted) setUnavailable(current => [...new Set([...current, id])]); }
     }));
     return () => controller.abort();
-  }, [selectedKey]);
+  }, [selectedKey, connectionId]);
   useEffect(() => {
     if (!value.enabled || !query.trim()) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true); setError("");
       try {
-        const response = await fetch("/api/kb/search?q=" + encodeURIComponent(query.trim()), { signal: controller.signal });
+        const response = await fetch("/api/kb/search?q=" + encodeURIComponent(query.trim()) + (connectionId ? "&connectionId=" + encodeURIComponent(connectionId) : ""), { signal: controller.signal });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Could not search the knowledge base.");
         if (!controller.signal.aborted) {
@@ -55,7 +56,7 @@ export function GroundContextInput({ value, onChange, excludedIds, savedReferenc
       finally { if (!controller.signal.aborted) setLoading(false); }
     }, 350);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, value.enabled]);
+  }, [query, value.enabled, connectionId]);
 
   async function openReference(id: string) {
     previewRequest.current?.abort();
@@ -63,7 +64,7 @@ export function GroundContextInput({ value, onChange, excludedIds, savedReferenc
     previewRequest.current = controller;
     setPreview(null); setPreviewBusy(true); setError("");
     try {
-      const response = await fetch("/api/kb/reference?id=" + encodeURIComponent(id), { signal: controller.signal });
+      const response = await fetch("/api/kb/reference?id=" + encodeURIComponent(id) + (connectionId ? "&connectionId=" + encodeURIComponent(connectionId) : ""), { signal: controller.signal });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Could not read this reference.");
       if (!controller.signal.aborted) setPreview(result.reference);

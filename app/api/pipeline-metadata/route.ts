@@ -9,6 +9,8 @@ import { buildWritePlan } from "@/lib/pipeline/submit";
 import { researchPipelineMetadata } from "@/lib/metadata/pipeline";
 import { ra } from "@/lib/ra/client";
 import { GroundReferenceChangedError } from "@/lib/ground-context/server";
+import { resolveConnection, runConnection } from "@/lib/ra/connections";
+import { withRaConnection } from "@/lib/ra/client";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 export async function GET(request: Request) {
@@ -16,7 +18,8 @@ export async function GET(request: Request) {
     const actor = await requireActor(request);
     const path = new URL(request.url).searchParams.get("path") ?? "";
     if (path.length > 1000) throw new ApiError("Taxonomy path is too long");
-    return Response.json({ paths: await ra.getBrowsePaths(path,{impUser:actor}) },{headers:{"Cache-Control":"no-store"}});
+    const connection = await resolveConnection(actor, new URL(request.url).searchParams.get("connectionId"));
+    return Response.json({ paths: await ra.getBrowsePaths(path,{impUser:actor, connection}) },{headers:{"Cache-Control":"no-store"}});
   } catch(e) { return apiError(e); }
 }
 export async function POST(request: Request) {
@@ -24,6 +27,7 @@ export async function POST(request: Request) {
     const actor = await requireActor(request);
     const input = await readJson(request,z.object({runId:z.string().max(100),key:z.string().max(100),snapshot:z.unknown()}));
     const run = await getRun(input.runId); assertOwner(run,actor); await assertGuided(run.id);
+    const connection = await runConnection(actor, run.id);
     const snapshot = canonicalSnapshot(run,input.snapshot);
     if (!snapshot.operations.some(o=>o.name === "Discover and suggest metadata" && o.on)) throw new ApiError("Enable metadata discovery first");
     const op = buildWritePlan({runId:run.id,candidates:snapshot.candidates,groups:snapshot.groups,selected:new Set(snapshot.selectedKeys),resolutions:snapshot.resolutions}).find(o=>o.kind!=="flag" && o.candidateKey===input.key);
@@ -32,7 +36,7 @@ export async function POST(request: Request) {
     return new Response(new ReadableStream({
       async start(controller) {
         const send = (value:unknown) => { if(connected) try{controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));}catch{connected=false;abort.abort();} };
-        try { const report = await withSourceContext(orderedSources({text:run.inputText,attachments:run.attachments,content:run.content}),()=>researchPipelineMetadata(run.id,op,{impUser:actor},message=>send({type:"progress",message}),abort.signal)); send({type:"result",report}); }
+        try { const report = await withRaConnection(actor, connection, () => withSourceContext(orderedSources({text:run.inputText,attachments:run.attachments,content:run.content}),()=>researchPipelineMetadata(run.id,op,{impUser:actor, connection},message=>send({type:"progress",message}),abort.signal))); send({type:"result",report}); }
         catch(e){send({type:"error",message:e instanceof Error?e.message:"Metadata research failed", ...(e instanceof GroundReferenceChangedError ? { referenceChanges: e.changes } : {})});}
         finally{if(connected)controller.close();}
       },cancel(){connected=false;abort.abort();}

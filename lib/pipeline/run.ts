@@ -28,6 +28,8 @@ export type OperationName =
   | "Find gaps";
 
 export interface RunInput {
+  /** Saved RightAnswers customer connection selected for this run. */
+  connectionId?: string;
   groundContext?: GroundContextInput;
   text: string;
   /** Text extracted from uploaded files and fetched URLs. */

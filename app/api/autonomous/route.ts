@@ -9,6 +9,8 @@ import { executionResults, loadExecution } from "@/lib/pipeline/state";
 import type { ExecuteArgs } from "@/lib/pipeline/execute";
 import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
 import { autonomousOutcome } from "@/lib/autonomous/outcome";
+import { resolveConnection } from "@/lib/ra/connections";
+import { withRaConnection } from "@/lib/ra/client";
 
 export const dynamic = "force-dynamic";
 // Starts are explicitly selected per run; the app advances their saved steps automatically.
@@ -22,7 +24,8 @@ export async function POST(request: Request) {
     await assertImageOwnership(body.input, author);
     const id = `auto-${body.requestId}`;
     const existing = await getJob(id);
-    const groundContext = existing ? undefined : await resolveGroundContext(body.input.groundContext, body.input.sourceSolutionIds, author);
+    const connection = await resolveConnection(author, body.input.connectionId);
+    const groundContext = existing ? undefined : await withRaConnection(author, connection, () => resolveGroundContext(body.input.groundContext, body.input.sourceSolutionIds, author));
     const job = await enqueue(id, author, body.input, groundContext);
     return json({ runId: job.runId, status: job.status }, 202);
   } catch (e) { return apiError(e); }
