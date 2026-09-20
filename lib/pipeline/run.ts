@@ -110,7 +110,7 @@ async function step<T>(
 export async function runPipeline(input: RunInput, onProgress?: OnProgress, savedGroundContext?: GroundContextSnapshot): Promise<RunOutput> {
   const groundContext = savedGroundContext ?? await resolveGroundContext(input.groundContext, input.sourceSolutionIds);
   if (groundContext?.selection.enabled && !input.text.trim() && !input.sourceSolutionIds?.length && !orderedSources(input).length) throw new Error("Add a task or source content alongside Ground Context references.");
-  return withSourceContext(input.content || input.attachments?.some(a => a.imageId) ? orderedSources(input) : [], () => runPipelineImpl(input, onProgress, groundContext));
+  return withSourceContext(input.content || input.attachments?.some(a => a.imageId || a.fileId) ? orderedSources(input) : [], () => runPipelineImpl(input, onProgress, groundContext));
 }
 async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundContext?: GroundContextSnapshot): Promise<RunOutput> {
   const steps: RunOutput["steps"] = [];

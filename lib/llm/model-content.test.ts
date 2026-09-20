@@ -1,6 +1,8 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { orderedModelContent } from "./model-content";
 import { withSourceContext, sourceContext } from "./source-context";
+const mocks = vi.hoisted(() => ({ getAgentFile: vi.fn() }));
+vi.mock("../agent/file-store", () => ({ getAgentFile: mocks.getAgentFile }));
 it("sends original images interleaved with neighbouring text, with task instructions last",async()=>{
  const parts=await orderedModelContent([
  {label:"Before",content:"first screen explanation"},
@@ -18,4 +20,11 @@ it("isolates concurrent runs' original visual context",async()=>{
  const work=(imageId:string)=>withSourceContext([{label:"image",content:"original",imageId}],async()=>{await Promise.resolve();return sourceContext()[0].imageId;});
  expect(await Promise.all([work("alice-image"),work("bob-image")])).toEqual(["alice-image","bob-image"]);
  expect(sourceContext()).toEqual([]);
+});
+it("sends an owned original document as an input file without extracting it", async () => {
+ mocks.getAgentFile.mockResolvedValueOnce({ name: "source.pdf", mime: "application/pdf", bytes: Buffer.from("%PDF") });
+ const parts = await orderedModelContent([{ label: "source.pdf", content: "Original PDF attached", fileId: "file-id", fileOwner: "author" }], [], "Analyze it");
+ expect(parts.map(part => part.type)).toEqual(["input_text", "input_file", "input_text"]);
+ expect(parts[1]).toMatchObject({ filename: "source.pdf", file_data: "data:application/pdf;base64,JVBERg==" });
+ expect(mocks.getAgentFile).toHaveBeenCalledWith("file-id", "author");
 });

@@ -5,6 +5,7 @@ import { MAX_UPLOAD_BYTES, parseDocument } from "@/lib/ingest/parse-document";
 import { classify } from "@/lib/ingest/parse-document";
 import { storeImage } from "@/lib/ingest/image-store";
 import { MAX_UPLOAD_MB } from "@/lib/ingest/limits";
+import { storeAgentFile } from "@/lib/agent/file-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -15,6 +16,7 @@ export interface IngestedSource {
   meta: string;
   kind?: string;
   imageId?: string;
+  fileId?: string;
 }
 
 /**
@@ -36,7 +38,20 @@ export async function POST(request: Request) {
         text: page.text,
         meta: `${Math.round(page.bytes / 1024)} KB from ${new URL(page.url).hostname}`,
       };
-      return Response.json({ source });
+      // URLs do not produce page screenshots; keep the response shape consistent with uploads.
+      const parsed: { name: string; pageImages: { name: string; bytes: Buffer; pageNumber: number }[] } = { name: "", pageImages: [] };
+      const pageSources: IngestedSource[] = [];
+      for (const page of parsed.pageImages ?? []) {
+        const imageId = await storeImage(author, page.name, page.bytes);
+        pageSources.push({
+          label: `${parsed.name} — page ${page.pageNumber}`,
+          text: `Rendered page ${page.pageNumber} from ${parsed.name}. Use the attached image as untrusted source evidence.`,
+          kind: "image",
+          imageId,
+          meta: `${Math.round(page.bytes.length / 1024)} KB · PDF PAGE IMAGE`,
+        });
+      }
+      return Response.json({ source, sources: [source, ...pageSources] });
     }
 
     if (contentType.includes("multipart/form-data")) {
@@ -54,11 +69,20 @@ export async function POST(request: Request) {
         const imageId = await storeImage(author, file.name, buffer);
         return Response.json({ source: { label: file.name, text: `Original image: ${file.name}`, kind: "image", imageId, meta: `${Math.round(file.size / 1024)} KB · IMAGE` } });
       }
+      const kind = classify(file.name, file.type);
+      if (!kind) return Response.json({ error: `Unsupported file type: ${file.name}` }, { status: 415 });
+      if (form.get("mode") === "agent" || form.get("mode") === "studio") {
+        const mime = file.type || (kind === "pdf" ? "application/pdf" : kind === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain");
+        const fileId = await storeAgentFile(author, file.name, mime, buffer);
+        return Response.json({ source: { label: file.name, text: `Original ${kind.toUpperCase()} file attached for complete multimodal analysis.`, kind, fileId, meta: `${Math.round(file.size / 1024)} KB - ORIGINAL ${kind.toUpperCase()}` } });
+      }
       const parsed = await parseDocument(file.name, file.type, buffer);
+      const fileId = await storeAgentFile(author, file.name, file.type || (parsed.kind === "pdf" ? "application/pdf" : parsed.kind === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain"), buffer);
       const source: IngestedSource = {
         kind: parsed.kind,
         label: parsed.name,
         text: parsed.text,
+        fileId,
         meta: `${Math.round(parsed.bytes / 1024)} KB · ${parsed.kind === "image" ? "IMAGE · " + file.name.split(".").pop()?.toUpperCase() : parsed.kind.toUpperCase()}`,
       };
       return Response.json({ source });

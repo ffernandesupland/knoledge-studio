@@ -9,6 +9,7 @@ export interface RaConnectionSummary {
   name: string;
   baseUrl: string;
   user: string;
+  companyCode: string;
   isDefault: boolean;
   managedByEnvironment?: boolean;
 }
@@ -18,6 +19,7 @@ export interface RaRuntimeConnection {
   baseUrl?: string;
   bearerToken?: string;
   user?: string;
+  companyCode?: string;
 }
 
 type Row = { id: string; owner: string; name: string; base_url: string; bearer_token: string; ra_user: string };
@@ -62,27 +64,30 @@ async function defaultId(owner: string) {
 
 export async function listConnections(owner: string): Promise<RaConnectionSummary[]> {
   const selected = await defaultId(owner);
-  const rows = await db().prepare("SELECT * FROM ra_connections WHERE owner=? ORDER BY name COLLATE NOCASE").all(owner) as Row[];
+  const rows = await db().prepare("SELECT c.*, COALESCE(s.company_code,'') AS company_code FROM ra_connections c LEFT JOIN ra_connection_settings s ON s.connection_id=c.id WHERE c.owner=? ORDER BY c.name COLLATE NOCASE").all(owner) as (Row & { company_code: string })[];
   return [
-    { id: ENV_CONNECTION_ID, name: "Environment default", baseUrl: process.env.RA_BASE_URL?.replace(/\/+$/, "") ?? "Not configured", user: process.env.RA_USERNAME ?? owner, isDefault: selected === ENV_CONNECTION_ID, managedByEnvironment: true },
-    ...rows.map(row => ({ id: row.id, name: row.name, baseUrl: row.base_url, user: row.ra_user, isDefault: selected === row.id })),
+    { id: ENV_CONNECTION_ID, name: "Environment default", baseUrl: process.env.RA_BASE_URL?.replace(/\/+$/, "") ?? "Not configured", user: process.env.RA_USERNAME ?? owner, companyCode: process.env.RA_COMPANY_CODE ?? "", isDefault: selected === ENV_CONNECTION_ID, managedByEnvironment: true },
+    ...rows.map(row => ({ id: row.id, name: row.name, baseUrl: row.base_url, user: row.ra_user, companyCode: row.company_code, isDefault: selected === row.id })),
   ];
 }
 
 export async function resolveConnection(owner: string, requestedId?: string | null): Promise<RaRuntimeConnection> {
   const id = requestedId || await defaultId(owner);
   if (id === ENV_CONNECTION_ID) return { id };
-  const row = await db().prepare("SELECT * FROM ra_connections WHERE id=? AND owner=?").get(id, owner) as Row | undefined;
+  const row = await db().prepare("SELECT c.*, COALESCE(s.company_code,'') AS company_code FROM ra_connections c LEFT JOIN ra_connection_settings s ON s.connection_id=c.id WHERE c.id=? AND c.owner=?").get(id, owner) as (Row & { company_code: string }) | undefined;
   if (!row) throw new ApiError("RightAnswers connection not found.", 404);
-  return { id: row.id, baseUrl: row.base_url, bearerToken: decrypt(row.bearer_token), user: row.ra_user };
+  return { id: row.id, baseUrl: row.base_url, bearerToken: decrypt(row.bearer_token), user: row.ra_user, companyCode: row.company_code };
 }
 
-export async function createConnection(owner: string, input: { name: string; baseUrl: string; bearerToken: string; user: string }) {
+export async function createConnection(owner: string, input: { name: string; baseUrl: string; bearerToken: string; user: string; companyCode: string }) {
   const id = randomUUID();
   const ts = new Date().toISOString();
   try {
-    await db().prepare("INSERT INTO ra_connections(id,owner,name,base_url,bearer_token,ra_user,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
-      .run(id, owner, input.name.trim(), normalizeBaseUrl(input.baseUrl), encrypt(normalizeToken(input.bearerToken)), input.user.trim(), ts, ts);
+    await db().transaction(async () => {
+      await db().prepare("INSERT INTO ra_connections(id,owner,name,base_url,bearer_token,ra_user,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+        .run(id, owner, input.name.trim(), normalizeBaseUrl(input.baseUrl), encrypt(normalizeToken(input.bearerToken)), input.user.trim(), ts, ts);
+      await db().prepare("INSERT INTO ra_connection_settings(connection_id,company_code) VALUES(?,?)").run(id, input.companyCode.trim());
+    })();
   } catch (error) {
     if (String(error).includes("UNIQUE")) throw new ApiError("A customer with this name already exists.", 409);
     throw error;
@@ -90,20 +95,25 @@ export async function createConnection(owner: string, input: { name: string; bas
   return id;
 }
 
-export async function updateConnection(owner: string, id: string, input: { name: string; baseUrl: string; bearerToken?: string; user: string }) {
+export async function updateConnection(owner: string, id: string, input: { name: string; baseUrl: string; bearerToken?: string; user: string; companyCode: string }) {
   if (id === ENV_CONNECTION_ID) throw new ApiError("Environment settings are managed outside Knowledge Studio.");
   const row = await db().prepare("SELECT * FROM ra_connections WHERE id=? AND owner=?").get(id, owner) as Row | undefined;
   if (!row) throw new ApiError("RightAnswers connection not found.", 404);
   const nextUrl = normalizeBaseUrl(input.baseUrl);
   const activeRun = await db().prepare("SELECT 1 FROM run_ra_connections rc JOIN runs r ON r.id=rc.run_id WHERE rc.connection_id=? AND r.status IN ('running','done','partial') LIMIT 1").get(id);
-  if (activeRun && (row.base_url !== nextUrl || row.ra_user !== input.user.trim())) {
-    throw new ApiError("Finish or discard the active run before changing this customer's URL or user. You can still refresh its bearer token.", 409);
-  }
   const current = await resolveConnection(owner, id);
+  if (activeRun && (row.base_url !== nextUrl || row.ra_user !== input.user.trim() || (!!current.companyCode && current.companyCode !== input.companyCode.trim()))) {
+    throw new ApiError("Finish or discard the active run before changing this customer's URL, company code, or user. You can still refresh its credential.", 409);
+  }
   const token = input.bearerToken?.trim() ? normalizeToken(input.bearerToken) : current.bearerToken!;
-  const result = await db().prepare("UPDATE ra_connections SET name=?,base_url=?,bearer_token=?,ra_user=?,updated_at=? WHERE id=? AND owner=?")
-    .run(input.name.trim(), nextUrl, encrypt(token), input.user.trim(), new Date().toISOString(), id, owner);
-  if (!result.changes) throw new ApiError("RightAnswers connection not found.", 404);
+  let changes = 0;
+  await db().transaction(async () => {
+    const result = await db().prepare("UPDATE ra_connections SET name=?,base_url=?,bearer_token=?,ra_user=?,updated_at=? WHERE id=? AND owner=?")
+      .run(input.name.trim(), nextUrl, encrypt(token), input.user.trim(), new Date().toISOString(), id, owner);
+    changes = result.changes;
+    await db().prepare("INSERT INTO ra_connection_settings(connection_id,company_code) VALUES(?,?) ON CONFLICT(connection_id) DO UPDATE SET company_code=excluded.company_code").run(id, input.companyCode.trim());
+  })();
+  if (!changes) throw new ApiError("RightAnswers connection not found.", 404);
 }
 
 export async function setDefaultConnection(owner: string, id: string) {

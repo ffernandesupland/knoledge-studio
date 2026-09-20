@@ -63,7 +63,8 @@ export async function runOperation<T>(args: RunArgs<T>): Promise<RunResult<T>> {
 
   // Keep durable original-image references in logs; do not copy base64 images into every trace.
   let imageIndex = 0;
-  const auditInput = input.map(message => ({ ...message, content: Array.isArray(message.content) ? message.content.map(part => part.type === "input_image" ? { ...part, image_url: `source-image:${args.contextBlocks?.filter(b => b.imageId)[imageIndex++]?.imageId ?? "direct"}` } : part) : message.content }));
+  let fileIndex = 0;
+  const auditInput = input.map(message => ({ ...message, content: Array.isArray(message.content) ? message.content.map(part => part.type === "input_image" ? { ...part, image_url: `source-image:${args.contextBlocks?.filter(b => b.imageId)[imageIndex++]?.imageId ?? "direct"}` } : part.type === "input_file" ? { ...part, file_data: `source-file:${args.contextBlocks?.filter(b => b.fileId)[fileIndex++]?.fileId ?? "direct"}` } : part) : message.content }));
   return tracked("model", args.operation, { model, input: auditInput, schemaName: args.schemaName }, async () => {
     const response = await openai().responses.parse({
       model,

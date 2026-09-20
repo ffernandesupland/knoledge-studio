@@ -22,3 +22,8 @@ it("rejects missing, duplicate or omitted editor sources at the API boundary", (
   expect(runSchema.safeParse({text:"",operations:[],content,attachments:[{id:"image",label:"image",text:"x"}]}).success).toBe(true);
   expect(runSchema.safeParse({text:"",operations:[],content:[...content,{...content[0],id:"b"}],attachments:[{id:"image",label:"image",text:"x"}]}).success).toBe(false);
 });
+it("accepts an original file ID but strips a forged file owner", () => {
+  const parsed = runSchema.parse({ text: "", operations: [], content: [{ id: "a", type: "attachment", attachmentId: "pdf" }], attachments: [{ id: "pdf", label: "source.pdf", text: "Original PDF attached", fileId: "11111111-1111-4111-8111-111111111111", fileOwner: "forged-owner" }] });
+  expect(parsed.attachments?.[0].fileId).toBe("11111111-1111-4111-8111-111111111111");
+  expect(parsed.attachments?.[0]).not.toHaveProperty("fileOwner");
+});

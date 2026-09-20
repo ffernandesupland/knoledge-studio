@@ -1,5 +1,6 @@
 import { resolveGroundContext } from "@/lib/ground-context/server";
 import { assertImageOwnership } from "@/lib/ingest/image-store";
+import { assertAgentFileOwnership } from "@/lib/agent/file-store";
 import { saveExecutedFlow } from "@/lib/flow/executions";
 import { runPipeline } from "@/lib/pipeline/run";
 import { completeRun, createRun, failRun } from "@/lib/db/runs";
@@ -18,10 +19,13 @@ export async function POST(request: Request) {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
     await assertImageOwnership(input, author);
-    const connection = await resolveConnection(author, input.connectionId);
+    await assertAgentFileOwnership((input.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
+    // The browser may identify an uploaded file, but only the server binds it to its owner.
+    const safeInput = { ...input, attachments: input.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
+    const connection = await resolveConnection(author, safeInput.connectionId);
     const runId = `run-${randomUUID()}`;
-    const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
-    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
+    const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(safeInput.groundContext, safeInput.sourceSolutionIds, author));
+    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({
@@ -29,7 +33,7 @@ export async function POST(request: Request) {
         const send = (obj: unknown) => { if (connected) { try { controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n")); } catch { connected = false; } } };
         send({ type: "runId", runId });
         try {
-          const result = await withRaConnection(author, connection, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }), groundContext)));
+          const result = await withRaConnection(author, connection, () => withAiAudit(runId, "analysis", () => runPipeline(safeInput, (e) => send({ type: "progress", ...e }), groundContext)));
           (await completeRun(runId, mapRunToView(result)));
           (await saveExecutedFlow(runId));
           send({ type: "result", runId, ...result });
