@@ -98,6 +98,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [creatingReview, setCreatingReview] = useState(false);
   const [runningReviewId, setRunningReviewId] = useState<string | null>(null);
+  const [runningAllReviews, setRunningAllReviews] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [groundContext, setGroundContext] = useState<GroundContextSelection>(emptyGroundContext);
   const [groundPickerOpen, setGroundPickerOpen] = useState(false);
@@ -217,6 +218,13 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
     } catch (error) { setReviewError(error instanceof Error ? error.message : "Unable to run review"); }
     finally { setRunningReviewId(null); }
   }
+  async function runAllReviews() {
+    if (!source || !reviewDefinitions.length || runningAllReviews) return;
+    setRunningAllReviews(true); setReviewError(null);
+    for (const definition of reviewDefinitions) await runReview(definition);
+    setRunningAllReviews(false);
+    setNotice(`Completed ${reviewDefinitions.length} customer review${reviewDefinitions.length === 1 ? "" : "s"}. Select the findings you want to use in Knowledge Studio.`);
+  }
   function toggleReviewFinding(definitionId: string, index: number) {
     setSelectedReviewFindings(current => {
       const selected = new Set(current[definitionId] ?? []);
@@ -240,14 +248,14 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
     return <>
       {reviewError && <div className={styles.note} role="alert"><Icon name="error" /><p>{reviewError}</p></div>}
       <div className={styles.reviewDefinitions}>
-        <div className={styles.reviewDefinitionHeading}><strong>Customer reviews</strong>{loadingReviews && <Icon name="progress_activity" />}</div>
+        <div className={styles.reviewDefinitionHeading}><strong>Customer reviews</strong><span className={styles.reviewActions}>{loadingReviews && <Icon name="progress_activity" />}<button type="button" className={styles.secondary} disabled={loadingReviews || runningAllReviews || runningReviewId !== null || reviewDefinitions.length === 0} onClick={runAllReviews}><Icon name="fact_check" />{runningAllReviews ? "Running all…" : "Run all reviews"}</button></span></div>
         {reviewDefinitions.length === 0 && !loadingReviews && <p className={styles.emptyReview}>No customer review is configured for this connection yet.</p>}
         {reviewDefinitions.map(definition => {
           const result = reviewResults[definition.id];
           return (
             <section className={styles.reviewDefinition} key={definition.id}>
               <div><strong>{definition.name}</strong><p>{definition.objective}</p></div>
-              <button type="button" className={styles.secondary} disabled={runningReviewId === definition.id} onClick={() => runReview(definition)}><Icon name="fact_check" />{runningReviewId === definition.id ? "Reviewing…" : result ? "Run again" : "Run review"}</button>
+              <button type="button" className={styles.secondary} disabled={runningAllReviews || runningReviewId === definition.id} onClick={() => runReview(definition)}><Icon name="fact_check" />{runningReviewId === definition.id ? "Reviewing…" : result ? "Run again" : "Run review"}</button>
               {result?.result && <div className={styles.reviewResult}>
                 <p><strong>{result.result.summary}</strong></p>
                 {result.result.findings.map((finding, index) => <article key={`${result.id}-${index}`} className={styles.reviewCard}>

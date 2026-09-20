@@ -141,6 +141,8 @@
 .reviewPlan { display: flex; align-items: center; gap: 8px; margin-top: 18px; font-size: 12px; color: #525c69; }
 .reviewDefinitions { display: grid; gap: 10px; margin: 18px 0; }
 .reviewDefinitionHeading { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.reviewActions { display: flex; align-items: center; gap: 8px; }
+.reviewActions .secondary { min-height: 32px; padding: 5px 8px; font-size: 10px; }
 .emptyReview { padding: 12px; margin: 0 !important; border: 1px dashed #c5d6ea; border-radius: 5px; }
 .reviewDefinition { border: 1px solid #dbe8fb; background: #f8fbff; border-radius: 6px; padding: 13px; }
 .reviewDefinition > div:first-child > strong { display: block; font-size: 12px; }
