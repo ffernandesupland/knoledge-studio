@@ -11,6 +11,7 @@ const schema = z.object({
   baseUrl: z.string().trim().min(1).max(1000),
   bearerToken: z.string().max(10000).optional(),
   user: z.string().trim().min(1).max(200),
+  companyCode: z.string().trim().min(1).max(200),
 });
 
 export async function POST(request: Request) {
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
       baseUrl: normalizeBaseUrl(input.baseUrl),
       bearerToken,
       user: input.user,
+      companyCode: input.companyCode,
     };
     const templates = await ra.getTemplates({ connection });
     return Response.json({ ok: true, templateCount: templates.length }, { headers: { "cache-control": "no-store" } });

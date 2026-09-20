@@ -1,5 +1,7 @@
 import { config } from "../config";
 import { parseJson, raFetch } from "./http";
+import { createHash } from "node:crypto";
+import type { RaRuntimeConnection } from "./connections";
 
 interface LoginResponse {
   jwtoken: string;
@@ -29,15 +31,19 @@ function basicHeader(): string {
   return `Basic ${Buffer.from(`${config.ra.username}:${config.ra.password}`).toString("base64")}`;
 }
 
-async function login(impUser?: string): Promise<string> {
-  const { text } = await raFetch(config.ra.baseUrl, {
+async function login(impUser?: string, connection?: RaRuntimeConnection): Promise<string> {
+  const credential = connection?.bearerToken;
+  const authorization = credential
+    ? (/^Basic\s/i.test(credential) ? credential : `Basic ${credential}`)
+    : basicHeader();
+  const { text } = await raFetch(connection?.baseUrl ?? config.ra.baseUrl, {
     path: "/api/rest/login",
     query: {
-      companyCode: config.ra.companyCode,
+      companyCode: connection?.companyCode ?? config.ra.companyCode,
       appInterface: config.ra.appInterface,
-      imp_user: impUser,
+      imp_user: connection?.user ?? impUser,
     },
-    headers: { Authorization: basicHeader() },
+    headers: { Authorization: authorization },
     timeoutMs: config.ra.timeoutMs,
   });
   const parsed = parseJson<LoginResponse>(text, "/api/rest/login");
@@ -49,8 +55,11 @@ async function login(impUser?: string): Promise<string> {
  * Returns a valid JWT for the given impersonated user, reusing the cached token when it
  * still has headroom. Concurrent callers share one login rather than stampeding.
  */
-export async function getToken(impUser?: string): Promise<string> {
-  const key = `${config.ra.companyCode}|${config.ra.appInterface}|${impUser ?? ""}`;
+export async function getToken(impUser?: string, connection?: RaRuntimeConnection): Promise<string> {
+  const credential = connection?.bearerToken;
+  if (credential?.split(".").length === 3) return credential;
+  const credentialIdentity = credential ? createHash("sha256").update(credential).digest("hex") : "environment";
+  const key = `${connection?.id ?? "environment"}|${connection?.companyCode ?? config.ra.companyCode}|${config.ra.appInterface}|${connection?.user ?? impUser ?? ""}|${credentialIdentity}`;
   const hit = cache.get(key);
   if (hit && hit.expiresAt - REFRESH_MARGIN_MS > Date.now()) return hit.token;
 
@@ -59,7 +68,7 @@ export async function getToken(impUser?: string): Promise<string> {
 
   const p = (async () => {
     try {
-      const token = await login(impUser);
+      const token = await login(impUser, connection);
       cache.set(key, { token, expiresAt: decodeExp(token) });
       return token;
     } finally {

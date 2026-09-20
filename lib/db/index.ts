@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { SCHEMA } from "./schema";
+import { AGENT_SCHEMA } from "../agent/schema";
 
 let instance: ReturnType<typeof connect> | undefined;
 
@@ -25,7 +26,7 @@ function connect() {
     return pending;
   };
   let ready: Promise<void> | undefined;
-  const initialize = () => ready ??= client.executeMultiple("PRAGMA foreign_keys=ON;\n" + SCHEMA).catch((error) => { ready = undefined; throw error; });
+  const initialize = () => ready ??= client.executeMultiple("PRAGMA foreign_keys=ON;\n" + SCHEMA + AGENT_SCHEMA).catch((error) => { ready = undefined; throw error; });
   const execute = (sql: string, values: (InValue | Record<string, InValue>)[]) => {
     const args: InArgs = values.length === 1 && values[0] !== null && typeof values[0] === "object" && !ArrayBuffer.isView(values[0]) && !(values[0] instanceof ArrayBuffer)
       ? values[0] as Record<string, InValue> : values as InValue[];

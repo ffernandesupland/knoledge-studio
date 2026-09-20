@@ -12,6 +12,9 @@ export interface UntrustedBlock {
   label: string;
   content: string;
   imageId?: string;
+  fileId?: string;
+  /** Server-assigned owner used only to authorize raw file retrieval. */
+  fileOwner?: string;
 }
 
 const SYSTEM_GUARD = `You transform knowledge-base content.

@@ -179,7 +179,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
         }
         setPath(stored.path ?? null); setContentText(stored.inputText ?? "");
         const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
-        setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
+        setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, fileId: a.fileId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
         setKbSelected(Object.fromEntries((stored.sourceIds ?? []).map((id: string) => [id, { id, title: `Solution ${id}`, meta: "Selected source" }])));
         if (d.execution) { submitRun.restore(d.execution.plan, d.results ?? [], d.execution.stage, d.execution.reviewIdentity, d.referenceChanges ?? []); setScreen("submit"); }
@@ -274,7 +274,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
         connectionId,
         text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
         content: orderedContent,
-        attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+        attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
         groundContext, sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
       };
@@ -299,7 +299,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       connectionId,
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
-      attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+      attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
       groundContext,
       sourceSolutionIds,
       operations: ops.filter((o) => o.on).map((o) => o.name),

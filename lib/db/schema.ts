@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS ra_connection_defaults (
   owner TEXT PRIMARY KEY,
   connection_id TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ra_connection_settings (
+  connection_id TEXT PRIMARY KEY REFERENCES ra_connections(id) ON DELETE CASCADE,
+  company_code TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS run_ra_connections (
   run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
   connection_id TEXT NOT NULL

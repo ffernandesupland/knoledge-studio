@@ -8,6 +8,7 @@ import styles from "./StudioShell.module.css";
 const sections = [
   { href: "/", label: "Knowledge Studio", icon: "auto_stories", description: "Create and manage knowledge" },
   { href: "/ai-solution-view", label: "AI Solution View", icon: "article", description: "Review and improve solutions" },
+  { href: "/ai-workspace", label: "AI Workspace", icon: "forum", description: "Ask, prepare, and act in the KB" },
   { href: "/rightanswers-connections", label: "RightAnswers", icon: "hub", description: "Manage customer connections" },
 ];
 

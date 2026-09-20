@@ -38,13 +38,13 @@ async function call<T>(
   const connection = ctx.connection ?? current?.connection;
   const impUser = connection?.user ?? ctx.impUser ?? current?.actor;
   return tracked("tool", `${opts.method ?? "GET"} ${opts.path}`, { actor: impUser, path: opts.path, query: opts.query, body: opts.body }, async () => {
-    const token = connection?.bearerToken ?? await getToken(impUser);
+    const token = await getToken(impUser, connection);
     const { text } = await raFetch(connection?.baseUrl ?? config.ra.baseUrl, {
       ...opts,
       timeoutMs: opts.timeoutMs ?? config.ra.timeoutMs,
       headers: { Authorization: `Bearer ${token}` },
       query: {
-        companyCode: connection?.bearerToken ? undefined : config.ra.companyCode,
+        companyCode: connection?.companyCode ?? config.ra.companyCode,
         appInterface: config.ra.appInterface,
         imp_user: impUser,
         ...opts.query,

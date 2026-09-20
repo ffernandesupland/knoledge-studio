@@ -10,7 +10,7 @@ const operationName = z.enum(["Discover and suggest metadata", "Split topics", "
 export const runSchema = z.object({
   connectionId: z.string().max(100).optional(),
   groundContext: groundContextSchema.optional(),
-  text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
+  text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), fileId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
   content: z.array(z.discriminatedUnion("type", [
     z.object({ id: z.string().max(100), type: z.literal("text"), text: z.string().max(500_000) }),
     z.object({ id: z.string().max(100), type: z.literal("attachment"), attachmentId: z.string().max(100) }),

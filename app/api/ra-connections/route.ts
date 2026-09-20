@@ -4,7 +4,7 @@ import { readJson } from "@/lib/api/validation";
 import { createConnection, deleteConnection, listConnections, setDefaultConnection, updateConnection } from "@/lib/ra/connections";
 
 export const dynamic = "force-dynamic";
-const fields = z.object({ name: z.string().trim().min(1).max(120), baseUrl: z.string().trim().min(1).max(1000), bearerToken: z.string().max(10000).optional(), user: z.string().trim().min(1).max(200) });
+const fields = z.object({ name: z.string().trim().min(1).max(120), baseUrl: z.string().trim().min(1).max(1000), bearerToken: z.string().max(10000).optional(), user: z.string().trim().min(1).max(200), companyCode: z.string().trim().min(1).max(200) });
 
 export async function GET(request: Request) {
   try { return Response.json({ connections: await listConnections(await requireActor(request)) }, { headers: { "cache-control": "no-store" } }); }

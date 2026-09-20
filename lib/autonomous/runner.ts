@@ -29,7 +29,7 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
   async function within<T>(name: AutonomousStage, fn: () => Promise<T>): Promise<T> {
     await stage(id, token, name);
     currentStage = name;
-    return withAutonomousContext(id, token, name, () => withRaConnection(job.author, connection, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, () => withSourceContext(job.input.content || job.input.attachments?.some(a => a.imageId) ? orderedSources(job.input) : [], fn))));
+    return withAutonomousContext(id, token, name, () => withRaConnection(job.author, connection, () => withAiAudit(id, name === "analysis" ? "analysis" : `autonomous:${name}`, () => withSourceContext(job.input.content || job.input.attachments?.some(a => a.imageId || a.fileId) ? orderedSources(job.input) : [], fn))));
   }
   // Existing write locks and journals remain authoritative for side effects.
   await withRunLock(id, async () => {

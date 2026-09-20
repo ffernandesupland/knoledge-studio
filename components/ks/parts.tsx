@@ -116,10 +116,11 @@ export function KsAddRuleMenu({
 export interface Attachment {
   id: string;
   imageId?: string;
+  fileId?: string;
   icon: string;
   name: string;
   meta?: string;
-  /** Extracted text; this is what the pipeline actually reads. */
+  /** Source label or extracted text for legacy sources; original uploads go to the model directly. */
   text: string;
 }
 
@@ -213,12 +214,13 @@ export function KsSmartInput({
       if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than the ${MAX_UPLOAD_MB} MB limit`);
       const body = new FormData();
       body.append("file", file);
+      body.append("mode", "studio");
       const res = await fetch("/api/ingest", { method: "POST", body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       if (removed.current.has(id)) return;
       onAttach({
-        id, imageId: data.source.imageId,
+        id, imageId: data.source.imageId, fileId: data.source.fileId,
         icon: data.source.kind === "image" ? "image" : data.source.meta.includes("PDF") ? "picture_as_pdf" : "description",
         name: data.source.label,
         meta: data.source.meta,
@@ -295,7 +297,7 @@ export function KsSmartInput({
           {a?.icon === "image" && !a.imageId && <p className="ks-si-summary">This older upload contains extracted text only. Reinsert the image to include its original visual content.</p>}
           {/* Original protected images use the signed-in browser session directly. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {a?.imageId ? <img className="ks-source-image" src={`/api/ingest/images/${a.imageId}`} alt={a.name} /> : a && <details className="ks-si-preview"><summary>View document content</summary><div>{a.text}</div></details>}
+          {a?.imageId ? <img className="ks-source-image" src={`/api/ingest/images/${a.imageId}`} alt={a.name} /> : a?.fileId ? <p className="ks-si-summary">Original file will be sent to AI for full multimodal analysis.</p> : a && <details className="ks-si-preview"><summary>View document content</summary><div>{a.text}</div></details>}
         </div>;
       }} />
       <div className="ks-si-summary" role="status">

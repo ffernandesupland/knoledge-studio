@@ -1,5 +1,6 @@
 import { resolveGroundContext } from "@/lib/ground-context/server";
 import { assertImageOwnership } from "@/lib/ingest/image-store";
+import { assertAgentFileOwnership } from "@/lib/agent/file-store";
 import { z } from "zod";
 import { requireActor, apiError, ApiError } from "@/lib/api/auth";
 import { readJson, runSchema } from "@/lib/api/validation";
@@ -20,13 +21,16 @@ export async function POST(request: Request) {
   try {
     const author = await requireActor(request);
     const body = await readJson(request, schema);
-    if (!body.input.text.trim() && !body.input.attachments?.some(a => a.text.trim()) && !body.input.sourceSolutionIds?.length) throw new ApiError("Add supported source content before starting an autonomous run");
+    if (!body.input.text.trim() && !body.input.attachments?.some(a => a.text.trim() || a.fileId) && !body.input.sourceSolutionIds?.length) throw new ApiError("Add supported source content before starting an autonomous run");
     await assertImageOwnership(body.input, author);
+    await assertAgentFileOwnership((body.input.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
+    // fileOwner is established here, never accepted from the browser payload.
+    const input = { ...body.input, attachments: body.input.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
     const id = `auto-${body.requestId}`;
     const existing = await getJob(id);
-    const connection = await resolveConnection(author, body.input.connectionId);
-    const groundContext = existing ? undefined : await withRaConnection(author, connection, () => resolveGroundContext(body.input.groundContext, body.input.sourceSolutionIds, author));
-    const job = await enqueue(id, author, body.input, groundContext);
+    const connection = await resolveConnection(author, input.connectionId);
+    const groundContext = existing ? undefined : await withRaConnection(author, connection, () => resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
+    const job = await enqueue(id, author, input, groundContext);
     return json({ runId: job.runId, status: job.status }, 202);
   } catch (e) { return apiError(e); }
 }

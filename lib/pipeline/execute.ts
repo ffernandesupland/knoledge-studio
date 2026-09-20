@@ -108,7 +108,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   onProgress?.({ index: 0, total: args.plan.length, description: "Checking selected reference versions and access…" });
   if (run) await checkRunReferences(run, args.user);
   if (run?.groundContext?.selection.enabled && !args.prepareOnly && !args.requirePrepared) throw new Error("Prepare and review grounded drafts before submitting.");
-  const originals = run?.content || run?.attachments?.some(a => a.imageId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
+  const originals = run?.content || run?.attachments?.some(a => a.imageId || a.fileId) ? orderedSources({ text: run.inputText, attachments: run.attachments, content: run.content }) : [];
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
 }
 async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void, groundContext?: GroundContextSnapshot): Promise<OpResult[]> {

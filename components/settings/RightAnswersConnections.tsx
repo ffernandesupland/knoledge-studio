@@ -2,8 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-type Connection = { id: string; name: string; baseUrl: string; user: string; isDefault: boolean; managedByEnvironment?: boolean };
-const blank = { name: "", baseUrl: "", bearerToken: "", user: "", makeDefault: false };
+type Connection = { id: string; name: string; baseUrl: string; user: string; companyCode: string; isDefault: boolean; managedByEnvironment?: boolean };
+const blank = { name: "", baseUrl: "", bearerToken: "", user: "", companyCode: "", makeDefault: false };
 
 export default function RightAnswersConnections() {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -31,7 +31,7 @@ export default function RightAnswersConnections() {
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage("");
     try {
-      const response = await fetch("/api/ra-connections", { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(editing ? { id: editing.id, name: form.name, baseUrl: form.baseUrl, bearerToken: form.bearerToken, user: form.user } : form) });
+      const response = await fetch("/api/ra-connections", { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(editing ? { id: editing.id, name: form.name, baseUrl: form.baseUrl, bearerToken: form.bearerToken, user: form.user, companyCode: form.companyCode } : form) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
       setEditing(null); setForm(blank); setMessage(editing ? "Customer updated." : "Customer added."); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save customer."); }
@@ -49,7 +49,7 @@ export default function RightAnswersConnections() {
       const response = await fetch("/api/ra-connections/test", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: editing?.id, baseUrl: form.baseUrl, bearerToken: form.bearerToken, user: form.user }),
+        body: JSON.stringify({ id: editing?.id, baseUrl: form.baseUrl, bearerToken: form.bearerToken, user: form.user, companyCode: form.companyCode }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
@@ -64,7 +64,7 @@ export default function RightAnswersConnections() {
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not delete customer."); }
     finally { setBusy(false); }
   }
-  function edit(item: Connection) { setEditing(item); setForm({ name: item.name, baseUrl: item.baseUrl, user: item.user, bearerToken: "", makeDefault: false }); setMessage(""); }
+  function edit(item: Connection) { setEditing(item); setForm({ name: item.name, baseUrl: item.baseUrl, user: item.user, companyCode: item.companyCode, bearerToken: "", makeDefault: false }); setMessage(""); }
 
   return <main style={{ padding: "34px", maxWidth: 1120, margin: "0 auto" }}>
     <p style={{ color: "#2574db", fontWeight: 700, fontSize: 12, textTransform: "uppercase" }}>Platform settings</p>
@@ -75,7 +75,7 @@ export default function RightAnswersConnections() {
       <h2 style={{ marginTop: 0 }}>Available customers</h2>
       <div style={{ display: "grid", gap: 12 }}>{connections.map(item => <article key={item.id} style={{ display: "flex", alignItems: "center", gap: 16, border: "1px solid #e0e3e6", borderRadius: 8, padding: 16 }}>
         <span className="ms" style={{ color: "#2574db", fontSize: 28 }}>dns</span>
-        <div style={{ minWidth: 0, flex: 1 }}><strong>{item.name}</strong>{item.isDefault && <span className="ks-tag ks-tag-new" style={{ marginLeft: 10 }}>Default</span>}<div style={{ color: "#6b7786", fontSize: 12, overflowWrap: "anywhere", marginTop: 4 }}>{item.baseUrl} · {item.user}</div></div>
+        <div style={{ minWidth: 0, flex: 1 }}><strong>{item.name}</strong>{item.isDefault && <span className="ks-tag ks-tag-new" style={{ marginLeft: 10 }}>Default</span>}<div style={{ color: "#6b7786", fontSize: 12, overflowWrap: "anywhere", marginTop: 4 }}>{item.baseUrl} · Company: {item.companyCode || "Not set"} · User: {item.user}</div></div>
         {!item.isDefault && <button className="ds-btn ds-btn-secondary" type="button" disabled={busy} onClick={() => makeDefault(item.id)}>Set default</button>}
         {!item.managedByEnvironment && <><button className="ds-btn ds-btn-secondary" type="button" disabled={busy} onClick={() => edit(item)}>Edit</button><button className="icon-btn" aria-label={`Delete ${item.name}`} type="button" disabled={busy} onClick={() => remove(item)}><span className="ms">delete</span></button></>}
       </article>)}</div>
@@ -86,11 +86,12 @@ export default function RightAnswersConnections() {
         <label className="form-label">Customer name<input className="form-input" required maxLength={120} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
         <label className="form-label">RightAnswers URL<input className="form-input" required type="url" placeholder="https://customer.rightanswers.com/portal" value={form.baseUrl} onChange={event => setForm({ ...form, baseUrl: event.target.value })} /></label>
         <label className="form-label">User<input className="form-input" required maxLength={200} value={form.user} onChange={event => setForm({ ...form, user: event.target.value })} /></label>
-        <label className="form-label">Bearer token<input className="form-input" required={!editing} type="password" autoComplete="new-password" placeholder={editing ? "Leave blank to keep current token" : "Paste bearer token"} value={form.bearerToken} onChange={event => setForm({ ...form, bearerToken: event.target.value })} /></label>
+        <label className="form-label">Company code<input className="form-input" required maxLength={200} placeholder="allstate" value={form.companyCode} onChange={event => setForm({ ...form, companyCode: event.target.value })} /></label>
+        <label className="form-label">RightAnswers credential<input className="form-input" required={!editing} type="password" autoComplete="new-password" placeholder={editing ? "Leave blank to keep current credential" : "Paste JWT bearer or Basic credential"} value={form.bearerToken} onChange={event => setForm({ ...form, bearerToken: event.target.value })} /><span style={{ display: "block", color: "#6b7786", fontSize: 11, marginTop: 4 }}>JWTs are used directly. Basic credentials are exchanged for a short-lived JWT and refreshed automatically.</span></label>
       </div>
       {!editing && <label style={{ display: "flex", gap: 8, marginTop: 18 }}><input type="checkbox" checked={form.makeDefault} onChange={event => setForm({ ...form, makeDefault: event.target.checked })} />Use as default customer</label>}
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <button className="ds-btn ds-btn-secondary" disabled={busy || testing || !form.baseUrl.trim() || !form.user.trim() || (!editing && !form.bearerToken.trim())} type="button" onClick={testConnection}>
+        <button className="ds-btn ds-btn-secondary" disabled={busy || testing || !form.baseUrl.trim() || !form.user.trim() || !form.companyCode.trim() || (!editing && !form.bearerToken.trim())} type="button" onClick={testConnection}>
           <span className="ms" style={{ fontSize: 18 }}>{testing ? "progress_activity" : "wifi_tethering"}</span>
           {testing ? "Testing…" : "Test connection"}
         </button>
