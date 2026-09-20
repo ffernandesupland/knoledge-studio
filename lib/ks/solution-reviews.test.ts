@@ -3,7 +3,7 @@ import type { WSSolution } from "../ra/types";
 import { solutionVersion } from "../pipeline/version";
 
 const mocks = vi.hoisted(() => ({ prepare: vi.fn(), resolveConnection: vi.fn(), getSolution: vi.fn(), runOperation: vi.fn() }));
-vi.mock("../db", () => ({ db: () => ({ prepare: mocks.prepare }) }));
+vi.mock("../db", () => ({ db: () => ({ prepare: mocks.prepare, transaction: (fn: () => Promise<unknown>) => fn }) }));
 vi.mock("../ra/connections", () => ({ resolveConnection: mocks.resolveConnection }));
 vi.mock("../ra/client", () => ({ ra: { getSolution: mocks.getSolution } }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.runOperation }));
@@ -53,5 +53,16 @@ it("maps a selected review finding to a closed native operation and preserves it
   };
   const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
   expect(handoff.nativeOperations).toEqual(["Find duplicates"]);
-  expect(handoff.reviewObjectives[0]).toMatchObject({ disposition: "native", instruction: "Compare the overlapping solution before merging." });
+  expect(handoff.reviewObjectives[0]).toMatchObject({ disposition: "native", nativeOperation: "Find duplicates", instruction: "Compare the overlapping solution before merging." });
+});
+
+it("retains the customer criterion for a field-level content-standard review", async () => {
+  storedReview = {
+    id: "33333333-3333-4333-8333-333333333333", author: "author", connection_id: "connection", solution_id: solution.id,
+    source_version: solutionVersion(solution), definition_id: definition.id, status: "completed",
+    result: JSON.stringify({ summary: "Style concern.", findings: [{ title: "Formatting", category: "Style", severity: "medium", summary: "Formatting differs.", recommendation: "Apply the customer style requirement.", evidence: [{ fieldName: "Resolution", quote: "approve MFA" }], confidence: 0.8 }], limitations: [] }),
+    error: null, created_at: "2026-09-20", completed_at: "2026-09-20",
+  };
+  const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
+  expect(handoff.reviewObjectives[0]).toMatchObject({ nativeOperation: "Apply content standards", criteria: definition.objective });
 });

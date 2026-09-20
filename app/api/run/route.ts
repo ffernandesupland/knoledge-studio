@@ -10,7 +10,7 @@ import { readJson, runSchema } from "@/lib/api/validation";
 import { withAiAudit } from "@/lib/llm/audit";
 import { withRaConnection } from "@/lib/ra/client";
 import { resolveConnection } from "@/lib/ra/connections";
-import { getSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { getSolutionReviewHandoff, saveRunSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 import { randomUUID } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     const runId = `run-${randomUUID()}`;
     const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(safeInput.groundContext, safeInput.sourceSolutionIds, author));
     (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
+    if (handoff) await saveRunSolutionReviewHandoff(runId, handoff.id);
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({

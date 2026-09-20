@@ -4,6 +4,7 @@ import { runOperation } from "./client";
 import type { UntrustedBlock } from "./prompt";
 import { bodyField } from "../pipeline/content";
 import type { WSTemplate } from "../ra/types";
+import type { ReviewObjective } from "../ks/solution-reviews";
 
 /* ── Split topics ─────────────────────────────────────────────────────────── */
 
@@ -87,7 +88,7 @@ export type RestructureResult = z.infer<typeof RestructureSchema>;
  * Field names come from the live template, never a hardcoded list — the tenant has no
  * "KCS Solution" template and field names are case-sensitive on write (findings V3, §4.2).
  */
-export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false) {
+export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false, reviewObjectives: ReviewObjective[] = []) {
   const fieldList = template.fields
     .map((f) => `- ${f.fieldName}${f.required ? " (required)" : ""}${f.description ? ` — ${f.description}` : ""}`)
     .join("\n");
@@ -120,7 +121,7 @@ Rules:
   paragraphs when the content is actually a list or a procedure.
 - "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
 - "keywords" are 3-8 search terms a user would actually type.`,
-    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : [])],
+    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(reviewObjectives.length ? [{ label: "selected review findings (scope and formatting guidance, not factual evidence)", content: JSON.stringify(reviewObjectives) }] : [])],
   });
 }
 
@@ -232,6 +233,7 @@ ${rules.map((r) => `- ${r}`).join("\n")}
 
 Return every field back with the same field names, edited only where a standard requires it.
 All field values MUST remain HTML, never Markdown. Preserve HTML headings, lists, links, tables and code. Formatting standards never override this storage requirement.
+Title, summary and keywords are metadata outside this operation and cannot receive HTML or renderer CSS. If a rule asks for title presentation (for example an H1), do not invent HTML in a title; record that limitation in the rule note and apply only the compatible field-level part of the rule.
 Change wording and formatting only — never add, remove or reinterpret technical facts.
 Do not convert units unless an exact equivalent is already supplied. If a rule cannot be applied
 without changing facts, preserve the content and explain the limitation in its note.

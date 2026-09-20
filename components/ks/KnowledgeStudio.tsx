@@ -152,10 +152,12 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
-  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false) {
+  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = []) {
     setConnectionId(source.connectionId ?? "");
     setPath("improve");
-    setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: KS_PATHS.improve.on.includes(o.name) || nativeOperations.includes(o.name) })));
+    const required = fromReview ? ["Restructure content", ...nativeOperations] : nativeOperations;
+    setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: KS_PATHS.improve.on.includes(o.name) || required.includes(o.name) })));
+    if (reviewStandards.length) { setCsStandard("Selected review requirements"); setCsRules(reviewStandards); }
     setKbSelected({ [source.id]: { id: source.id, title: source.title ?? `Solution ${source.id}`, meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Knowledge Creation" } });
   }
 
@@ -231,7 +233,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           if (handoff.stale) { showToast({ message: "This solution changed after the review. Refresh the review before continuing.", icon: "error" }); return; }
           setReviewHandoff(handoff);
           setAutoMode(false);
-          bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true);
+          const reviewStandards = [...new Set(handoff.reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
+          bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true, reviewStandards);
           showToast({ message: "Review findings were added as governed scope. Confirm the workflow before analysis.", icon: "fact_check" });
         })
         .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
@@ -559,7 +562,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.accentDark80, fontWeight: 700 }}><span className="ms">fact_check</span>Started from AI Solution Review</div>
       <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>Source: {reviewHandoff.title} ({reviewHandoff.solutionId}) · {reviewHandoff.selectedFindingIndexes.length} selected finding{reviewHandoff.selectedFindingIndexes.length === 1 ? "" : "s"}</div>
       <ul style={{ margin: "10px 0 0", paddingLeft: 20, color: T.textSecondary, fontSize: 12 }}>{reviewHandoff.reviewObjectives.map(objective => <li key={objective.key}><strong>{objective.label}:</strong> {objective.instruction}</li>)}</ul>
-      <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>These are reviewed scope guidance, not new factual source material. No analysis or write starts automatically.</div>
+      <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>Preparing the draft always applies selected review findings, even if optional analysis toggles are changed. HTML-compatible formatting is applied to fields; title-rendering requirements are retained as an explicit limitation because a RightAnswers title is plain-text metadata. No analysis or write starts automatically.</div>
     </div>;
     if (!path) {
       return (

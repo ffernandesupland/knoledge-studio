@@ -160,6 +160,11 @@
 .reviewForm label { font-weight: 600; font-size: 11px; }
 .reviewForm input, .reviewForm textarea { width: 100%; border: 1px solid #bfc6ce; border-radius: 5px; padding: 9px; font: inherit; line-height: 1.5; resize: vertical; }
 .reviewForm .secondary { justify-self: start; min-height: 35px; padding: 7px 10px; font-size: 11px; }
+.reviewHandoffActions { display: grid; gap: 12px; margin-top: 20px; padding: 16px; border: 1px solid #c5ddfb; border-radius: 6px; background: #f5f9ff; }
+.reviewHandoffActions strong { font-size: 12px; }
+.reviewHandoffActions p { margin: 5px 0 0; font-size: 11px; }
+.reviewHandoffActions > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+.reviewHandoffActions button { min-height: 35px; padding: 7px 10px; font-size: 11px; }
 .sectionTitle { font-size: 16px; font-weight: 600; }
 @container (max-width: 1100px) {
   .heading { align-items: flex-start; flex-direction: column; }

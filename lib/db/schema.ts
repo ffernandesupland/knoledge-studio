@@ -174,6 +174,15 @@ CREATE TABLE IF NOT EXISTS solution_review_handoffs (
 );
 CREATE INDEX IF NOT EXISTS idx_solution_review_handoffs_author
   ON solution_review_handoffs(author, created_at DESC);
+CREATE TABLE IF NOT EXISTS solution_review_handoff_reviews (
+  handoff_id TEXT NOT NULL REFERENCES solution_review_handoffs(id) ON DELETE CASCADE,
+  review_id TEXT NOT NULL REFERENCES solution_reviews(id) ON DELETE CASCADE,
+  PRIMARY KEY (handoff_id, review_id)
+);
+CREATE TABLE IF NOT EXISTS run_solution_review_handoffs (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  handoff_id TEXT NOT NULL REFERENCES solution_review_handoffs(id) ON DELETE RESTRICT
+);
 
 `;
 

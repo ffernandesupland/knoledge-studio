@@ -232,19 +232,25 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
       return { ...current, [definitionId]: [...selected].sort((a, b) => a - b) };
     });
   }
-  async function openReviewHandoff(review: SolutionReview) {
-    const indexes = selectedReviewFindings[review.definition.id] ?? [];
-    if (!indexes.length) { setReviewError("Select at least one finding to use in Knowledge Studio."); return; }
-    setRunningReviewId(review.definition.id); setReviewError(null);
+  function selectAllReviewFindings() {
+    setSelectedReviewFindings(Object.fromEntries(Object.entries(reviewResults).filter(([, review]) => !!review.result).map(([definitionId, review]) => [definitionId, review.result!.findings.map((_, index) => index)])));
+  }
+  async function openSelectedReviewHandoff() {
+    const selections = Object.values(reviewResults).map(review => ({ reviewId: review.id, selectedFindingIndexes: selectedReviewFindings[review.definition.id] ?? [] })).filter(selection => selection.selectedFindingIndexes.length);
+    if (!selections.length) { setReviewError("Select at least one finding to use in Knowledge Studio."); return; }
+    setRunningAllReviews(true); setReviewError(null);
     try {
-      const response = await fetch(`/api/solution-reviews/${encodeURIComponent(review.id)}/handoffs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ selectedFindingIndexes: indexes }) });
+      const response = await fetch("/api/solution-review-handoffs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ selections }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Unable to open Knowledge Studio");
       router.push(`/?reviewHandoff=${encodeURIComponent(data.handoff.id)}`);
     } catch (error) { setReviewError(error instanceof Error ? error.message : "Unable to open Knowledge Studio"); }
-    finally { setRunningReviewId(null); }
+    finally { setRunningAllReviews(false); }
   }
   function renderConfiguredReviews() {
+    const completedReviews = Object.values(reviewResults).filter(review => !!review.result);
+    const selectedCount = completedReviews.reduce((count, review) => count + (selectedReviewFindings[review.definition.id] ?? []).length, 0);
+    const totalCount = completedReviews.reduce((count, review) => count + (review.result?.findings.length ?? 0), 0);
     return <>
       {reviewError && <div className={styles.note} role="alert"><Icon name="error" /><p>{reviewError}</p></div>}
       <div className={styles.reviewDefinitions}>
@@ -265,7 +271,6 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
                   {finding.evidence.map((evidence, evidenceIndex) => <p className={styles.evidence} key={evidenceIndex}><strong>{evidence.fieldName}:</strong> “{evidence.quote}”</p>)}
                 </article>)}
                 {result.result.limitations.length > 0 && <p className={styles.limitations}><strong>Limitations:</strong> {result.result.limitations.join(" ")}</p>}
-                <button type="button" className={styles.primary} disabled={runningReviewId === definition.id || !(selectedReviewFindings[definition.id] ?? []).length} onClick={() => openReviewHandoff(result)}><Icon name="account_tree" />Use selected findings in Knowledge Studio</button>
               </div>}
             </section>
           );
@@ -277,6 +282,10 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
         <label htmlFor="review-objective">Review objective</label><textarea id="review-objective" required minLength={10} maxLength={4000} rows={4} value={reviewObjective} onChange={event => setReviewObjective(event.target.value)} placeholder="Describe what the review should evaluate and report." />
         <button type="submit" className={styles.secondary} disabled={creatingReview}><Icon name="add" />{creatingReview ? "Saving…" : "Save customer review"}</button>
       </form>
+      {completedReviews.length > 0 && <div className={styles.reviewHandoffActions}>
+        <div><strong>{selectedCount} of {totalCount} findings selected</strong><p>Select findings across every completed review, then create one governed pipeline handoff.</p></div>
+        <div><button type="button" className={styles.secondary} disabled={runningAllReviews || selectedCount === totalCount} onClick={selectAllReviewFindings}><Icon name="select_all" />Select all findings</button><button type="button" className={styles.primary} disabled={runningAllReviews || selectedCount === 0} onClick={openSelectedReviewHandoff}><Icon name="account_tree" />Use {selectedCount} selected finding{selectedCount === 1 ? "" : "s"} in Knowledge Studio</button></div>
+      </div>}
     </>;
   }
   const suggestion = suggestions[activeSuggestion];

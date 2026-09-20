@@ -58,6 +58,9 @@ export type ReviewObjective = {
   findingIndexes: number[];
   evidence: { fieldName: string; quote: string }[];
   disposition: "native" | "custom";
+  nativeOperation?: OperationName;
+  /** The customer-authored criterion, used only when it maps to a supported draft transform. */
+  criteria?: string;
 };
 
 export type SolutionReviewHandoff = {
@@ -66,6 +69,7 @@ export type SolutionReviewHandoff = {
   solutionId: string;
   sourceVersion: string;
   reviewId: string;
+  reviewIds: string[];
   selectedFindingIndexes: number[];
   nativeOperations: OperationName[];
   reviewObjectives: ReviewObjective[];
@@ -180,7 +184,7 @@ export async function listSolutionReviews(author: string, input: { connectionId?
 function routeFinding(category: string): OperationName | undefined {
   const normalized = category.toLowerCase();
   if (/duplicate|overlap|redundan/.test(normalized)) return "Find duplicates";
-  if (/style|tone|readability|format|language/.test(normalized)) return "Apply content standards";
+  if (/style|tone|readability|format|language|presentation|markup|html|visual/.test(normalized)) return "Apply content standards";
   if (/search|keyword|seo/.test(normalized)) return "Optimize for search";
   if (/split|structure|topic/.test(normalized)) return "Split topics";
   if (/gap|missing|complete/.test(normalized)) return "Find gaps";
@@ -194,33 +198,45 @@ function parseReviewResult(row: ReviewRow): SolutionReviewResult {
 
 /** The browser names result indexes; the server re-loads them and owns all routing decisions. */
 export async function createSolutionReviewHandoff(author: string, reviewId: string, selectedFindingIndexes: number[]): Promise<SolutionReviewHandoff> {
-  const review = await db().prepare("SELECT * FROM solution_reviews WHERE id=? AND author=?").get(reviewId, author) as ReviewRow | undefined;
-  if (!review) throw new ApiError("Review not found", 404);
-  const result = parseReviewResult(review);
-  const indexes = [...new Set(selectedFindingIndexes)].sort((a, b) => a - b);
-  if (!indexes.length) throw new ApiError("Select at least one review finding");
-  if (indexes.some(index => !Number.isInteger(index) || index < 0 || index >= result.findings.length)) throw new ApiError("Selected review finding is invalid");
-  const connection = await resolveConnection(author, review.connection_id);
-  const solution = await ra.getSolution(review.solution_id, { impUser: author, connection });
-  if (solution.id !== review.solution_id) throw new ApiError("Solution not found", 404);
-  const stale = solutionVersion(solution) !== review.source_version;
-  if (stale) throw new ApiError("This solution changed after review. Refresh the review before opening Knowledge Studio.", 409);
-  const nativeOperations = [...new Set(indexes.map(index => routeFinding(result.findings[index].category)).filter((value): value is OperationName => !!value))];
-  const reviewObjectives = indexes.map(index => {
+  return createSolutionReviewHandoffBatch(author, [{ reviewId, selectedFindingIndexes }]);
+}
+
+/** Creates one governed handoff from selected findings across multiple completed reviews. */
+export async function createSolutionReviewHandoffBatch(author: string, selections: { reviewId: string; selectedFindingIndexes: number[] }[]): Promise<SolutionReviewHandoff> {
+  const unique = new Map<string, number[]>();
+  for (const selection of selections) unique.set(selection.reviewId, [...new Set(selection.selectedFindingIndexes)].sort((a, b) => a - b));
+  if (!unique.size || [...unique.values()].every(indexes => !indexes.length)) throw new ApiError("Select at least one review finding");
+  const reviews: { row: ReviewRow; result: SolutionReviewResult; indexes: number[]; definition: DefinitionRow }[] = [];
+  for (const [reviewId, indexes] of unique) {
+    if (!indexes.length) continue;
+    const row = await db().prepare("SELECT * FROM solution_reviews WHERE id=? AND author=?").get(reviewId, author) as ReviewRow | undefined;
+    if (!row) throw new ApiError("Review not found", 404);
+    const result = parseReviewResult(row);
+    if (indexes.some(index => !Number.isInteger(index) || index < 0 || index >= result.findings.length)) throw new ApiError("Selected review finding is invalid");
+    const definition = await db().prepare("SELECT * FROM solution_review_definitions WHERE id=? AND author=? AND connection_id=?").get(row.definition_id, author, row.connection_id) as DefinitionRow | undefined;
+    if (!definition) throw new ApiError("Review definition not found", 404);
+    reviews.push({ row, result, indexes, definition });
+  }
+  const first = reviews[0];
+  if (!reviews.every(({ row }) => row.connection_id === first.row.connection_id && row.solution_id === first.row.solution_id && row.source_version === first.row.source_version)) throw new ApiError("Selected findings must come from reviews of the same solution version");
+  const connection = await resolveConnection(author, first.row.connection_id);
+  const solution = await ra.getSolution(first.row.solution_id, { impUser: author, connection });
+  if (solution.id !== first.row.solution_id) throw new ApiError("Solution not found", 404);
+  if (solutionVersion(solution) !== first.row.source_version) throw new ApiError("This solution changed after review. Refresh the review before opening Knowledge Studio.", 409);
+  const nativeOperations = [...new Set(reviews.flatMap(({ result, indexes }) => indexes.map(index => routeFinding(result.findings[index].category)).filter((value): value is OperationName => !!value)))];
+  const reviewObjectives = reviews.flatMap(({ row, result, indexes, definition }) => indexes.map(index => {
     const finding = result.findings[index];
-    const operation = routeFinding(finding.category);
-    return {
-      key: `${review.id}:${index}`,
-      label: finding.title,
-      instruction: finding.recommendation,
-      findingIndexes: [index],
-      evidence: finding.evidence,
-      disposition: operation ? "native" : "custom",
-    } satisfies ReviewObjective;
-  });
-  const handoff = { id: randomUUID(), connectionId: connection.id, solutionId: review.solution_id, sourceVersion: review.source_version, reviewId: review.id, selectedFindingIndexes: indexes, nativeOperations, reviewObjectives, title: solution.title, stale: false, createdAt: new Date().toISOString() };
-  await db().prepare("INSERT INTO solution_review_handoffs(id,author,connection_id,solution_id,source_version,review_id,selected_finding_indexes,native_operations,review_objectives,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-    .run(handoff.id, author, handoff.connectionId, handoff.solutionId, handoff.sourceVersion, handoff.reviewId, JSON.stringify(handoff.selectedFindingIndexes), JSON.stringify(handoff.nativeOperations), JSON.stringify(handoff.reviewObjectives), handoff.createdAt);
+    const nativeOperation = routeFinding(finding.category);
+    return { key: `${row.id}:${index}`, label: finding.title, instruction: finding.recommendation, findingIndexes: [index], evidence: finding.evidence, disposition: nativeOperation ? "native" : "custom", ...(nativeOperation ? { nativeOperation } : {}), ...(nativeOperation === "Apply content standards" ? { criteria: definition.objective } : {}) } satisfies ReviewObjective;
+  }));
+  const reviewIds = reviews.map(({ row }) => row.id);
+  const selectedFindingIndexes = reviews.flatMap(({ indexes }) => indexes);
+  const handoff = { id: randomUUID(), connectionId: connection.id, solutionId: first.row.solution_id, sourceVersion: first.row.source_version, reviewId: first.row.id, reviewIds, selectedFindingIndexes, nativeOperations, reviewObjectives, title: solution.title, stale: false, createdAt: new Date().toISOString() };
+  await db().transaction(async () => {
+    await db().prepare("INSERT INTO solution_review_handoffs(id,author,connection_id,solution_id,source_version,review_id,selected_finding_indexes,native_operations,review_objectives,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run(handoff.id, author, handoff.connectionId, handoff.solutionId, handoff.sourceVersion, handoff.reviewId, JSON.stringify(handoff.selectedFindingIndexes), JSON.stringify(handoff.nativeOperations), JSON.stringify(handoff.reviewObjectives), handoff.createdAt);
+    for (const reviewId of reviewIds) await db().prepare("INSERT INTO solution_review_handoff_reviews(handoff_id,review_id) VALUES(?,?)").run(handoff.id, reviewId);
+  })();
   return handoff;
 }
 
@@ -230,13 +246,25 @@ export async function getSolutionReviewHandoff(author: string, id: string): Prom
   const connection = await resolveConnection(author, row.connection_id);
   const solution = await ra.getSolution(row.solution_id, { impUser: author, connection });
   if (solution.id !== row.solution_id) throw new ApiError("Solution not found", 404);
+  const linkedRows = await db().prepare("SELECT review_id FROM solution_review_handoff_reviews WHERE handoff_id=? ORDER BY review_id").all(row.id) as { review_id: string }[];
   return {
     id: row.id, connectionId: row.connection_id, solutionId: row.solution_id, sourceVersion: row.source_version, reviewId: row.review_id,
+    reviewIds: linkedRows.length ? linkedRows.map(link => link.review_id) : [row.review_id],
     selectedFindingIndexes: z.array(z.number().int().nonnegative()).parse(JSON.parse(row.selected_finding_indexes)),
     nativeOperations: z.array(z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"])).parse(JSON.parse(row.native_operations)),
-    reviewObjectives: z.array(z.object({ key: z.string(), label: z.string(), instruction: z.string(), findingIndexes: z.array(z.number().int()), evidence: z.array(z.object({ fieldName: z.string(), quote: z.string() })), disposition: z.enum(["native", "custom"]) })).parse(JSON.parse(row.review_objectives)),
+    reviewObjectives: z.array(z.object({ key: z.string(), label: z.string(), instruction: z.string(), findingIndexes: z.array(z.number().int()), evidence: z.array(z.object({ fieldName: z.string(), quote: z.string() })), disposition: z.enum(["native", "custom"]), nativeOperation: z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]).optional(), criteria: z.string().max(4_000).optional() })).parse(JSON.parse(row.review_objectives)),
     title: solution.title, stale: solutionVersion(solution) !== row.source_version, createdAt: row.created_at,
   };
+}
+
+/** Binds the server-authorized review handoff to the run; browser state cannot replace it later. */
+export async function saveRunSolutionReviewHandoff(runId: string, handoffId: string): Promise<void> {
+  await db().prepare("INSERT INTO run_solution_review_handoffs(run_id,handoff_id) VALUES(?,?) ON CONFLICT(run_id) DO UPDATE SET handoff_id=excluded.handoff_id").run(runId, handoffId);
+}
+
+export async function runSolutionReviewHandoff(author: string, runId: string): Promise<SolutionReviewHandoff | undefined> {
+  const row = await db().prepare("SELECT handoff_id FROM run_solution_review_handoffs WHERE run_id=?").get(runId) as { handoff_id: string } | undefined;
+  return row ? getSolutionReviewHandoff(author, row.handoff_id) : undefined;
 }
 
 export const solutionReviewDefinitionInput = definitionSchema;

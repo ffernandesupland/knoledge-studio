@@ -15,6 +15,7 @@ import { ra, withRaConnection } from "@/lib/ra/client";
 import { runConnection } from "@/lib/ra/connections";
 
 import { submissionIdentity } from "@/lib/ks/submission-plan";
+import { runSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
     const run = (await getRun(body.runId));
     assertOwner(run, user);
     const connection = await runConnection(user, run.id);
+    const reviewHandoff = await runSolutionReviewHandoff(user, run.id);
+    if (reviewHandoff?.stale) throw new Error("This solution changed after review. Refresh the review before preparing a draft.");
     await assertGuided(run.id);
     const snapshot = canonicalSnapshot(run, body.snapshot);
     const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions, metadata: snapshot.metadata });
@@ -44,8 +47,12 @@ export async function POST(request: Request) {
         try {
           await withRaConnection(user, connection, () => withRunLock(run.id, async () => {
             const stored = await loadExecution<ExecuteArgs>(run.id);
-            const reviewIdentity = submissionIdentity(plan, snapshot);
-            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled: snapshot.operations.some((o) => o.name === "Restructure content" && o.on), standardsRules: snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : [] };
+            const reviewObjectives = reviewHandoff?.reviewObjectives ?? [];
+            const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
+            const restructureEnabled = snapshot.operations.some((o) => o.name === "Restructure content" && o.on) || reviewObjectives.length > 0;
+            const standardsRules = [...new Set([...(snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : []), ...reviewStandards])];
+            const reviewIdentity = submissionIdentity(plan, snapshot, { objectives: reviewObjectives, restructure: restructureEnabled, standards: standardsRules });
+            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled, standardsRules, reviewObjectives };
             let args: ExecuteArgs;
             if (body.action === "prepare") {
               args = await savePreparationPlan(run.id, proposed);
