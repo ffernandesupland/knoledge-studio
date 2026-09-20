@@ -99,7 +99,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     window.history.replaceState(null, "", url); setAutoJob(null); setAutoMode(false); autoRequest.current = null;
   }
   const [screen, setScreen] = useState<Screen>("input");
-  const [path, setPath] = useState<PathKey | null>(null);
+  // A handoff already has an explicit intent. Start on Improve synchronously so the
+  // Create/Improve/Gap chooser never flashes before its source loads.
+  const [path, setPath] = useState<PathKey | null>(() => initialLaunchId || initialReviewHandoffId || initialSource ? "improve" : null);
   const [contentText, setContentText] = useState("");
   const [sourceContent, setSourceContent] = useState<SourceBlock[]>([{ id: "text-start", type: "text", text: "" }]);
   function changeSourceContent(blocks: SourceBlock[]) {

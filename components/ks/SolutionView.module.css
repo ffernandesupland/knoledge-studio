@@ -107,6 +107,14 @@
 .chips span { padding: 5px 10px; background: #f0f6fe; color: #345c8d; border-radius: 4px; font-size: 12px; }
 .toast { position: fixed; bottom: 24px; right: 24px; max-width: calc(100vw - 48px); display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: #252b31; color: white; border-radius: 6px; box-shadow: 0 4px 20px #00163325; z-index: 20; font-size: 12px; }
 .toast button { background: transparent; border: 0; color: white; display: flex; padding: 4px; }
+.modalBackdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: #00163366; }
+.reviewModal { width: min(760px, 100%); max-height: min(820px, calc(100vh - 48px)); overflow: hidden; border: 0; border-radius: 9px; background: white; box-shadow: 0 24px 64px #00163352; }
+.reviewModal header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #e0e3e6; }
+.reviewModal h2 { margin: 5px 0 7px; font-size: 21px; }
+.reviewModal header p { margin: 0; color: #6b7786; font-size: 12px; line-height: 1.6; }
+.modalClose { display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 4px; background: transparent; color: #525c69; padding: 6px; }
+.modalClose:hover { background: #f1f3f3; }
+.modalBody { max-height: calc(min(820px, 100vh - 48px) - 125px); overflow: auto; padding: 20px 24px 28px; }
 @media (min-width: 1400px) { .sidebar { position: sticky; top: 24px; } }
 @media (max-width: 1150px) { .heading { align-items: flex-start; flex-direction: column; } .layout { grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; } .main { padding: 24px; } .articleHeader { flex-wrap: wrap; } }
 @media (max-width: 850px) { .layout { grid-template-columns: minmax(0, 1fr); } .sidebar { grid-row: 1; } .details { display: none; } .header { padding: 0 20px; } .main { padding: 20px; } }

@@ -101,6 +101,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [groundContext, setGroundContext] = useState<GroundContextSelection>(emptyGroundContext);
   const [groundPickerOpen, setGroundPickerOpen] = useState(false);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
   useEffect(() => {
     if (!solutionId) return;
     let cancelled = false;
@@ -235,6 +236,41 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
     } catch (error) { setReviewError(error instanceof Error ? error.message : "Unable to open Knowledge Studio"); }
     finally { setRunningReviewId(null); }
   }
+  function renderConfiguredReviews() {
+    return <>
+      {reviewError && <div className={styles.note} role="alert"><Icon name="error" /><p>{reviewError}</p></div>}
+      <div className={styles.reviewDefinitions}>
+        <div className={styles.reviewDefinitionHeading}><strong>Customer reviews</strong>{loadingReviews && <Icon name="progress_activity" />}</div>
+        {reviewDefinitions.length === 0 && !loadingReviews && <p className={styles.emptyReview}>No customer review is configured for this connection yet.</p>}
+        {reviewDefinitions.map(definition => {
+          const result = reviewResults[definition.id];
+          return (
+            <section className={styles.reviewDefinition} key={definition.id}>
+              <div><strong>{definition.name}</strong><p>{definition.objective}</p></div>
+              <button type="button" className={styles.secondary} disabled={runningReviewId === definition.id} onClick={() => runReview(definition)}><Icon name="fact_check" />{runningReviewId === definition.id ? "Reviewing…" : result ? "Run again" : "Run review"}</button>
+              {result?.result && <div className={styles.reviewResult}>
+                <p><strong>{result.result.summary}</strong></p>
+                {result.result.findings.map((finding, index) => <article key={`${result.id}-${index}`} className={styles.reviewCard}>
+                  <div className={styles.findingHeading}><Icon name="fact_check" /><h4>{finding.title}</h4></div><span className={styles.findingBadge}>{finding.severity}</span>
+                  <label className={styles.findingSelect}><input type="checkbox" checked={(selectedReviewFindings[definition.id] ?? []).includes(index)} onChange={() => toggleReviewFinding(definition.id, index)} />Use this finding in Knowledge Studio</label>
+                  <p>{finding.summary}</p><p><strong>Recommendation:</strong> {finding.recommendation}</p>
+                  {finding.evidence.map((evidence, evidenceIndex) => <p className={styles.evidence} key={evidenceIndex}><strong>{evidence.fieldName}:</strong> “{evidence.quote}”</p>)}
+                </article>)}
+                {result.result.limitations.length > 0 && <p className={styles.limitations}><strong>Limitations:</strong> {result.result.limitations.join(" ")}</p>}
+                <button type="button" className={styles.primary} disabled={runningReviewId === definition.id || !(selectedReviewFindings[definition.id] ?? []).length} onClick={() => openReviewHandoff(result)}><Icon name="account_tree" />Use selected findings in Knowledge Studio</button>
+              </div>}
+            </section>
+          );
+        })}
+      </div>
+      <form className={styles.reviewForm} onSubmit={createReviewDefinition}>
+        <strong>Add customer review</strong><p>Define the desired analysis. It can shape review scope, but it cannot add tools or writing permissions.</p>
+        <label htmlFor="review-name">Name</label><input id="review-name" required maxLength={120} value={reviewName} onChange={event => setReviewName(event.target.value)} placeholder="For example, British Gas content standards" />
+        <label htmlFor="review-objective">Review objective</label><textarea id="review-objective" required minLength={10} maxLength={4000} rows={4} value={reviewObjective} onChange={event => setReviewObjective(event.target.value)} placeholder="Describe what the review should evaluate and report." />
+        <button type="submit" className={styles.secondary} disabled={creatingReview}><Icon name="add" />{creatingReview ? "Saving…" : "Save customer review"}</button>
+      </form>
+    </>;
+  }
   const suggestion = suggestions[activeSuggestion];
 
   function applySuggestion() {
@@ -260,7 +296,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
           <div><div className={styles.eyebrow}>SOLUTION WORKSPACE</div><h1>AI Solution View</h1><p>{source ? "Review the saved solution, then open a governed Knowledge Studio workflow." : "Shape better answers with AI, one solution at a time."}</p></div>
           <div className={styles.actions}>
             <button type="button" className={styles.secondary} onClick={() => setGroundPickerOpen(true)} aria-haspopup="dialog"><Icon name="library_books" />Ground Context{groundContext.enabled && groundContext.referenceIds.length > 0 ? " (" + groundContext.referenceIds.length + ")" : ""}</button>
-            <button type="button" className={styles.secondary} aria-pressed={panel === "review"} onClick={() => setPanel("review")}><Icon name="fact_check" />AI Solution Review</button>
+            <button type="button" className={styles.secondary} aria-haspopup="dialog" onClick={() => { setPanel("assist"); setReviewModalOpen(true); }}><Icon name="fact_check" />AI Solution Review</button>
             <button type="button" className={styles.primary} disabled={launching} onClick={openKnowledgeCreation}><Icon name="auto_awesome" />{launching ? "Opening…" : "AI Knowledge Creation"}</button>
           </div>
         </div>
@@ -318,39 +354,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
                 {panel === "review" && <>
                   <h3>AI Solution Review</h3>
                   <p>{source ? "Run customer-defined, evidence-backed reviews. Results remain read-only until you deliberately open a governed Knowledge Studio workflow." : "Find missing knowledge and overlapping solutions, then review a proposed fix for each issue."}</p>
-                  {source && <>
-                    {reviewError && <div className={styles.note} role="alert"><Icon name="error" /><p>{reviewError}</p></div>}
-                    <div className={styles.reviewDefinitions}>
-                      <div className={styles.reviewDefinitionHeading}><strong>Customer reviews</strong>{loadingReviews && <Icon name="progress_activity" />}</div>
-                      {reviewDefinitions.length === 0 && !loadingReviews && <p className={styles.emptyReview}>No customer review is configured for this connection yet.</p>}
-                      {reviewDefinitions.map(definition => {
-                        const result = reviewResults[definition.id];
-                        return (
-                          <section className={styles.reviewDefinition} key={definition.id}>
-                            <div><strong>{definition.name}</strong><p>{definition.objective}</p></div>
-                            <button type="button" className={styles.secondary} disabled={runningReviewId === definition.id} onClick={() => runReview(definition)}><Icon name="fact_check" />{runningReviewId === definition.id ? "Reviewing…" : result ? "Run again" : "Run review"}</button>
-                            {result?.result && <div className={styles.reviewResult}>
-                              <p><strong>{result.result.summary}</strong></p>
-                              {result.result.findings.map((finding, index) => <article key={`${result.id}-${index}`} className={styles.reviewCard}>
-                                <div className={styles.findingHeading}><Icon name="fact_check" /><h4>{finding.title}</h4></div><span className={styles.findingBadge}>{finding.severity}</span>
-                                <label className={styles.findingSelect}><input type="checkbox" checked={(selectedReviewFindings[definition.id] ?? []).includes(index)} onChange={() => toggleReviewFinding(definition.id, index)} />Use this finding in Knowledge Studio</label>
-                                <p>{finding.summary}</p><p><strong>Recommendation:</strong> {finding.recommendation}</p>
-                                {finding.evidence.map((evidence, evidenceIndex) => <p className={styles.evidence} key={evidenceIndex}><strong>{evidence.fieldName}:</strong> “{evidence.quote}”</p>)}
-                              </article>)}
-                              {result.result.limitations.length > 0 && <p className={styles.limitations}><strong>Limitations:</strong> {result.result.limitations.join(" ")}</p>}
-                              <button type="button" className={styles.primary} disabled={runningReviewId === definition.id || !(selectedReviewFindings[definition.id] ?? []).length} onClick={() => openReviewHandoff(result)}><Icon name="account_tree" />Use selected findings in Knowledge Studio</button>
-                            </div>}
-                          </section>
-                        );
-                      })}
-                    </div>
-                    <form className={styles.reviewForm} onSubmit={createReviewDefinition}>
-                      <strong>Add customer review</strong><p>Define the desired analysis. It can shape review scope, but it cannot add tools or writing permissions.</p>
-                      <label htmlFor="review-name">Name</label><input id="review-name" required maxLength={120} value={reviewName} onChange={event => setReviewName(event.target.value)} placeholder="For example, British Gas content standards" />
-                      <label htmlFor="review-objective">Review objective</label><textarea id="review-objective" required minLength={10} maxLength={4000} rows={4} value={reviewObjective} onChange={event => setReviewObjective(event.target.value)} placeholder="Describe what the review should evaluate and report." />
-                      <button type="submit" className={styles.secondary} disabled={creatingReview}><Icon name="add" />{creatingReview ? "Saving…" : "Save customer review"}</button>
-                    </form>
-                  </>}
+                  {source && renderConfiguredReviews()}
                   {!source && <>
                   <div className={styles.reviewSummary}><Icon name="rule" /><div><strong>2 opportunities to improve this solution</strong><p>Sample findings across your knowledge base.</p></div></div>
                   <div className={styles.reviewFindings}>
@@ -395,6 +399,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
         </div>
       </main>
       {groundPickerOpen && <GroundContextPicker value={groundContext} onCancel={() => setGroundPickerOpen(false)} onSave={value => { changeGroundContext(value); setGroundPickerOpen(false); setNotice(value.referenceIds.length ? "Ground Context references updated for this demo." : "Ground Context references cleared."); }} />}
+      {reviewModalOpen && <div className={styles.modalBackdrop} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReviewModalOpen(false); }}><section className={styles.reviewModal} role="dialog" aria-modal="true" aria-labelledby="solution-review-title"><header><div><span className={styles.eyebrow}>GOVERNED REVIEW</span><h2 id="solution-review-title">AI Solution Review</h2><p>{source ? `Review ${source.title} with customer-defined checks, then select only the findings you want to take into Knowledge Studio.` : "Search for and open a saved RightAnswers solution before running a review."}</p></div><button type="button" className={styles.modalClose} aria-label="Close AI Solution Review" onClick={() => setReviewModalOpen(false)}><Icon name="close" /></button></header><div className={styles.modalBody}>{source ? renderConfiguredReviews() : <div className={styles.note}><Icon name="search" /><p>Use the solution search above to choose a saved source first.</p></div>}</div></section></div>}
       {notice && <div className={styles.toast} role="status"><Icon name="check_circle" />{notice}<button type="button" aria-label="Dismiss notification" onClick={() => setNotice("")}><Icon name="close" /></button></div>}
     </div>
   );
