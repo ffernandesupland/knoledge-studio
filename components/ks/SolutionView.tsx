@@ -8,6 +8,7 @@ import { GroundContextCard, GroundContextEvidence, GroundContextPicker } from ".
 import { emptyGroundContext, type GroundContextSelection } from "@/lib/ks/ground-context-demo";
 import type { SolutionReview, SolutionReviewDefinition } from "@/lib/ks/solution-reviews";
 import type { WSSolution } from "@/lib/ra/types";
+import type { KbSearchRow } from "@/app/api/kb/search/route";
 
 const initial = {
   title: "Connect to the corporate VPN",
@@ -70,7 +71,10 @@ function articleFromSolution(solution: WSSolution) {
 
 export default function SolutionView({ solutionId, connectionId }: { solutionId?: string; connectionId?: string }) {
   const router = useRouter();
-  const [solutionIdInput, setSolutionIdInput] = useState(solutionId ?? "");
+  const [solutionQuery, setSolutionQuery] = useState("");
+  const [solutionRows, setSolutionRows] = useState<KbSearchRow[]>([]);
+  const [searchingSolutions, setSearchingSolutions] = useState(false);
+  const [solutionSearchError, setSolutionSearchError] = useState("");
   const [article, setArticle] = useState(initial);
   const [source, setSource] = useState<WSSolution | null>(null);
   const [sourceConnectionId, setSourceConnectionId] = useState(connectionId);
@@ -118,6 +122,24 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
     return () => { cancelled = true; };
   }, [solutionId, connectionId]);
   useEffect(() => {
+    if (solutionId || !solutionQuery.trim()) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearchingSolutions(true); setSolutionSearchError("");
+      try {
+        const query = new URLSearchParams({ q: solutionQuery.trim() });
+        if (connectionId) query.set("connectionId", connectionId);
+        const response = await fetch(`/api/kb/search?${query}`, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Unable to search solutions");
+        if (!controller.signal.aborted) setSolutionRows(data.rows as KbSearchRow[]);
+      } catch (error) {
+        if (!controller.signal.aborted) setSolutionSearchError(error instanceof Error ? error.message : "Unable to search solutions");
+      } finally { if (!controller.signal.aborted) setSearchingSolutions(false); }
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [solutionId, solutionQuery, connectionId]);
+  useEffect(() => {
     if (!source) return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) { setLoadingReviews(true); setReviewError(null); } });
@@ -150,10 +172,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
     setGenerated(false);
   }
 
-  function openSolution(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const id = solutionIdInput.trim();
-    if (!/^\d{15}$/.test(id)) { setNotice("Enter a 15-digit RightAnswers solution ID."); return; }
+  function openSolution(id: string) {
     const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
     router.push(`/ai-solution-view/${id}${query}`);
   }
@@ -248,11 +267,14 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
         {loadingSource && <div className={styles.note}><Icon name="progress_activity" /><p>Loading the saved RightAnswers solution…</p></div>}
         {sourceError && <div className={styles.note} role="alert"><Icon name="error" /><p>{sourceError}</p></div>}
         {source && <div className={styles.note}><Icon name="verified" /><p>Saved source: {source.id} · version {sourceVersion?.slice(0, 12)}. Local edits in this view are previews until a reviewed draft is prepared.</p></div>}
-        {!solutionId && <form className={styles.sourceLookup} onSubmit={openSolution}>
-          <label htmlFor="saved-solution-id">Open a saved RightAnswers solution</label>
-          <input id="saved-solution-id" inputMode="numeric" placeholder="15-digit solution ID" value={solutionIdInput} onChange={event => setSolutionIdInput(event.target.value)} />
-          <button type="submit" className={styles.primary}><Icon name="search" />Open solution</button>
-        </form>}
+        {!solutionId && <section className={styles.sourceLookup} aria-label="Search saved RightAnswers solutions">
+          <label htmlFor="saved-solution-search">Search saved RightAnswers solutions</label>
+          <div className={styles.searchInput}><Icon name="search" /><input id="saved-solution-search" type="search" maxLength={500} placeholder="Search by title, keyword, or 15-digit ID" value={solutionQuery} onChange={event => { setSolutionQuery(event.target.value); setSolutionRows([]); setSolutionSearchError(""); }} />{searchingSolutions && <Icon name="progress_activity" />}</div>
+          <p>Results are searched in the selected customer connection.</p>
+          {solutionSearchError && <p className={styles.searchError} role="alert">{solutionSearchError}</p>}
+          {solutionQuery.trim() && !searchingSolutions && !solutionSearchError && !solutionRows.length && <p>No matching solutions. Try a different title, keyword, or ID.</p>}
+          {solutionRows.length > 0 && <div className={styles.searchResults}>{solutionRows.map(row => <button type="button" key={row.id} className={styles.searchResult} onClick={() => openSolution(row.id)}><span className={styles.documentIcon}><Icon name="description" /></span><span><strong>{row.title}</strong><small>{row.id} · {row.meta}</small></span><Icon name="chevron_right" /></button>)}</div>}
+        </section>}
         <GroundContextCard value={groundContext} onChange={changeGroundContext} onOpen={() => setGroundPickerOpen(true)} />
         <div className={styles.layout}>
           <section className={styles.article} aria-label="Solution editor">
