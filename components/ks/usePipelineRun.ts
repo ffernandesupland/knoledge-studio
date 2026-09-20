@@ -6,6 +6,7 @@ import { mapRunToView, type ViewCandidate, type ViewRun } from "@/lib/ks/model";
 import { readNdjson } from "@/lib/ks/stream";
 export interface RunRequest {
   connectionId?: string;
+  reviewHandoffId?: string;
   groundContext?: import("@/lib/ground-context/types").GroundContextInput;
   text: string;
   attachments?: SourceAttachment[];

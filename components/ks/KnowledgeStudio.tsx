@@ -48,6 +48,7 @@ import {
 import { buildWritePlan, isSolutionId } from "@/lib/pipeline/submit";
 import { T } from "@/lib/ks/theme";
 import type { MetadataOptions } from "@/app/api/metadata/route";
+import type { SolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 
 /** Preserves content for fields the old and new templates share by name; drops the rest. */
 function remapFieldsToTemplate(
@@ -76,7 +77,7 @@ function pickDefaultCollection(collections: { code: string; label: string }[]): 
   return (sensible ?? collections[0])?.label ?? "";
 }
 
-export default function KnowledgeStudio({ initialAutonomousRun }: { initialAutonomousRun?: string } = {}) {
+export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId, initialReviewHandoffId, initialSource }: { initialAutonomousRun?: string; initialLaunchId?: string; initialReviewHandoffId?: string; initialSource?: { id: string; connectionId?: string } } = {}) {
   const [connections, setConnections] = useState<RaConnection[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [autoMode, setAutoMode] = useState(false);
@@ -145,11 +146,20 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   const restored = useRef(false);
   const [sessionReady, setSessionReady] = useState(false);
+  const [reviewHandoff, setReviewHandoff] = useState<SolutionReviewHandoff | null>(null);
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
+  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false) {
+    setConnectionId(source.connectionId ?? "");
+    setPath("improve");
+    setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: KS_PATHS.improve.on.includes(o.name) || nativeOperations.includes(o.name) })));
+    setKbSelected({ [source.id]: { id: source.id, title: source.title ?? `Solution ${source.id}`, meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Knowledge Creation" } });
+  }
+
   /* A run costs minutes and real money, so a refresh resumes rather than discards it. */
   useEffect(() => {
+    if (initialLaunchId || initialReviewHandoffId || initialSource) { queueMicrotask(() => setSessionReady(true)); return; }
     let cancelled = false;
     fetch("/api/runs/latest")
       .then((r) => r.json())
@@ -203,6 +213,56 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       if (!cancelled) { setConnections(data.connections); setConnectionId(current => current || data.connections.find((item: RaConnection) => item.isDefault)?.id || data.connections[0]?.id || ""); }
     }).catch((error: Error) => !cancelled && setMetaError(error.message));
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (initialReviewHandoffId) {
+      let cancelled = false;
+      fetch(`/api/solution-review-handoffs/${encodeURIComponent(initialReviewHandoffId)}`)
+        .then(async response => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error ?? "Unable to load the review handoff");
+          return data as { handoff: SolutionReviewHandoff };
+        })
+        .then(({ handoff }) => {
+          if (cancelled) return;
+          if (handoff.stale) { showToast({ message: "This solution changed after the review. Refresh the review before continuing.", icon: "error" }); return; }
+          setReviewHandoff(handoff);
+          setAutoMode(false);
+          bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true);
+          showToast({ message: "Review findings were added as governed scope. Confirm the workflow before analysis.", icon: "fact_check" });
+        })
+        .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
+      return () => { cancelled = true; };
+    }
+    if (initialSource) {
+      queueMicrotask(() => {
+        bootstrapSource(initialSource);
+        showToast({ message: "AI Knowledge Creation opened this saved solution in the pipeline. Review the options, then start analysis.", icon: "auto_awesome" });
+      });
+      return () => undefined;
+    }
+    if (!initialLaunchId) return;
+    let cancelled = false;
+    fetch(`/api/solution-launches/${encodeURIComponent(initialLaunchId)}`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Unable to load Knowledge Studio launch");
+        return data.launch as { solutionId: string; connectionId: string; title: string; stale: boolean };
+      })
+      .then(launch => {
+        if (cancelled) return;
+        if (launch.stale) {
+          showToast({ message: "The source solution changed after this launch was prepared. Return to AI Solution View and open a new pipeline launch.", icon: "error" });
+          return;
+        }
+        bootstrapSource({ id: launch.solutionId, connectionId: launch.connectionId, title: launch.title });
+        showToast({ message: "AI Knowledge Creation opened this saved solution in the pipeline. Review the options, then start analysis.", icon: "auto_awesome" });
+      })
+      .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
+    return () => { cancelled = true; };
+    // Initial launch state is intentionally applied once per navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -297,6 +357,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     setSurvivorChoice({}); setTemplateOverrides(new Set()); submitRun.reset();
     const view = await pipeline.start({
       connectionId,
+      reviewHandoffId: reviewHandoff?.id,
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
@@ -333,6 +394,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     }
 
     setAutoMode(false); autoRequest.current = null;
+    setReviewHandoff(null);
     setScreen("input");
     setPath(null);
     setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]);
@@ -482,19 +544,26 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     const customerPicker = <div className="ks-card" style={{ padding: 18, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "end", gap: 14, flexWrap: "wrap" }}>
         <label className="form-label" style={{ flex: "1 1 300px", margin: 0 }}>RightAnswers customer
-          <select className="form-input" value={connectionId} disabled={!connections.length || pipeline.phase === "running"} onChange={event => {
+          <select className="form-input" value={connectionId} disabled={!connections.length || pipeline.phase === "running" || !!reviewHandoff} onChange={event => {
             setConnectionId(event.target.value); setKbRows([]); setKbSelected({}); setGroundContext(emptyGroundSelection); setMeta(null); setMetaError(null);
           }}>{connections.map(item => <option value={item.id} key={item.id}>{item.name}{item.isDefault ? " (default)" : ""}</option>)}</select>
         </label>
         <Link className="ds-btn ds-btn-secondary" href="/rightanswers-connections">Manage customers</Link>
       </div>
       <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>{connections.find(item => item.id === connectionId)?.baseUrl ?? "Loading customer connections…"}</div>
+      {reviewHandoff && <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 6 }}>The customer is locked to the reviewed solution. Reset to begin unrelated work.</div>}
+    </div>;
+    const reviewHandoffSummary = reviewHandoff && <div className="ks-card" style={{ padding: 18, marginBottom: 20, borderColor: T.accentLight15 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.accentDark80, fontWeight: 700 }}><span className="ms">fact_check</span>Started from AI Solution Review</div>
+      <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>Source: {reviewHandoff.title} ({reviewHandoff.solutionId}) · {reviewHandoff.selectedFindingIndexes.length} selected finding{reviewHandoff.selectedFindingIndexes.length === 1 ? "" : "s"}</div>
+      <ul style={{ margin: "10px 0 0", paddingLeft: 20, color: T.textSecondary, fontSize: 12 }}>{reviewHandoff.reviewObjectives.map(objective => <li key={objective.key}><strong>{objective.label}:</strong> {objective.instruction}</li>)}</ul>
+      <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>These are reviewed scope guidance, not new factual source material. No analysis or write starts automatically.</div>
     </div>;
     if (!path) {
       return (
         <div className="ks-scroll">
           <div style={{ maxWidth: 880, margin: "0 auto" }}>
-            {customerPicker}
+            {customerPicker}{reviewHandoffSummary}
             <div className="ks-banner ks-banner--info">
               <div className="ks-banner__row">
                 <div className="ks-banner__icon">
@@ -566,7 +635,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     return (
       <div className="ks-scroll">
         <div style={{ maxWidth: 880, margin: "0 auto" }}>
-          {customerPicker}
+        {customerPicker}{reviewHandoffSummary}
           <div className="ks-pathbar">
             <span>Starting point:</span>
             <span className="ks-chip">

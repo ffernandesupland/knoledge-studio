@@ -120,5 +120,60 @@ CREATE TABLE IF NOT EXISTS run_ra_connections (
   connection_id TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS solution_launches (
+  id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  solution_id TEXT NOT NULL,
+  source_version TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_solution_launches_author ON solution_launches(author, created_at DESC);
+
+-- A customer-defined review is an analytic objective, never an executable pipeline action.
+CREATE TABLE IF NOT EXISTS solution_review_definitions (
+  id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  objective TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_solution_review_definitions_owner
+  ON solution_review_definitions(author, connection_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS solution_reviews (
+  id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  solution_id TEXT NOT NULL,
+  source_version TEXT NOT NULL,
+  definition_id TEXT NOT NULL REFERENCES solution_review_definitions(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL,
+  result TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_solution_reviews_source
+  ON solution_reviews(author, connection_id, solution_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS solution_review_handoffs (
+  id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  solution_id TEXT NOT NULL,
+  source_version TEXT NOT NULL,
+  review_id TEXT NOT NULL REFERENCES solution_reviews(id) ON DELETE CASCADE,
+  selected_finding_indexes TEXT NOT NULL,
+  native_operations TEXT NOT NULL,
+  review_objectives TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  consumed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_solution_review_handoffs_author
+  ON solution_review_handoffs(author, created_at DESC);
+
 `;
 

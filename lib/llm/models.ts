@@ -39,6 +39,7 @@ export const OPERATION_TIER: Record<string, ModelTier> = {
   standards: "cheap",
   optimizeSearch: "cheap",
   findGaps: "cheap",
+  solutionReview: "reasoning",
 };
 
 export function modelFor(operation: string): string {
