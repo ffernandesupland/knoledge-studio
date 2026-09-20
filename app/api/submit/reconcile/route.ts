@@ -10,6 +10,8 @@ import { getWriteState, loadExecution, saveWriteState, withRunLock } from "@/lib
 import type { ExecuteArgs, OpResult } from "@/lib/pipeline/execute";
 import { describeOp } from "@/lib/pipeline/submit";
 import { recordAudit } from "@/lib/pipeline/audit";
+import { runConnection } from "@/lib/ra/connections";
+import { withRaConnection } from "@/lib/ra/client";
 
 const schema = z.object({ runId: z.string().max(100), key: z.string().max(200), action: z.enum(["confirm", "retry"]), solutionId: z.string().regex(/^\d{15}$/).optional(), verified: z.literal(true) });
 const normalized = (s: string) => sanitizeHtml(s, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, " ").trim();
@@ -19,7 +21,8 @@ export async function POST(request: Request) {
     const body = await readJson(request, schema);
     const run = (await getRun(body.runId));
     assertOwner(run, user);
-    return await withRunLock(run.id, async () => {
+    const connection = await runConnection(user, run.id);
+    return await withRaConnection(user, connection, () => withRunLock(run.id, async () => {
       const state = (await getWriteState(body.key));
       const op = (await loadExecution<ExecuteArgs>(run.id))?.plan.find((p) => p.idempotencyKey === body.key);
       if (!op || !state || !["writing", "uncertain"].includes(state.status)) throw new Error("No uncertain write to reconcile");
@@ -42,6 +45,6 @@ export async function POST(request: Request) {
       (await saveWriteState(run.id, body.key, { status: "ok", prepared: state.prepared, result }));
       (await saveExecutedFlow(run.id));
       return Response.json({ ok: true, result });
-    });
+    }));
   } catch (e) { return apiError(e); }
 }

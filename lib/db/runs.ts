@@ -23,6 +23,7 @@ import type { RunOutput } from "../pipeline/run";
 export type RunStatus = "running" | "done" | "error" | "submitted" | "partial" | "discarded";
 
 export interface StoredRun {
+  connectionId?: string;
   groundContext?: import("../ground-context/types").GroundContextSnapshot;
   id: string;
   formatVersion?: number;
@@ -86,6 +87,7 @@ export async function createRun(args: {
   content?: SourceBlock[];
   sourceIds: string[];
   operations: string[];
+  connectionId?: string;
 }): Promise<void> {
   await db().transaction(async () => {
     (await db()
@@ -105,6 +107,7 @@ export async function createRun(args: {
     (await db().prepare("INSERT INTO run_sources(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.attachments ?? [])));
     if (args.groundContext) await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.groundContext));
     if (args.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.content));
+    if (args.connectionId) await db().prepare("INSERT INTO run_ra_connections(run_id,connection_id) VALUES (?,?)").run(args.id, args.connectionId);
   })();
 }
 
@@ -138,7 +141,7 @@ export async function completeRun(
         id,
         ts: now(),
         keys: JSON.stringify(view.candidates.filter((c) => !c.researchOnly).map((c) => c.key)),
-        resolutions: JSON.stringify(view.groups.map(() => null)),
+        resolutions: JSON.stringify(view.groups.map(() => "merged")),
       }));
   })();
 }
@@ -181,7 +184,9 @@ export async function saveDecisions(
 }
 
 async function hydrate(row: RunRow, decision?: DecisionRow): Promise<StoredRun> {
+  const connection = await db().prepare("SELECT connection_id FROM run_ra_connections WHERE run_id=?").get(row.id) as { connection_id: string } | undefined;
   return {
+    connectionId: connection?.connection_id,
     id: row.id,
     formatVersion: (await db().prepare("SELECT 1 FROM run_sources WHERE run_id=?").get(row.id)) ? 2 : 1,
     createdAt: row.created_at,

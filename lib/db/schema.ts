@@ -96,5 +96,25 @@ CREATE TABLE IF NOT EXISTS ai_calls (
   prompt_version TEXT NOT NULL, request TEXT NOT NULL, response TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ra_connections (
+  id TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  bearer_token TEXT NOT NULL,
+  ra_user TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(owner, name)
+);
+CREATE TABLE IF NOT EXISTS ra_connection_defaults (
+  owner TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_ra_connections (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  connection_id TEXT NOT NULL
+);
+
 `;
 

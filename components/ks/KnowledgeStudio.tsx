@@ -59,6 +59,7 @@ function remapFieldsToTemplate(
 }
 
 type Screen = StepId;
+type RaConnection = { id: string; name: string; baseUrl: string; user: string; isDefault: boolean };
 
 const ACTION_CLASS: Record<string, string> = {
   New: "ks-tag-new",
@@ -76,6 +77,8 @@ function pickDefaultCollection(collections: { code: string; label: string }[]): 
 }
 
 export default function KnowledgeStudio({ initialAutonomousRun }: { initialAutonomousRun?: string } = {}) {
+  const [connections, setConnections] = useState<RaConnection[]>([]);
+  const [connectionId, setConnectionId] = useState("");
   const [autoMode, setAutoMode] = useState(false);
   const [autoJob, setAutoJob] = useState<string | null>(initialAutonomousRun ?? null);
   const [autoStarting, setAutoStarting] = useState(false);
@@ -153,6 +156,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       .then((d) => {
         if (cancelled || !d.run) return;
         const stored = d.run;
+        if (stored.connectionId) setConnectionId(stored.connectionId);
         const snapshot = stored.snapshot as DecisionSnapshot | undefined;
         setGroundContext(stored.groundContext?.selection ?? emptyGroundSelection);
         pipeline.restore(stored.id, {
@@ -161,7 +165,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
           costUsd: stored.costUsd, steps: stored.steps,
         });
         setSelected(new Set(snapshot?.selectedKeys ?? stored.decisions?.selectedKeys ?? stored.candidates.filter((c: { researchOnly?: boolean }) => !c.researchOnly).map((c: { key: string }) => c.key)));
-        setResolutions(snapshot?.resolutions ?? stored.decisions?.resolutions ?? stored.groups.map(() => null));
+        setResolutions((snapshot?.resolutions ?? stored.decisions?.resolutions ?? stored.groups.map(() => "merged")).map((value: DupeResolution) => value ?? "merged"));
         setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: snapshot?.operations.find(v => v.name === o.name)?.on ?? stored.operations.includes(o.name) })));
         setMetadataSettings(snapshot?.metadata ?? {});
         if (snapshot) {
@@ -193,7 +197,18 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/metadata")
+    fetch("/api/ra-connections").then(async response => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (!cancelled) { setConnections(data.connections); setConnectionId(current => current || data.connections.find((item: RaConnection) => item.isDefault)?.id || data.connections[0]?.id || ""); }
+    }).catch((error: Error) => !cancelled && setMetaError(error.message));
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!connectionId) return;
+    let cancelled = false;
+    fetch("/api/metadata?connectionId=" + encodeURIComponent(connectionId))
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(new Error(e.error)))))
       .then((d: MetadataOptions) => {
         if (cancelled) return;
@@ -209,7 +224,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [connectionId]);
 
   useEffect(() => {
     if (!kbSearchOpen || !kbQuery.trim()) {
@@ -218,7 +233,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     let cancelled = false;
     const t = setTimeout(() => {
       setKbLoading(true);
-      fetch(`/api/kb/search?q=${encodeURIComponent(kbQuery)}`)
+      fetch(`/api/kb/search?q=${encodeURIComponent(kbQuery)}&connectionId=${encodeURIComponent(connectionId)}`)
         .then((r) => r.json())
         .then((d: { rows?: KbRow[] }) => !cancelled && setKbRows(d.rows ?? []))
         .catch(() => !cancelled && setKbRows([]))
@@ -228,7 +243,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
       cancelled = true;
       clearTimeout(t);
     };
-  }, [kbQuery, kbSearchOpen]);
+  }, [kbQuery, kbSearchOpen, connectionId]);
 
   function pickPath(k: PathKey) {
     setPath(k);
@@ -256,6 +271,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     if (autoMode) {
       if (autoStarting) return;
       const input = {
+        connectionId,
         text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
         content: orderedContent,
         attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
@@ -280,6 +296,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     setResolutions([]);
     setSurvivorChoice({}); setTemplateOverrides(new Set()); submitRun.reset();
     const view = await pipeline.start({
+      connectionId,
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
@@ -290,7 +307,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     });
     if (view) {
       setSelected(new Set(view.candidates.filter((c) => !c.researchOnly).map((c) => c.key)));
-      setResolutions(view.groups.map(() => null));
+      setResolutions(view.groups.map(() => "merged"));
       setNewSolutionTemplate(view.candidates.find((c) => !c.targetSolutionId)?.templateName ?? null);
     }
   }
@@ -462,10 +479,22 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
 
   /* ── Content ── */
   function renderInputScreen() {
+    const customerPicker = <div className="ks-card" style={{ padding: 18, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "end", gap: 14, flexWrap: "wrap" }}>
+        <label className="form-label" style={{ flex: "1 1 300px", margin: 0 }}>RightAnswers customer
+          <select className="form-input" value={connectionId} disabled={!connections.length || pipeline.phase === "running"} onChange={event => {
+            setConnectionId(event.target.value); setKbRows([]); setKbSelected({}); setGroundContext(emptyGroundSelection); setMeta(null); setMetaError(null);
+          }}>{connections.map(item => <option value={item.id} key={item.id}>{item.name}{item.isDefault ? " (default)" : ""}</option>)}</select>
+        </label>
+        <Link className="ds-btn ds-btn-secondary" href="/rightanswers-connections">Manage customers</Link>
+      </div>
+      <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>{connections.find(item => item.id === connectionId)?.baseUrl ?? "Loading customer connections…"}</div>
+    </div>;
     if (!path) {
       return (
         <div className="ks-scroll">
           <div style={{ maxWidth: 880, margin: "0 auto" }}>
+            {customerPicker}
             <div className="ks-banner ks-banner--info">
               <div className="ks-banner__row">
                 <div className="ks-banner__icon">
@@ -537,6 +566,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
     return (
       <div className="ks-scroll">
         <div style={{ maxWidth: 880, margin: "0 auto" }}>
+          {customerPicker}
           <div className="ks-pathbar">
             <span>Starting point:</span>
             <span className="ks-chip">
@@ -595,7 +625,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               showToast={showToast}
             />
           </div>
-          <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} />
+          <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
           <div className="ks-card auto-option">
             <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
             </div>
@@ -723,7 +753,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
           </div>
           {pipeline.runId && <p><Link href={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}`} target="_blank">Open executed engine flow</Link></p>}
           <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
-            Review the proposed scope and why it matters. Choose what to keep and resolve suggested merges. Templates are confirmed in the next step.
+            Review the proposed scope and why it matters. Suggested merges are approved automatically; open one only if you want to inspect it, change its destination, or keep the items separate. Templates are confirmed in the next step.
           </div>
 
           {candidates.length === 0 ? (
@@ -1006,7 +1036,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
               <div className="ks-meta-group">
                 <span className="ms">auto_awesome</span>Suggested from your knowledge base
               </div>
-              {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} onReviewReferences={() => setScreen("input")} />}
+              {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} connectionId={connectionId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} onReviewReferences={() => setScreen("input")} />}
               <div className="ks-meta-grid">
                 <div className="form-field">
                   <div className="form-label">Template</div>
@@ -1274,7 +1304,7 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
             {ops.filter((o) => o.on).length} of {ops.length} options on
           </span>
           <div className="ks-foot-actions">
-            <button type="button" className="ds-btn ds-btn-primary" disabled={sourcesBusy || !sessionReady || pipeline.phase === "running" || autoStarting} onClick={createPlan}>
+            <button type="button" className="ds-btn ds-btn-primary" disabled={sourcesBusy || !sessionReady || !connectionId || pipeline.phase === "running" || autoStarting} onClick={createPlan}>
               <span className="ms" style={{ fontSize: 18 }}>
                 bolt
               </span>
@@ -1409,8 +1439,9 @@ export default function KnowledgeStudio({ initialAutonomousRun }: { initialAuton
           onKeepSeparate={() => resolveGroup(mergeModal, "separate", "Kept separate")}
           onContinue={(survivorId) => {
             setSurvivorChoice((prev) => ({ ...prev, [mergeModal]: survivorId }));
+            setResolutions((prev) => prev.map((value, index) => index === mergeModal ? "merged" : value));
             setMergeModal(null);
-            setDupeModal(mergeModal);
+            showToast({ message: "Merge destination updated" });
           }}
         />
       )}

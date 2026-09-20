@@ -7,7 +7,8 @@ import { mapRunToView } from "@/lib/ks/model";
 import { requireActor, apiError } from "@/lib/api/auth";
 import { readJson, runSchema } from "@/lib/api/validation";
 import { withAiAudit } from "@/lib/llm/audit";
-import { withRaActor } from "@/lib/ra/client";
+import { withRaConnection } from "@/lib/ra/client";
+import { resolveConnection } from "@/lib/ra/connections";
 import { randomUUID } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +18,10 @@ export async function POST(request: Request) {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
     await assertImageOwnership(input, author);
-    const groundContext = await resolveGroundContext(input.groundContext, input.sourceSolutionIds, author);
+    const connection = await resolveConnection(author, input.connectionId);
     const runId = `run-${randomUUID()}`;
-    (await createRun({ id: runId, author, groundContext, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
+    const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
+    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: input.path ?? null, inputText: input.text, sourceIds: input.sourceSolutionIds ?? [], operations: input.operations, attachments: input.attachments, content: input.content }));
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
         const send = (obj: unknown) => { if (connected) { try { controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n")); } catch { connected = false; } } };
         send({ type: "runId", runId });
         try {
-          const result = await withRaActor(author, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }), groundContext)));
+          const result = await withRaConnection(author, connection, () => withAiAudit(runId, "analysis", () => runPipeline(input, (e) => send({ type: "progress", ...e }), groundContext)));
           (await completeRun(runId, mapRunToView(result)));
           (await saveExecutedFlow(runId));
           send({ type: "result", runId, ...result });

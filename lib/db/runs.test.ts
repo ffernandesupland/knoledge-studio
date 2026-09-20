@@ -75,7 +75,7 @@ describe("run persistence", () => {
 
   it("selects everything by default so a restored run matches a fresh one", async () => {
     expect((await getRun("r1"))!.decisions?.selectedKeys).toEqual(["c0"]);
-    expect((await getRun("r1"))!.decisions?.resolutions).toEqual([null]);
+    expect((await getRun("r1"))!.decisions?.resolutions).toEqual(["merged"]);
   });
 
   it("updates decisions without clobbering the run", async () => {
