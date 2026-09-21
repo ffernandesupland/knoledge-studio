@@ -8,7 +8,7 @@ vi.mock("../ra/connections", () => ({ resolveConnection: mocks.resolveConnection
 vi.mock("../ra/client", () => ({ ra: { getSolution: mocks.getSolution } }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.runOperation }));
 
-import { createSolutionReviewHandoff, runSolutionReview } from "./solution-reviews";
+import { assertReviewHandoffResolved, createSolutionReviewHandoff, resolveSolutionReviewHandoff, runSolutionReview } from "./solution-reviews";
 
 const solution: WSSolution = {
   id: "170712210507003", title: "Connect to the corporate VPN", status: "Draft", summary: "Connect securely.",
@@ -16,15 +16,26 @@ const solution: WSSolution = {
 };
 const definition = { id: "11111111-1111-4111-8111-111111111111", author: "author", connection_id: "connection", name: "Quality", objective: "Identify unclear or unsupported instructions.", created_at: "2026-09-20", updated_at: "2026-09-20" };
 let storedReview: unknown;
+let storedHandoff: Record<string, unknown> | undefined;
+let storedResolutions: { question_key: string; choice: string; final_information: string; answered_at: string }[];
 
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.resolveConnection.mockResolvedValue({ id: "connection" });
   mocks.getSolution.mockResolvedValue(solution);
   storedReview = undefined;
+  storedHandoff = undefined;
+  storedResolutions = [];
   mocks.prepare.mockImplementation((sql: string) => ({
-    get: vi.fn().mockResolvedValue(sql.startsWith("SELECT * FROM solution_review_definitions") ? definition : sql.startsWith("SELECT * FROM solution_reviews") ? storedReview : undefined),
-    run: vi.fn().mockResolvedValue({ changes: 1 }),
+    get: vi.fn().mockResolvedValue(sql.startsWith("SELECT * FROM solution_review_definitions") ? definition : sql.startsWith("SELECT * FROM solution_reviews") ? storedReview : sql.startsWith("SELECT * FROM solution_review_handoffs") ? storedHandoff : undefined),
+    all: vi.fn().mockImplementation(async () => sql.startsWith("SELECT question_key") ? storedResolutions : []),
+    run: vi.fn().mockImplementation(async (...args: unknown[]) => {
+      if (sql.startsWith("INSERT INTO solution_review_handoff_resolutions")) {
+        const [, question_key, choice, final_information, answered_at] = args as string[];
+        storedResolutions = [{ question_key, choice, final_information, answered_at }];
+      }
+      return { changes: 1 };
+    }),
   }));
 });
 
@@ -65,4 +76,28 @@ it("retains the customer criterion for a field-level content-standard review", a
   };
   const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
   expect(handoff.reviewObjectives[0]).toMatchObject({ nativeOperation: "Apply content standards", criteria: definition.objective });
+});
+
+it("blocks a handoff for a legacy contradiction until the author supplies final information", async () => {
+  storedReview = {
+    id: "44444444-4444-4444-8444-444444444444", author: "author", connection_id: "connection", solution_id: solution.id,
+    source_version: solutionVersion(solution), definition_id: definition.id, status: "completed",
+    result: JSON.stringify({ summary: "Conflicting instructions.", findings: [{ title: "Mutually exclusive connection states", category: "Contradiction", severity: "high", summary: "The saved solution gives two incompatible states.", recommendation: "Confirm the final supported state.", evidence: [{ fieldName: "Resolution", quote: "approve MFA" }], confidence: 0.9 }], limitations: [] }),
+    error: null, created_at: "2026-09-20", completed_at: "2026-09-20",
+  };
+  const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
+  expect(handoff.reviewObjectives[0].clarification?.choices).toContain("Replace the conflicting statements with my final wording");
+  expect(() => assertReviewHandoffResolved(handoff)).toThrow("Answer 1 required contradiction question");
+});
+
+it("upgrades a legacy handoff with a contradiction gate and returns the saved author decision", async () => {
+  storedHandoff = {
+    id: "55555555-5555-4555-8555-555555555555", author: "author", connection_id: "connection", solution_id: solution.id,
+    source_version: solutionVersion(solution), review_id: "44444444-4444-4444-8444-444444444444", selected_finding_indexes: "[0]", native_operations: "[]",
+    review_objectives: JSON.stringify([{ key: "44444444-4444-4444-8444-444444444444:0", label: "Conflicting state", instruction: "Confirm the supported state.", findingIndexes: [0], evidence: [{ fieldName: "Resolution", quote: "approve MFA" }], disposition: "custom" }]),
+    created_at: "2026-09-20", consumed_at: null,
+  };
+  const handoff = await resolveSolutionReviewHandoff("author", storedHandoff.id as string, [{ questionKey: "44444444-4444-4444-8444-444444444444:0", choice: "Replace the conflicting statements with my final wording", finalInformation: "The NA step is not skipped." }]);
+  expect(handoff.reviewObjectives[0].resolution).toMatchObject({ choice: "Replace the conflicting statements with my final wording", finalInformation: "The NA step is not skipped." });
+  expect(() => assertReviewHandoffResolved(handoff)).not.toThrow();
 });

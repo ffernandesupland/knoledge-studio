@@ -183,6 +183,14 @@ CREATE TABLE IF NOT EXISTS run_solution_review_handoffs (
   run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
   handoff_id TEXT NOT NULL REFERENCES solution_review_handoffs(id) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS solution_review_handoff_resolutions (
+  handoff_id TEXT NOT NULL REFERENCES solution_review_handoffs(id) ON DELETE CASCADE,
+  question_key TEXT NOT NULL,
+  choice TEXT NOT NULL,
+  final_information TEXT NOT NULL,
+  answered_at TEXT NOT NULL,
+  PRIMARY KEY (handoff_id, question_key)
+);
 
 `;
 
