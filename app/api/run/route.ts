@@ -10,7 +10,7 @@ import { readJson, runSchema } from "@/lib/api/validation";
 import { withAiAudit } from "@/lib/llm/audit";
 import { withRaConnection } from "@/lib/ra/client";
 import { resolveConnection } from "@/lib/ra/connections";
-import { getSolutionReviewHandoff, saveRunSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { assertReviewHandoffResolved, getSolutionReviewHandoff, saveRunSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 import { randomUUID } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     const input = await readJson(request, runSchema);
     const handoff = input.reviewHandoffId ? await getSolutionReviewHandoff(author, input.reviewHandoffId) : undefined;
     if (handoff?.stale) throw new Error("This solution changed after the review. Refresh the review before analysis.");
+    if (handoff) assertReviewHandoffResolved(handoff);
     const authorizedInput = handoff ? { ...input, connectionId: handoff.connectionId, sourceSolutionIds: [handoff.solutionId], reviewObjectives: handoff.reviewObjectives } : input;
     await assertImageOwnership(authorizedInput, author);
     await assertAgentFileOwnership((authorizedInput.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);

@@ -149,6 +149,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const restored = useRef(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [reviewHandoff, setReviewHandoff] = useState<SolutionReviewHandoff | null>(null);
+  const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, { choice: string; finalInformation: string }>>({});
+  const [resolutionSaving, setResolutionSaving] = useState(false);
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
@@ -232,6 +234,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           if (cancelled) return;
           if (handoff.stale) { showToast({ message: "This solution changed after the review. Refresh the review before continuing.", icon: "error" }); return; }
           setReviewHandoff(handoff);
+          setResolutionDrafts(Object.fromEntries(handoff.reviewObjectives.flatMap(objective => objective.clarification ? [[objective.key, { choice: objective.resolution?.choice ?? "", finalInformation: objective.resolution?.finalInformation ?? "" }]] : [])));
           setAutoMode(false);
           const reviewStandards = [...new Set(handoff.reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
           bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true, reviewStandards);
@@ -319,6 +322,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
 
   async function createPlan() {
     if (sourcesBusy) return;
+    if (reviewHandoff && !reviewResolutionsSaved) {
+      showToast({ message: "Answer and save every contradiction question before starting analysis.", icon: "error" }); return;
+    }
     if (sourceContent.some(b => b.type === "attachment" && !attachments.some(a => a.id === b.attachmentId))) {
       showToast({ message: "Remove failed uploads or wait until every source is ready." }); return;
     }
@@ -376,6 +382,32 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       setResolutions(view.groups.map(() => "merged"));
       setNewSolutionTemplate(view.candidates.find((c) => !c.targetSolutionId)?.templateName ?? null);
     }
+  }
+
+  const requiredReviewClarifications = reviewHandoff?.reviewObjectives.filter((objective): objective is SolutionReviewHandoff["reviewObjectives"][number] & { clarification: { question: string; choices: string[] } } => !!objective.clarification) ?? [];
+  const reviewResolutionsComplete = requiredReviewClarifications.every(objective => {
+    const answer = resolutionDrafts[objective.key];
+    return !!answer?.choice && !!answer.finalInformation.trim();
+  });
+  const reviewResolutionsSaved = requiredReviewClarifications.every(objective => {
+    const draft = resolutionDrafts[objective.key];
+    const saved = objective.resolution;
+    return !!draft?.choice && !!draft.finalInformation.trim() && draft.choice === saved?.choice && draft.finalInformation.trim() === saved.finalInformation;
+  });
+  async function saveReviewResolutions() {
+    if (!reviewHandoff || !reviewResolutionsComplete || resolutionSaving) return;
+    setResolutionSaving(true);
+    try {
+      const response = await fetch(`/api/solution-review-handoffs/${encodeURIComponent(reviewHandoff.id)}/resolutions`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answers: requiredReviewClarifications.map(objective => ({ questionKey: objective.key, ...resolutionDrafts[objective.key] })) }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not save the resolution");
+      setReviewHandoff(data.handoff as SolutionReviewHandoff);
+      showToast({ message: "Contradiction resolutions saved. You can now start analysis.", icon: "check_circle" });
+    } catch (error) { showToast({ message: error instanceof Error ? error.message : "Could not save the resolution", icon: "error" }); }
+    finally { setResolutionSaving(false); }
   }
 
   function toggleSelect(key: string) {
@@ -523,7 +555,11 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     try { return { plan: buildWritePlan({ runId: pipeline.runId ?? "", candidates, groups: effectiveGroups, selected, resolutions, metadata: metadataSettings }), error: "" }; }
     catch (e) { return { plan: [], error: (e as Error).message }; }
   }, [pipeline.runId, candidates, effectiveGroups, selected, resolutions, metadataSettings]);
-  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot);
+  const reviewObjectives = reviewHandoff?.reviewObjectives ?? [];
+  const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
+  const reviewRestructureEnabled = ops.some((o) => o.name === "Restructure content" && o.on) || reviewObjectives.length > 0;
+  const reviewRules = [...new Set([...(ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : []), ...reviewStandards])];
+  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: reviewObjectives, restructure: reviewRestructureEnabled, standards: reviewRules });
   const preparedMatches = submitRun.identity === currentIdentity;
   const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
   const displayResults = preparedMatches || submitRun.locked ? submitRun.results : submitRun.results.filter(result => displayPlan.some(op => op.idempotencyKey === result.idempotencyKey)).map(result => ({ ...result, outcome: "review" as const, message: "Previous draft retained for comparison. Prepare the updated plan before editing or submitting this version.", prepared: result.prepared ? { ...result.prepared, readyForSubmission: false } : undefined }));
@@ -562,6 +598,22 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.accentDark80, fontWeight: 700 }}><span className="ms">fact_check</span>Started from AI Solution Review</div>
       <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>Source: {reviewHandoff.title} ({reviewHandoff.solutionId}) · {reviewHandoff.selectedFindingIndexes.length} selected finding{reviewHandoff.selectedFindingIndexes.length === 1 ? "" : "s"}</div>
       <ul style={{ margin: "10px 0 0", paddingLeft: 20, color: T.textSecondary, fontSize: 12 }}>{reviewHandoff.reviewObjectives.map(objective => <li key={objective.key}><strong>{objective.label}:</strong> {objective.instruction}</li>)}</ul>
+      {requiredReviewClarifications.length > 0 && <section aria-labelledby="review-resolution-title" style={{ marginTop: 16, padding: 14, border: `1px solid ${T.warning}`, borderRadius: 8, background: T.warningLight }}>
+        <h2 id="review-resolution-title" style={{ fontSize: 15, margin: 0, color: T.textPrimary }}>Resolve contradictions before updating</h2>
+        <p style={{ margin: "6px 0 14px", color: T.textSecondary, fontSize: 12 }}>These decisions are required. They are saved with the review handoff and become the final editorial direction for the draft.</p>
+        {requiredReviewClarifications.map(objective => {
+          const answer = resolutionDrafts[objective.key] ?? { choice: "", finalInformation: "" };
+          return <fieldset key={objective.key} style={{ border: 0, padding: 0, margin: "0 0 18px" }}>
+            <legend style={{ fontWeight: 700, color: T.textPrimary, fontSize: 13 }}>{objective.clarification.question}</legend>
+            <div style={{ margin: "8px 0", color: T.textSecondary, fontSize: 11 }}>Evidence: {objective.evidence.map(item => `${item.fieldName}: “${item.quote}”`).join(" · ")}</div>
+            <div style={{ display: "grid", gap: 6 }}>{objective.clarification.choices.map(choice => <label key={choice} style={{ display: "flex", gap: 7, alignItems: "flex-start", color: T.textPrimary, fontSize: 12 }}><input type="radio" name={`resolution-${objective.key}`} checked={answer.choice === choice} onChange={() => setResolutionDrafts(current => ({ ...current, [objective.key]: { ...answer, choice } }))} />{choice}</label>)}</div>
+            <label className="form-label" style={{ display: "block", marginTop: 10, fontSize: 12 }}>Final information to apply
+              <textarea className="form-input" required rows={3} maxLength={4000} value={answer.finalInformation} onChange={event => setResolutionDrafts(current => ({ ...current, [objective.key]: { ...answer, finalInformation: event.target.value } }))} placeholder="State the final, approved information that should appear in this article." />
+            </label>
+          </fieldset>;
+        })}
+        <button type="button" className="ds-btn ds-btn-primary" disabled={!reviewResolutionsComplete || resolutionSaving} onClick={() => void saveReviewResolutions()}>{resolutionSaving ? "Saving…" : "Save required decisions"}</button>
+      </section>}
       <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>Preparing the draft always applies selected review findings, even if optional analysis toggles are changed. HTML-compatible formatting is applied to fields; title-rendering requirements are retained as an explicit limitation because a RightAnswers title is plain-text metadata. No analysis or write starts automatically.</div>
     </div>;
     if (!path) {
