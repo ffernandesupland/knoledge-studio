@@ -76,7 +76,7 @@ export function mapRunToView(run: RunOutput): ViewRun {
     members: g.members.map((m) => ({
       id: m.id,
       title: m.title,
-      stat: m.isNew ? "New solution · no history yet" : `${m.viewCount.toLocaleString()} views`,
+      stat: m.isNew ? "New solution · no history yet" : `${m.viewCount.toLocaleString("en-US")} views`,
       retained: m.id === g.survivorId,
     })),
   }));

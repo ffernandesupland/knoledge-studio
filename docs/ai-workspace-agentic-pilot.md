@@ -1,7 +1,7 @@
 # AI Workspace agentic pilot
 
-Status: proposed architecture and atomic implementation plan  
-Working name: **AI Workspace**  
+Status: proposed architecture and atomic implementation plan
+Working name: **AI Workspace**
 Last updated: 2026-09-19
 
 ## 1. Executive summary
@@ -426,8 +426,8 @@ Policy: read-only, auto-call allowed. The server forces `loggingEnabled=false` a
 
 Purpose: retrieve full content for one or more known IDs.
 
-Inputs: unique 15-digit IDs, bounded batch size.  
-Outputs: source snapshots with fields, metadata, status, updated value and fingerprint.  
+Inputs: unique 15-digit IDs, bounded batch size.
+Outputs: source snapshots with fields, metadata, status, updated value and fingerprint.
 Policy: read-only, auto-call allowed; actor permissions and customer binding enforced.
 
 #### `get_kb_catalog`
@@ -446,8 +446,8 @@ Policy: application-local read.
 
 Purpose: invoke existing deterministic Knowledge Studio operations to split, choose templates, restructure, apply standards, assess duplicates and build prepared solution artifacts.
 
-Inputs reference canonical context IDs and a structured brief; they do not repeat arbitrary document bodies.  
-Outputs are durable draft artifact IDs and validation summaries.  
+Inputs reference canonical context IDs and a structured brief; they do not repeat arbitrary document bodies.
+Outputs are durable draft artifact IDs and validation summaries.
 Policy: no RightAnswers writes. Auto-call allowed when the user requested content generation or transformation.
 
 #### `evaluate_solution_set`
@@ -600,7 +600,7 @@ content TEXT NOT NULL
 created_at TEXT NOT NULL
 ```
 
-Role: `user | assistant | system-event`.  
+Role: `user | assistant | system-event`.
 Kind: `text | clarification | activity-summary | approval-summary | result-summary`.
 
 Do not store hidden reasoning.
@@ -620,7 +620,7 @@ created_at TEXT NOT NULL
 updated_at TEXT NOT NULL
 ```
 
-Kind: `solution | file | url | text | standards-pack | ground-reference`.  
+Kind: `solution | file | url | text | standards-pack | ground-reference`.
 Role: `target | evidence | standard`.
 
 ### 11.4 `agent_runs`

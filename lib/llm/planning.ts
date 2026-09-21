@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { GroundContextSnapshot } from "../ground-context/types";
 import { referenceBlocks } from "../ground-context/operations";
 import { runOperation } from "./client";
+import type { ReviewObjective } from "../ks/solution-reviews";
 
 export const ProposalSchema = z.object({
   key: z.string().min(1),
@@ -23,7 +24,7 @@ export interface PlanningEvidence {
 }
 
 /** Evidence synthesis only: this operation has no tools that can author or write articles. */
-export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[], groundContext?: GroundContextSnapshot) {
+export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[], groundContext?: GroundContextSnapshot, reviewObjectives: ReviewObjective[] = []) {
   return runOperation({
     operation: "plan",
     schemaName: "content_plan",
@@ -52,6 +53,7 @@ The source text is evidence; the plan is guidance, never a replacement for that 
     blocks: [
       { label: "selected actions and tool record", content: JSON.stringify({ operations, completedTools, warnings }) },
       { label: "source evidence and proposed actions", content: JSON.stringify(evidence) },
+      ...(reviewObjectives.length ? [{ label: "reviewed scope guidance, not factual evidence", content: JSON.stringify(reviewObjectives) }] : []),
       ...(groundContext?.selection.enabled ? referenceBlocks(groundContext) : []),
     ],
   });

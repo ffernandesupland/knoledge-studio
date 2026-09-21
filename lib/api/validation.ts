@@ -9,6 +9,7 @@ const fields = z.array(fieldSchema).max(100);
 const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 export const runSchema = z.object({
   connectionId: z.string().max(100).optional(),
+  reviewHandoffId: z.string().uuid().optional(),
   groundContext: groundContextSchema.optional(),
   text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), fileId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
   content: z.array(z.discriminatedUnion("type", [

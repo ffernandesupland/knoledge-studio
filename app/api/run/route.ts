@@ -10,6 +10,7 @@ import { readJson, runSchema } from "@/lib/api/validation";
 import { withAiAudit } from "@/lib/llm/audit";
 import { withRaConnection } from "@/lib/ra/client";
 import { resolveConnection } from "@/lib/ra/connections";
+import { getSolutionReviewHandoff, saveRunSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 import { randomUUID } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +19,18 @@ export async function POST(request: Request) {
   try {
     const author = await requireActor(request);
     const input = await readJson(request, runSchema);
-    await assertImageOwnership(input, author);
-    await assertAgentFileOwnership((input.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
+    const handoff = input.reviewHandoffId ? await getSolutionReviewHandoff(author, input.reviewHandoffId) : undefined;
+    if (handoff?.stale) throw new Error("This solution changed after the review. Refresh the review before analysis.");
+    const authorizedInput = handoff ? { ...input, connectionId: handoff.connectionId, sourceSolutionIds: [handoff.solutionId], reviewObjectives: handoff.reviewObjectives } : input;
+    await assertImageOwnership(authorizedInput, author);
+    await assertAgentFileOwnership((authorizedInput.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
     // The browser may identify an uploaded file, but only the server binds it to its owner.
-    const safeInput = { ...input, attachments: input.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
+    const safeInput = { ...authorizedInput, attachments: authorizedInput.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
     const connection = await resolveConnection(author, safeInput.connectionId);
     const runId = `run-${randomUUID()}`;
     const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(safeInput.groundContext, safeInput.sourceSolutionIds, author));
     (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
+    if (handoff) await saveRunSolutionReviewHandoff(runId, handoff.id);
     const encoder = new TextEncoder();
     let connected = true;
     const stream = new ReadableStream({

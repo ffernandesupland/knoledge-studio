@@ -20,6 +20,7 @@ import { mergeGroupFields } from "./merge";
 import { describeOp, type WriteOp } from "./submit";
 import { validateFields, validateSummary } from "./content";
 import { getWriteState, saveWriteState } from "./state";
+import type { ReviewObjective } from "../ks/solution-reviews";
 
 export interface PreparedContent {
   groundContext?: GroundContextSnapshot;
@@ -66,6 +67,8 @@ export interface ExecuteArgs {
   language: string;
   restructureEnabled?: boolean;
   standardsRules?: string[];
+  /** Server-bound review findings that must shape the draft, never authorize a write. */
+  reviewObjectives?: ReviewObjective[];
   reviews?: Record<string, ContentReview>;
 }
 export interface OpResult {
@@ -112,7 +115,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
 }
 async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void, groundContext?: GroundContextSnapshot): Promise<OpResult[]> {
-  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [] } = args;
+  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [], reviewObjectives = [] } = args;
   if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
   const ctx = { impUser: user };
@@ -141,7 +144,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         if (op.kind !== "create" || op.mergeSources?.length || !op.rawContent) throw new Error("Regeneration is available for unwritten new articles with saved source content.");
         const target = templates.find((t) => t.templateName === (review.templateName ?? prepared!.templateName));
         if (!target) throw new Error("Choose an available template.");
-        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled);
+        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, reviewObjectives);
         prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
         if (groundContext?.selection.enabled) {
           prepared.groundContext = groundContext;
@@ -187,7 +190,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             onProgress?.({ index, total: plan.length, description: `Generating draft: ${op.title}` });
             const target = templates.find((t) => t.templateName === op.templateName);
             if (!target) throw new Error("Final template is unavailable; choose a valid template in a new run.");
-            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled);
+            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, reviewObjectives);
             prepared.fields = r.data.fields;
             prepared.title = op.titleLocked ? op.title : r.data.title;
             prepared.summary = r.data.summary;

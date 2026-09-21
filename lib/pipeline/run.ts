@@ -17,6 +17,7 @@ import {
   type DuplicateMatch,
 } from "./dedupe";
 import { buildDuplicateGroups, type DuplicateGroup } from "./grouping";
+import type { ReviewObjective } from "../ks/solution-reviews";
 
 export type OperationName =
   | "Discover and suggest metadata"
@@ -42,6 +43,8 @@ export interface RunInput {
   templateName?: string;
   collection?: string;
   language?: string;
+  /** Server-authorized review scope guidance; never supplied directly by the browser. */
+  reviewObjectives?: ReviewObjective[];
 }
 
 export interface PlannedSolution {
@@ -287,7 +290,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
           reason: p.rationale,
           duplicateEvidence: { checked: has("Find duplicates") && !p.researchOnly, matches: p.duplicates, group },
         };
-      }), input.operations, steps.map((s) => s.name), warnings, groundContext);
+      }), input.operations, steps.map((s) => s.name), warnings, groundContext, input.reviewObjectives);
       return { value: r.data.proposals, costUsd: r.costUsd, model: r.model };
     });
     if (proposals.length !== planned.length || new Set(proposals.map((p) => p.key)).size !== planned.length || proposals.some((p) => !planned.some((s) => s.key === p.key))) {
