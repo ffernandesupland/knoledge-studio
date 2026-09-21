@@ -594,18 +594,21 @@ describe("Ground Context preparation contract", () => {
   it("limits targeted duplicate detection to the supplied selected solutions", async () => {
     const firstId = "260909000000002";
     const secondId = "260909000000003";
-    const adjudicate = vi.spyOn(duplicateEngine, "adjudicateDuplicates").mockResolvedValue({
-      data: { matches: [{ solutionId: secondId, sameUserNeed: true, verdict: "duplicate", similarity: 91, rationale: "Same task and procedure.", sharedTopics: ["VPN"] }] },
+    const thirdId = "260909000000004";
+    const adjudicate = vi.spyOn(duplicateEngine, "adjudicateDuplicates").mockImplementation(async (_candidate, neighbours) => ({
+      data: { matches: neighbours.map((solution) => ({ solutionId: solution.id, sameUserNeed: true, verdict: "duplicate" as const, similarity: 91, rationale: "Same task and procedure.", sharedTopics: ["VPN"] })) },
       costUsd: 0.01, model: "test",
-    });
+    }));
     const globalSearch = vi.spyOn(duplicateEngine, "findDuplicatesFor");
-    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId], duplicateScopeIds: [firstId, secondId], operations: ["Find duplicates"] });
-    expect(adjudicate).toHaveBeenCalledOnce();
+    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId, thirdId], duplicateScopeIds: [firstId, secondId, thirdId], operations: ["Find duplicates"] });
+    expect(adjudicate).toHaveBeenCalledTimes(2);
     expect(adjudicate.mock.calls[0][0].key).toBe(firstId);
-    expect(adjudicate.mock.calls[0][1].map(solution => solution.id)).toEqual([secondId]);
+    expect(adjudicate.mock.calls[0][1].map(solution => solution.id)).toEqual([secondId, thirdId]);
+    expect(adjudicate.mock.calls[1][0].key).toBe(secondId);
+    expect(adjudicate.mock.calls[1][1].map(solution => solution.id)).toEqual([thirdId]);
     expect(globalSearch).not.toHaveBeenCalled();
     expect(output.groups).toHaveLength(1);
-    expect(output.groups[0].members.map(member => member.id)).toEqual(expect.arrayContaining([firstId, secondId]));
+    expect(output.groups[0].members.map(member => member.id)).toEqual(expect.arrayContaining([firstId, secondId, thirdId]));
     adjudicate.mockRestore(); globalSearch.mockRestore();
   });
 });

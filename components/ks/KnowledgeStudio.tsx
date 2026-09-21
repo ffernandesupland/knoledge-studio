@@ -121,6 +121,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [kbSelected, setKbSelected] = useState<Record<string, KbRow>>({});
   /** A launch from Duplicate Detection may intentionally narrow comparison to these IDs. */
   const [duplicateScopeIds, setDuplicateScopeIds] = useState<string[]>([]);
+  const [duplicateLaunchScope, setDuplicateLaunchScope] = useState<"knowledge-base" | "selected" | null>(null);
 
   const [ops, setOps] = useState(() => KS_OPS_DEFAULT.map((o) => ({ ...o })));
 
@@ -157,7 +158,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
-  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = [], launchContext?: { sourceSolutionIds?: string[]; duplicateScopeIds?: string[] }) {
+  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = [], launchContext?: { sourceSolutionIds?: string[]; sourceSolutions?: { id: string; title: string }[]; duplicateScopeIds?: string[] }) {
     setConnectionId(source.connectionId ?? "");
     setPath("improve");
     const required = fromReview ? ["Restructure content", ...nativeOperations] : nativeOperations;
@@ -165,8 +166,10 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: exactLaunchOperations ? required.includes(o.name) : KS_PATHS.improve.on.includes(o.name) || required.includes(o.name) })));
     if (reviewStandards.length) { setCsStandard("Selected review requirements"); setCsRules(reviewStandards); }
     const ids = [...new Set([source.id, ...(launchContext?.sourceSolutionIds ?? [])])];
-    setKbSelected(Object.fromEntries(ids.map((id) => [id, { id, title: id === source.id ? source.title ?? `Solution ${id}` : `Solution ${id}`, meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Solution View" }])));
+    const titles = new Map(launchContext?.sourceSolutions?.map((item) => [item.id, item.title]));
+    setKbSelected(Object.fromEntries(ids.map((id) => [id, { id, title: titles.get(id) ?? (id === source.id ? source.title ?? `Solution ${id}` : `Solution ${id}`), meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Solution View" }])));
     setDuplicateScopeIds(launchContext?.duplicateScopeIds ?? []);
+    setDuplicateLaunchScope(!fromReview && nativeOperations.includes("Find duplicates") ? launchContext?.duplicateScopeIds?.length ? "selected" : "knowledge-base" : null);
   }
 
   /* A run costs minutes and real money, so a refresh resumes rather than discards it. */
@@ -262,7 +265,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       .then(async response => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Unable to load Knowledge Studio launch");
-        return data.launch as { solutionId: string; connectionId: string; title: string; stale: boolean; sourceSolutionIds: string[]; operations: string[]; duplicateScopeIds: string[] };
+        return data.launch as { solutionId: string; connectionId: string; title: string; stale: boolean; sourceSolutionIds: string[]; sourceSolutions: { id: string; title: string }[]; operations: string[]; duplicateScopeIds: string[] };
       })
       .then(launch => {
         if (cancelled) return;
@@ -468,6 +471,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setKbRows([]);
     setKbSelected({});
     setDuplicateScopeIds([]);
+    setDuplicateLaunchScope(null);
     setGroundContext(emptyGroundSelection);
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o })));
     setMetadataSettings({});
@@ -740,6 +744,13 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               Change
             </button>
           </div>
+          {duplicateLaunchScope && <section aria-label="Duplicate detection scope" style={{ display: "flex", gap: 12, alignItems: "flex-start", margin: "0 0 18px", padding: "15px 18px", border: `1px solid ${duplicateLaunchScope === "selected" ? "#8fc1f8" : "#c5d6ea"}`, borderRadius: 7, background: duplicateLaunchScope === "selected" ? "#edf6ff" : "#f5f9ff" }}>
+            <span className="ms" style={{ color: "#2574db", fontSize: 22 }}>{duplicateLaunchScope === "selected" ? "filter_alt" : "travel_explore"}</span>
+            <div>
+              <strong style={{ color: T.textPrimary, fontSize: 14 }}>{duplicateLaunchScope === "selected" ? "Targeted duplicate detection" : "Knowledge-base duplicate detection"}</strong>
+              <p style={{ margin: "4px 0 0", color: T.textSecondary, fontSize: 12, lineHeight: 1.55 }}>{duplicateLaunchScope === "selected" ? `Only the ${duplicateScopeIds.length} selected solutions below are compared with one another. Knowledge Studio will not search the rest of the knowledge base.` : "This solution is checked against the full knowledge base to find possible duplicates."}</p>
+            </div>
+          </section>}
           <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
             Add your content
           </div>

@@ -9,7 +9,7 @@ type LaunchRow = { id: string; author: string; connection_id: string; solution_i
 type LaunchContextRow = { source_solution_ids: string; operations: string; duplicate_scope_ids: string };
 export type SolutionLaunch = {
   id: string; connectionId: string; solutionId: string; sourceVersion: string; createdAt: string; title: string; stale: boolean;
-  sourceSolutionIds: string[]; operations: string[]; duplicateScopeIds: string[];
+  sourceSolutionIds: string[]; sourceSolutions: { id: string; title: string }[]; operations: string[]; duplicateScopeIds: string[];
 };
 
 function parseStringArray(value: string | undefined, fallback: string[]) {
@@ -25,11 +25,14 @@ export async function createSolutionLaunch(author: string, input: { connectionId
   const duplicateScopeIds = [...new Set(input.duplicateScopeIds ?? [])];
   if (duplicateScopeIds.some((id) => !sourceSolutionIds.includes(id))) throw new ApiError("Duplicate comparison targets must be selected source solutions");
   // Resolve each supplied ID now, so a launch cannot carry an inaccessible target into Studio.
-  await Promise.all(sourceSolutionIds.filter((id) => id !== solution.id).map(async (id) => {
+  const selected = await Promise.all(sourceSolutionIds.filter((id) => id !== solution.id).map(async (id) => {
     const target = await ra.getSolution(id, { impUser: author, connection });
     if (target.id !== id) throw new ApiError("Selected solution not found", 404);
+    return target;
   }));
-  const launch = { id: randomUUID(), author, connectionId: connection.id, solutionId: solution.id, sourceVersion: solutionVersion(solution), createdAt: new Date().toISOString(), title: solution.title, stale: false, sourceSolutionIds, operations: input.operations ?? [], duplicateScopeIds };
+  const byId = new Map([solution, ...selected].map((item) => [item.id, item]));
+  const sourceSolutions = sourceSolutionIds.map((id) => ({ id, title: byId.get(id)!.title }));
+  const launch = { id: randomUUID(), author, connectionId: connection.id, solutionId: solution.id, sourceVersion: solutionVersion(solution), createdAt: new Date().toISOString(), title: solution.title, stale: false, sourceSolutionIds, sourceSolutions, operations: input.operations ?? [], duplicateScopeIds };
   await db().transaction(async () => {
     await db().prepare("INSERT INTO solution_launches(id,author,connection_id,solution_id,source_version,created_at) VALUES(?,?,?,?,?,?)")
       .run(launch.id, launch.author, launch.connectionId, launch.solutionId, launch.sourceVersion, launch.createdAt);
@@ -47,10 +50,16 @@ export async function getSolutionLaunch(author: string, id: string): Promise<Sol
   if (solution.id !== row.solution_id) throw new ApiError("Solution not found", 404);
   const context = await db().prepare("SELECT source_solution_ids,operations,duplicate_scope_ids FROM solution_launch_contexts WHERE launch_id=?").get(id) as LaunchContextRow | undefined;
   const sourceSolutionIds = parseStringArray(context?.source_solution_ids, [row.solution_id]).filter((item) => /^\d{15}$/.test(item));
+  const ids = sourceSolutionIds.includes(row.solution_id) ? sourceSolutionIds : [row.solution_id, ...sourceSolutionIds];
+  const selected = await Promise.all(ids.map(async (solutionId) => {
+    const current = solutionId === row.solution_id ? solution : await ra.getSolution(solutionId, { impUser: author, connection });
+    if (current.id !== solutionId) throw new ApiError("Selected solution not found", 404);
+    return { id: current.id, title: current.title };
+  }));
   return {
     id: row.id, connectionId: row.connection_id, solutionId: row.solution_id, sourceVersion: row.source_version, createdAt: row.created_at,
     title: solution.title, stale: solutionVersion(solution) !== row.source_version,
-    sourceSolutionIds: sourceSolutionIds.includes(row.solution_id) ? sourceSolutionIds : [row.solution_id, ...sourceSolutionIds],
+    sourceSolutionIds: ids, sourceSolutions: selected,
     operations: parseStringArray(context?.operations, []),
     duplicateScopeIds: parseStringArray(context?.duplicate_scope_ids, []).filter((item) => /^\d{15}$/.test(item)),
   };
