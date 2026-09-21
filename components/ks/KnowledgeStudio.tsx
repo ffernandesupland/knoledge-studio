@@ -151,6 +151,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [reviewHandoff, setReviewHandoff] = useState<SolutionReviewHandoff | null>(null);
   const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, { choice: string; finalInformation: string }>>({});
   const [resolutionSaving, setResolutionSaving] = useState(false);
+  const [clarificationsGenerating, setClarificationsGenerating] = useState(false);
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
@@ -384,7 +385,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     }
   }
 
-  const requiredReviewClarifications = reviewHandoff?.reviewObjectives.filter((objective): objective is SolutionReviewHandoff["reviewObjectives"][number] & { clarification: { question: string; choices: string[] } } => !!objective.clarification) ?? [];
+  const requiredReviewClarifications = reviewHandoff?.reviewObjectives.filter((objective): objective is SolutionReviewHandoff["reviewObjectives"][number] & { clarification: NonNullable<SolutionReviewHandoff["reviewObjectives"][number]["clarification"]> } => !!objective.clarification) ?? [];
+  const fallbackReviewClarifications = requiredReviewClarifications.filter(objective => objective.clarification.source === "fallback");
+  const editableReviewClarifications = requiredReviewClarifications.filter(objective => objective.clarification.source !== "fallback");
   const reviewResolutionsComplete = requiredReviewClarifications.every(objective => {
     const answer = resolutionDrafts[objective.key];
     return !!answer?.choice && !!answer.finalInformation.trim();
@@ -408,6 +411,20 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       showToast({ message: "Contradiction resolutions saved. You can now start analysis.", icon: "check_circle" });
     } catch (error) { showToast({ message: error instanceof Error ? error.message : "Could not save the resolution", icon: "error" }); }
     finally { setResolutionSaving(false); }
+  }
+  async function generateReviewClarifications() {
+    if (!reviewHandoff || !fallbackReviewClarifications.length || clarificationsGenerating) return;
+    setClarificationsGenerating(true);
+    try {
+      const response = await fetch(`/api/solution-review-handoffs/${encodeURIComponent(reviewHandoff.id)}/clarifications`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not generate tailored decision options");
+      const handoff = data.handoff as SolutionReviewHandoff;
+      setReviewHandoff(handoff);
+      setResolutionDrafts(Object.fromEntries(handoff.reviewObjectives.flatMap(objective => objective.clarification ? [[objective.key, { choice: objective.resolution?.choice ?? "", finalInformation: objective.resolution?.finalInformation ?? "" }]] : [])));
+      showToast({ message: "Tailored decision options are ready. Confirm the final rules below.", icon: "fact_check" });
+    } catch (error) { showToast({ message: error instanceof Error ? error.message : "Could not generate tailored decision options", icon: "error" }); }
+    finally { setClarificationsGenerating(false); }
   }
 
   function toggleSelect(key: string) {
@@ -599,20 +616,21 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       <div style={{ color: T.textSecondary, fontSize: 12, marginTop: 8 }}>Source: {reviewHandoff.title} ({reviewHandoff.solutionId}) · {reviewHandoff.selectedFindingIndexes.length} selected finding{reviewHandoff.selectedFindingIndexes.length === 1 ? "" : "s"}</div>
       <ul style={{ margin: "10px 0 0", paddingLeft: 20, color: T.textSecondary, fontSize: 12 }}>{reviewHandoff.reviewObjectives.map(objective => <li key={objective.key}><strong>{objective.label}:</strong> {objective.instruction}</li>)}</ul>
       {requiredReviewClarifications.length > 0 && <section aria-labelledby="review-resolution-title" style={{ marginTop: 16, padding: 14, border: `1px solid ${T.warning}`, borderRadius: 8, background: T.warningLight }}>
-        <h2 id="review-resolution-title" style={{ fontSize: 15, margin: 0, color: T.textPrimary }}>Resolve contradictions before updating</h2>
-        <p style={{ margin: "6px 0 14px", color: T.textSecondary, fontSize: 12 }}>These decisions are required. They are saved with the review handoff and become the final editorial direction for the draft.</p>
-        {requiredReviewClarifications.map(objective => {
+        <h2 id="review-resolution-title" style={{ fontSize: 15, margin: 0, color: T.textPrimary }}>Confirm the final rules for this article</h2>
+        <p style={{ margin: "6px 0 14px", color: T.textSecondary, fontSize: 12 }}>For each conflict, choose the rule that is correct, then write the exact wording that should replace the contradictory text. Nothing can be drafted until every decision is saved.</p>
+        {fallbackReviewClarifications.length > 0 && <div style={{ padding: 12, marginBottom: 14, borderRadius: 6, background: T.bgPrimary }}><strong style={{ display: "block", fontSize: 13 }}>Tailored decision options are needed</strong><p style={{ margin: "5px 0 10px", color: T.textSecondary, fontSize: 12 }}>This review was created before structured contradiction questions existed. Generate evidence-specific choices before confirming the final rules.</p><button type="button" className="ds-btn ds-btn-secondary" disabled={clarificationsGenerating} onClick={() => void generateReviewClarifications()}>{clarificationsGenerating ? "Generating options…" : `Generate options for ${fallbackReviewClarifications.length} conflict${fallbackReviewClarifications.length === 1 ? "" : "s"}`}</button></div>}
+        {editableReviewClarifications.map(objective => {
           const answer = resolutionDrafts[objective.key] ?? { choice: "", finalInformation: "" };
           return <fieldset key={objective.key} style={{ border: 0, padding: 0, margin: "0 0 18px" }}>
             <legend style={{ fontWeight: 700, color: T.textPrimary, fontSize: 13 }}>{objective.clarification.question}</legend>
             <div style={{ margin: "8px 0", color: T.textSecondary, fontSize: 11 }}>Evidence: {objective.evidence.map(item => `${item.fieldName}: “${item.quote}”`).join(" · ")}</div>
             <div style={{ display: "grid", gap: 6 }}>{objective.clarification.choices.map(choice => <label key={choice} style={{ display: "flex", gap: 7, alignItems: "flex-start", color: T.textPrimary, fontSize: 12 }}><input type="radio" name={`resolution-${objective.key}`} checked={answer.choice === choice} onChange={() => setResolutionDrafts(current => ({ ...current, [objective.key]: { ...answer, choice } }))} />{choice}</label>)}</div>
-            <label className="form-label" style={{ display: "block", marginTop: 10, fontSize: 12 }}>Final information to apply
-              <textarea className="form-input" required rows={3} maxLength={4000} value={answer.finalInformation} onChange={event => setResolutionDrafts(current => ({ ...current, [objective.key]: { ...answer, finalInformation: event.target.value } }))} placeholder="State the final, approved information that should appear in this article." />
+            <label className="form-label" style={{ display: "block", marginTop: 10, fontSize: 12 }}>Final wording for the article <span style={{ color: T.error }}>(required)</span>
+              <textarea className="form-input" required rows={3} maxLength={4000} value={answer.finalInformation} onChange={event => setResolutionDrafts(current => ({ ...current, [objective.key]: { ...answer, finalInformation: event.target.value } }))} placeholder="Write the exact approved statement that should replace the conflicting text." />
             </label>
           </fieldset>;
         })}
-        <button type="button" className="ds-btn ds-btn-primary" disabled={!reviewResolutionsComplete || resolutionSaving} onClick={() => void saveReviewResolutions()}>{resolutionSaving ? "Saving…" : "Save required decisions"}</button>
+        {editableReviewClarifications.length > 0 && <button type="button" className="ds-btn ds-btn-primary" disabled={!reviewResolutionsComplete || resolutionSaving} onClick={() => void saveReviewResolutions()}>{resolutionSaving ? "Saving decisions…" : `Confirm ${editableReviewClarifications.length} final decision${editableReviewClarifications.length === 1 ? "" : "s"}`}</button>}
       </section>}
       <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>Preparing the draft always applies selected review findings, even if optional analysis toggles are changed. HTML-compatible formatting is applied to fields; title-rendering requirements are retained as an explicit limitation because a RightAnswers title is plain-text metadata. No analysis or write starts automatically.</div>
     </div>;
