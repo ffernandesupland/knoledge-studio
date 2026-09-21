@@ -56,6 +56,11 @@ const reviewFindings = [
 
 type Suggestion = keyof typeof suggestions;
 type Panel = "assist" | "review" | "create";
+type DuplicatePreview = {
+  solutionId: string; title: string; summary: string; author: string; status: string; collections: string[]; viewCount: number;
+  verdict: "duplicate" | "overlapping" | "distinct"; similarity: number; rationale: string; sharedTopics: string[];
+};
+type DuplicateScope = "knowledge-base" | "selected";
 function Icon({ name }: { name: string }) {
   return <span className="ms" aria-hidden="true">{name}</span>;
 }
@@ -103,6 +108,15 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
   const [groundContext, setGroundContext] = useState<GroundContextSelection>(emptyGroundContext);
   const [groundPickerOpen, setGroundPickerOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [duplicateScope, setDuplicateScope] = useState<DuplicateScope>("knowledge-base");
+  const [duplicateResults, setDuplicateResults] = useState<DuplicatePreview[]>([]);
+  const [selectedDuplicateIds, setSelectedDuplicateIds] = useState<string[]>([]);
+  const [ignoredDuplicateIds, setIgnoredDuplicateIds] = useState<string[]>([]);
+  const [duplicateTab, setDuplicateTab] = useState<"duplicates" | "ignored">("duplicates");
+  const [duplicateLoading, setDuplicateLoading] = useState(false);
+  const [duplicateError, setDuplicateError] = useState("");
+  const [duplicateLaunching, setDuplicateLaunching] = useState(false);
   useEffect(() => {
     if (!solutionId) return;
     let cancelled = false;
@@ -175,7 +189,8 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
   }
 
   function openSolution(id: string) {
-    const query = connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : "";
+    const selectedConnection = sourceConnectionId || connectionId;
+    const query = selectedConnection ? `?connectionId=${encodeURIComponent(selectedConnection)}` : "";
     router.push(`/ai-solution-view/${id}${query}`);
   }
 
@@ -191,6 +206,48 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
       setNotice(error instanceof Error ? error.message : "Unable to open Knowledge Studio");
       setLaunching(false);
     }
+  }
+  async function openDuplicateStudio(targeted = false) {
+    if (!source) return;
+    const selectedIds = selectedDuplicateIds.filter((id) => !ignoredDuplicateIds.includes(id));
+    if (targeted && !selectedIds.length) { setDuplicateError("Select at least one solution to run a targeted comparison."); return; }
+    setDuplicateLaunching(true);
+    try {
+      const sourceSolutionIds = targeted ? [source.id, ...selectedIds] : [source.id];
+      const response = await fetch("/api/solution-launches", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ solutionId: source.id, connectionId: sourceConnectionId, sourceSolutionIds, duplicateScopeIds: targeted ? sourceSolutionIds : undefined, operations: ["Find duplicates"] }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to open duplicate detection");
+      router.push(`/?launch=${encodeURIComponent(data.launch.id)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to open duplicate detection";
+      setDuplicateError(message); setNotice(message);
+    } finally { setDuplicateLaunching(false); }
+  }
+  async function runDuplicateDetection(candidateIds?: string[]) {
+    if (!source || duplicateLoading) return;
+    setDuplicateLoading(true); setDuplicateError(""); setDuplicateTab("duplicates");
+    try {
+      const response = await fetch("/api/solution-duplicates", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ solutionId: source.id, connectionId: sourceConnectionId, candidateIds }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Duplicate detection could not finish");
+      setDuplicateScope(data.scope as DuplicateScope);
+      setDuplicateResults(data.matches as DuplicatePreview[]);
+    } catch (error) { setDuplicateError(error instanceof Error ? error.message : "Duplicate detection could not finish"); }
+    finally { setDuplicateLoading(false); }
+  }
+  function openDuplicateModal() {
+    if (!source) { setNotice("Open a saved solution before checking for duplicates."); return; }
+    setDuplicateModalOpen(true); setDuplicateResults([]); setSelectedDuplicateIds([]); setIgnoredDuplicateIds([]); setDuplicateScope("knowledge-base");
+    void runDuplicateDetection();
+  }
+  function toggleDuplicateSelection(id: string) {
+    setSelectedDuplicateIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
   async function createReviewDefinition(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -314,6 +371,8 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
           <div className={styles.actions}>
             <button type="button" className={styles.secondary} onClick={() => setGroundPickerOpen(true)} aria-haspopup="dialog"><Icon name="library_books" />Ground Context{groundContext.enabled && groundContext.referenceIds.length > 0 ? " (" + groundContext.referenceIds.length + ")" : ""}</button>
             <button type="button" className={styles.secondary} aria-haspopup="dialog" onClick={() => { setPanel("assist"); setReviewModalOpen(true); }}><Icon name="fact_check" />AI Solution Review</button>
+            <button type="button" className={styles.secondary} disabled={!source || duplicateLoading} aria-haspopup="dialog" onClick={openDuplicateModal}><Icon name="difference" />Duplicate detection</button>
+            <button type="button" className={styles.secondary} disabled={!source || duplicateLaunching} onClick={() => void openDuplicateStudio()}><Icon name="account_tree" />{duplicateLaunching ? "Opening…" : "Deduplicate solution"}</button>
             <button type="button" className={styles.primary} disabled={launching} onClick={openKnowledgeCreation}><Icon name="auto_awesome" />{launching ? "Opening…" : "AI Knowledge Creation"}</button>
           </div>
         </div>
@@ -417,6 +476,7 @@ export default function SolutionView({ solutionId, connectionId }: { solutionId?
       </main>
       {groundPickerOpen && <GroundContextPicker value={groundContext} onCancel={() => setGroundPickerOpen(false)} onSave={value => { changeGroundContext(value); setGroundPickerOpen(false); setNotice(value.referenceIds.length ? "Ground Context references updated for this demo." : "Ground Context references cleared."); }} />}
       {reviewModalOpen && <div className={styles.modalBackdrop} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReviewModalOpen(false); }}><section className={styles.reviewModal} role="dialog" aria-modal="true" aria-labelledby="solution-review-title"><header><div><span className={styles.eyebrow}>GOVERNED REVIEW</span><h2 id="solution-review-title">AI Solution Review</h2><p>{source ? `Review ${source.title} with customer-defined checks, then select only the findings you want to take into Knowledge Studio.` : "Search for and open a saved RightAnswers solution before running a review."}</p></div><button type="button" className={styles.modalClose} aria-label="Close AI Solution Review" onClick={() => setReviewModalOpen(false)}><Icon name="close" /></button></header><div className={styles.modalBody}>{source ? renderConfiguredReviews() : <div className={styles.note}><Icon name="search" /><p>Use the solution search above to choose a saved source first.</p></div>}</div></section></div>}
+      {duplicateModalOpen && <div className={styles.modalBackdrop} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setDuplicateModalOpen(false); }}><section className={styles.duplicateModal} role="dialog" aria-modal="true" aria-labelledby="duplicate-detection-title"><header><div><span className={styles.eyebrow}>SOLUTION MANAGER</span><h2 id="duplicate-detection-title">Duplicate Detection</h2><p>{duplicateScope === "selected" ? `Comparing ${source ? `“${source.title}”` : "this solution"} only with the ${duplicateResults.length} selected solution${duplicateResults.length === 1 ? "" : "s"}.` : "Potentially overlapping solutions found across the knowledge base. Select rows to narrow a targeted comparison."}</p></div><button type="button" className={styles.modalClose} aria-label="Close Duplicate Detection" onClick={() => setDuplicateModalOpen(false)}><Icon name="close" /></button></header><div className={styles.duplicateTabs} role="tablist" aria-label="Duplicate detection results"><button type="button" role="tab" aria-selected={duplicateTab === "duplicates"} onClick={() => setDuplicateTab("duplicates")}>Duplicates <span>{duplicateResults.filter(row => !ignoredDuplicateIds.includes(row.solutionId)).length}</span></button><button type="button" role="tab" aria-selected={duplicateTab === "ignored"} onClick={() => setDuplicateTab("ignored")}>Ignored <span>{ignoredDuplicateIds.length}</span></button></div><div className={styles.duplicateBody}>{duplicateError && <div className={styles.note} role="alert"><Icon name="error" /><p>{duplicateError}</p></div>}{duplicateLoading ? <div className={styles.duplicateLoading}><Icon name="progress_activity" /><p>Comparing solution content…</p></div> : duplicateTab === "ignored" ? <div className={styles.duplicateEmpty}><Icon name="visibility_off" /><p>{ignoredDuplicateIds.length ? "Ignored rows stay out of this targeted comparison for this session." : "No duplicate suggestions have been ignored."}</p></div> : duplicateResults.length ? <div className={styles.duplicateTableWrap}><table className={styles.duplicateTable}><thead><tr><th scope="col"><span className={styles.srOnly}>Select</span></th><th scope="col">% Similarity</th><th scope="col">Title</th><th scope="col">Author</th><th scope="col">Status</th><th scope="col">Collection</th><th scope="col">Similarity summary</th><th scope="col">Actions</th></tr></thead><tbody>{duplicateResults.filter(row => !ignoredDuplicateIds.includes(row.solutionId)).map(row => <tr key={row.solutionId}><td><input type="checkbox" aria-label={`Select ${row.title}`} checked={selectedDuplicateIds.includes(row.solutionId)} onChange={() => toggleDuplicateSelection(row.solutionId)} /></td><td><strong>{Math.round(row.similarity)}%</strong><small className={row.verdict === "distinct" ? styles.distinct : styles.match}>{row.verdict}</small></td><td><strong>{row.title}</strong><p>{row.summary || "No summary available."}</p></td><td>{row.author}</td><td>{row.status}</td><td>{row.collections.join(", ") || "—"}</td><td><p>{row.rationale}</p>{row.sharedTopics.length > 0 && <small>{row.sharedTopics.join(" · ")}</small>}</td><td><div className={styles.duplicateRowActions}><button type="button" className={styles.iconButton} title="Open solution" onClick={() => openSolution(row.solutionId)}><Icon name="open_in_new" /></button><button type="button" className={styles.ignoreButton} onClick={() => { setIgnoredDuplicateIds(current => [...new Set([...current, row.solutionId])]); setSelectedDuplicateIds(current => current.filter(id => id !== row.solutionId)); }}>Ignore</button></div></td></tr>)}</tbody></table></div> : <div className={styles.duplicateEmpty}><Icon name="check_circle" /><p>{duplicateScope === "selected" ? "No selected solutions were available to compare." : "No potential duplicates were found. You can still open the full knowledge-base duplicate workflow."}</p></div>}</div><footer className={styles.duplicateFooter}><div><strong>{selectedDuplicateIds.length} selected</strong><span>{duplicateScope === "selected" ? "This result was limited to your selected solutions." : "Select one or more suggestions to run a targeted comparison."}</span></div><div><button type="button" className={styles.secondary} disabled={duplicateLoading || selectedDuplicateIds.length === 0} onClick={() => void runDuplicateDetection(selectedDuplicateIds)}><Icon name="filter_alt" />Compare selected</button><button type="button" className={styles.primary} disabled={duplicateLoading || duplicateLaunching || selectedDuplicateIds.length === 0} onClick={() => void openDuplicateStudio(true)}><Icon name="account_tree" />{duplicateLaunching ? "Opening…" : "Use selected in Studio"}</button></div></footer></section></div>}
       {notice && <div className={styles.toast} role="status"><Icon name="check_circle" />{notice}<button type="button" aria-label="Dismiss notification" onClick={() => setNotice("")}><Icon name="close" /></button></div>}
     </div>
   );

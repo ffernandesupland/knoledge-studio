@@ -12,6 +12,7 @@ export interface RunRequest {
   attachments?: SourceAttachment[];
   content?: SourceBlock[];
   sourceSolutionIds?: string[];
+  duplicateScopeIds?: string[];
   operations: string[];
   path?: string;
 }

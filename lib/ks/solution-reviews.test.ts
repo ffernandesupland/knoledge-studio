@@ -8,7 +8,7 @@ vi.mock("../ra/connections", () => ({ resolveConnection: mocks.resolveConnection
 vi.mock("../ra/client", () => ({ ra: { getSolution: mocks.getSolution } }));
 vi.mock("../llm/client", () => ({ runOperation: mocks.runOperation }));
 
-import { assertReviewHandoffResolved, createSolutionReviewHandoff, resolveSolutionReviewHandoff, runSolutionReview } from "./solution-reviews";
+import { assertReviewHandoffResolved, createSolutionReviewHandoff, generateSolutionReviewHandoffClarifications, resolveSolutionReviewHandoff, runSolutionReview } from "./solution-reviews";
 
 const solution: WSSolution = {
   id: "170712210507003", title: "Connect to the corporate VPN", status: "Draft", summary: "Connect securely.",
@@ -33,6 +33,9 @@ beforeEach(() => {
       if (sql.startsWith("INSERT INTO solution_review_handoff_resolutions")) {
         const [, question_key, choice, final_information, answered_at] = args as string[];
         storedResolutions = [{ question_key, choice, final_information, answered_at }];
+      }
+      if (sql.startsWith("UPDATE solution_review_handoffs SET review_objectives")) {
+        storedHandoff = { ...storedHandoff, review_objectives: args[0] as string };
       }
       return { changes: 1 };
     }),
@@ -88,6 +91,31 @@ it("blocks a handoff for a legacy contradiction until the author supplies final 
   const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
   expect(handoff.reviewObjectives[0].clarification?.choices).toContain("Replace the conflicting statements with my final wording");
   expect(() => assertReviewHandoffResolved(handoff)).toThrow("Answer 1 required contradiction question");
+});
+
+it("marks a legacy contradiction for an explicit AI-generated decision upgrade", async () => {
+  storedReview = {
+    id: "66666666-6666-4666-8666-666666666666", author: "author", connection_id: "connection", solution_id: solution.id,
+    source_version: solutionVersion(solution), definition_id: definition.id, status: "completed",
+    result: JSON.stringify({ summary: "Conflicting NA handling.", findings: [{ title: "Conflicting NA skip status", category: "Contradiction", severity: "high", summary: "The solution gives incompatible NA handling.", recommendation: "Confirm the final rule.", evidence: [{ fieldName: "Error Message", quote: "Solr DB Reindex this should be skipped and NA it should not" }, { fieldName: "Cause", quote: "This is skipped for NA only" }], confidence: 0.9 }], limitations: [] }),
+    error: null, created_at: "2026-09-20", completed_at: "2026-09-20",
+  };
+  const handoff = await createSolutionReviewHandoff("author", (storedReview as { id: string }).id, [0]);
+  expect(handoff.reviewObjectives[0].clarification?.source).toBe("fallback");
+});
+
+it("uses AI to generate evidence-specific choices for an older handoff", async () => {
+  storedHandoff = {
+    id: "77777777-7777-4777-8777-777777777777", author: "author", connection_id: "connection", solution_id: solution.id,
+    source_version: solutionVersion(solution), review_id: "44444444-4444-4444-8444-444444444444", selected_finding_indexes: "[0]", native_operations: "[]",
+    review_objectives: JSON.stringify([{ key: "44444444-4444-4444-8444-444444444444:0", label: "Conflicting NA skip status", instruction: "Confirm the intended NA handling.", findingIndexes: [0], evidence: [{ fieldName: "Error Message", quote: "Solr DB Reindex should be skipped and NA should not" }, { fieldName: "Cause", quote: "This is skipped for NA only" }], disposition: "custom" }]),
+    created_at: "2026-09-20", consumed_at: null,
+  };
+  mocks.runOperation.mockResolvedValue({ data: { clarifications: [{ key: "44444444-4444-4444-8444-444444444444:0", question: "Should the article say that NA is skipped?", choices: ["Yes — NA is skipped", "No — NA is not skipped", "Separate scenario"] }] } });
+  const handoff = await generateSolutionReviewHandoffClarifications("author", storedHandoff.id as string);
+  expect(handoff.reviewObjectives[0].clarification?.question).toBe("Should the article say that NA is skipped?");
+  expect(handoff.reviewObjectives[0].clarification?.choices).toEqual(expect.arrayContaining(["Yes — NA is skipped", "No — NA is not skipped"]));
+  expect(handoff.reviewObjectives[0].clarification?.source).toBe("model");
 });
 
 it("upgrades a legacy handoff with a contradiction gate and returns the saved author decision", async () => {

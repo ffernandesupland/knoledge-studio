@@ -20,6 +20,13 @@ export type SolutionReviewDefinition = z.infer<typeof definitionSchema> & {
   updatedAt: string;
 };
 
+export const reviewClarificationSchema = z.object({
+  question: z.string().min(1).max(1_000),
+  choices: z.array(z.string().min(1).max(300)).min(2).max(6),
+  /** Present only when older findings need an explicit user-triggered AI upgrade. */
+  source: z.enum(["fallback", "model"]).optional(),
+}).strict();
+
 export const solutionReviewFindingSchema = z.object({
   title: z.string().min(1).max(240),
   category: z.string().min(1).max(120),
@@ -29,10 +36,7 @@ export const solutionReviewFindingSchema = z.object({
   evidence: z.array(z.object({ fieldName: z.string().min(1).max(200), quote: z.string().min(1).max(2_000) })).max(8),
   confidence: z.number().min(0).max(1),
   /** Required only when the source contains mutually incompatible statements. */
-  clarification: z.object({
-    question: z.string().min(1).max(1_000),
-    choices: z.array(z.string().min(1).max(300)).min(2).max(6),
-  }).strict().optional(),
+  clarification: reviewClarificationSchema.omit({ source: true }).optional(),
 }).strict();
 
 /** The fixed contract that a future model executor must validate before a result is shown. */
@@ -67,7 +71,7 @@ export type ReviewObjective = {
   /** The customer-authored criterion, used only when it maps to a supported draft transform. */
   criteria?: string;
   /** A contradiction must be resolved by the author before analysis or draft preparation. */
-  clarification?: { question: string; choices: string[] };
+  clarification?: z.infer<typeof reviewClarificationSchema>;
   /** The author's final, audited decision. It is guidance, not source evidence. */
   resolution?: { choice: string; finalInformation: string; answeredAt: string };
 };
@@ -97,7 +101,7 @@ const reviewObjectiveSchema = z.object({
   evidence: z.array(z.object({ fieldName: z.string(), quote: z.string() })), disposition: z.enum(["native", "custom"]),
   nativeOperation: z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]).optional(),
   criteria: z.string().max(4_000).optional(),
-  clarification: z.object({ question: z.string().min(1).max(1_000), choices: z.array(z.string().min(1).max(300)).min(2).max(6) }).optional(),
+  clarification: reviewClarificationSchema.optional(),
 });
 function mapDefinition(row: DefinitionRow): SolutionReviewDefinition {
   return { id: row.id, connectionId: row.connection_id, name: row.name, objective: row.objective, createdAt: row.created_at, updatedAt: row.updated_at };
@@ -210,10 +214,10 @@ function routeFinding(category: string): OperationName | undefined {
   return undefined;
 }
 
-function legacyClarification(title: string, category: string, summary: string, recommendation: string) {
+function legacyClarification(title: string, category: string, summary: string, recommendation: string, evidence: { quote: string }[] = []) {
   // Existing review records predate the explicit clarification contract. Preserve their safety
   // gate when their evidence-backed wording clearly identifies a contradiction.
-  const text = `${title}\n${category}\n${summary}\n${recommendation}`;
+  const text = `${title}\n${category}\n${summary}\n${recommendation}\n${evidence.map(item => item.quote).join("\n")}`;
   if (!/contradict|conflict|mutually exclusive|inconsistent|divergent/i.test(text)) return undefined;
   return {
     question: `What final information should this article state to resolve “${title}”?`,
@@ -222,11 +226,12 @@ function legacyClarification(title: string, category: string, summary: string, r
       "Remove the conflicting statements from this article",
       "Keep separate scenarios and explain when each applies",
     ],
+    source: "fallback" as const,
   };
 }
 
 function clarificationForFinding(finding: z.infer<typeof solutionReviewFindingSchema>) {
-  return finding.clarification ?? legacyClarification(finding.title, finding.category, finding.summary, finding.recommendation);
+  return finding.clarification ?? legacyClarification(finding.title, finding.category, finding.summary, finding.recommendation, finding.evidence);
 }
 
 function parseReviewResult(row: ReviewRow): SolutionReviewResult {
@@ -289,7 +294,7 @@ export async function getSolutionReviewHandoff(author: string, id: string): Prom
   const answers = await db().prepare("SELECT question_key,choice,final_information,answered_at FROM solution_review_handoff_resolutions WHERE handoff_id=? ORDER BY question_key").all(row.id) as ResolutionRow[];
   const answersByKey = new Map(answers.map(answer => [answer.question_key, answer]));
   const reviewObjectives = reviewObjectiveSchema.array().parse(JSON.parse(row.review_objectives)).map(objective => {
-    const clarification = objective.clarification ?? legacyClarification(objective.label, "", "", objective.instruction);
+    const clarification = objective.clarification ?? legacyClarification(objective.label, "", "", objective.instruction, objective.evidence);
     const answer = answersByKey.get(objective.key);
     const withClarification = clarification ? { ...objective, clarification } : objective;
     return answer && clarification ? { ...withClarification, resolution: { choice: answer.choice, finalInformation: answer.final_information, answeredAt: answer.answered_at } } : withClarification;
@@ -325,6 +330,36 @@ export async function resolveSolutionReviewHandoff(author: string, id: string, a
         .run(handoff.id, objective.key, answer.choice, answer.finalInformation.trim(), now);
     }
   })();
+  return getSolutionReviewHandoff(author, id);
+}
+
+const tailoredClarificationsSchema = z.object({
+  clarifications: z.array(z.object({ key: z.string().min(1).max(200), question: z.string().min(1).max(1_000), choices: z.array(z.string().min(1).max(300)).min(2).max(6) }).strict()).min(1).max(20),
+}).strict();
+
+/** Upgrades older, generic contradiction prompts only after the author explicitly asks for tailored choices. */
+export async function generateSolutionReviewHandoffClarifications(author: string, id: string): Promise<SolutionReviewHandoff> {
+  const handoff = await getSolutionReviewHandoff(author, id);
+  if (handoff.stale) throw new ApiError("This solution changed after review. Refresh the review before resolving it.", 409);
+  const pending = handoff.reviewObjectives.filter((objective): objective is ReviewObjective & { clarification: z.infer<typeof reviewClarificationSchema> } => objective.clarification?.source === "fallback");
+  if (!pending.length) return handoff;
+  const response = await runOperation({
+    operation: "solutionReview",
+    schemaName: "review_contradiction_clarifications",
+    schema: tailoredClarificationsSchema,
+    role: "You turn evidence-backed knowledge-base contradictions into precise, human-controlled decisions. You never decide the outcome or draft article content.",
+    task: `Return one clarification for every supplied key. Each question must name the actual disputed entity or condition from its evidence. Its 2-6 choices must be concrete, mutually exclusive final rules stated in the same terms as the evidence. Do not use generic choices such as “replace with my wording.” Do not invent facts, infer an answer, or omit a key.`,
+    blocks: [{ label: "selected contradictory findings", content: JSON.stringify(pending.map(objective => ({ key: objective.key, label: objective.label, instruction: objective.instruction, evidence: objective.evidence }))) }],
+  });
+  const byKey = new Map(response.data.clarifications.map(clarification => [clarification.key, clarification]));
+  if (byKey.size !== pending.length || pending.some(objective => !byKey.has(objective.key))) throw new ApiError("Could not generate a complete set of clarification choices.");
+  const objectives = handoff.reviewObjectives.map((objective) => {
+    const storedObjective = { ...objective };
+    delete storedObjective.resolution;
+    const generated = byKey.get(objective.key);
+    return generated ? { ...storedObjective, clarification: { question: generated.question, choices: generated.choices, source: "model" as const } } : storedObjective;
+  });
+  await db().prepare("UPDATE solution_review_handoffs SET review_objectives=? WHERE id=? AND author=?").run(JSON.stringify(objectives), handoff.id, author);
   return getSolutionReviewHandoff(author, id);
 }
 

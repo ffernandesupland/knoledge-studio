@@ -591,4 +591,21 @@ describe("Ground Context preparation contract", () => {
     expect(duplicateSearch).toHaveBeenCalledOnce();
     duplicateSearch.mockRestore();
   });
+  it("limits targeted duplicate detection to the supplied selected solutions", async () => {
+    const firstId = "260909000000002";
+    const secondId = "260909000000003";
+    const adjudicate = vi.spyOn(duplicateEngine, "adjudicateDuplicates").mockResolvedValue({
+      data: { matches: [{ solutionId: secondId, sameUserNeed: true, verdict: "duplicate", similarity: 91, rationale: "Same task and procedure.", sharedTopics: ["VPN"] }] },
+      costUsd: 0.01, model: "test",
+    });
+    const globalSearch = vi.spyOn(duplicateEngine, "findDuplicatesFor");
+    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId], duplicateScopeIds: [firstId, secondId], operations: ["Find duplicates"] });
+    expect(adjudicate).toHaveBeenCalledOnce();
+    expect(adjudicate.mock.calls[0][0].key).toBe(firstId);
+    expect(adjudicate.mock.calls[0][1].map(solution => solution.id)).toEqual([secondId]);
+    expect(globalSearch).not.toHaveBeenCalled();
+    expect(output.groups).toHaveLength(1);
+    expect(output.groups[0].members.map(member => member.id)).toEqual(expect.arrayContaining([firstId, secondId]));
+    adjudicate.mockRestore(); globalSearch.mockRestore();
+  });
 });

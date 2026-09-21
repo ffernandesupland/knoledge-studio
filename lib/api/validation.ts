@@ -17,6 +17,7 @@ export const runSchema = z.object({
     z.object({ id: z.string().max(100), type: z.literal("attachment"), attachmentId: z.string().max(100) }),
   ])).max(200).optional(),
   sourceSolutionIds: z.array(z.string().regex(/^\d{15}$/)).max(20).refine((v) => new Set(v).size === v.length, "Source IDs must be unique").optional(),
+  duplicateScopeIds: z.array(z.string().regex(/^\d{15}$/)).min(2).max(20).refine((v) => new Set(v).size === v.length, "Duplicate scope IDs must be unique").optional(),
   operations: z.array(operationName).max(7), templateName: z.string().max(200).optional(),
   path: z.enum(["create", "improve", "gap"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
 }).superRefine((v, ctx) => {
@@ -24,6 +25,7 @@ export const runSchema = z.object({
     if (v.groundContext.referenceSolutionIds.some(id => v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Processing targets and Ground Context references must be different solutions" });
     if (!v.text.trim() && !v.sourceSolutionIds?.length && !v.attachments?.length && !v.content?.some(block => block.type === "text" && block.text.trim())) ctx.addIssue({ code: "custom", message: "Add a task or source content alongside Ground Context references" });
   }
+  if (v.duplicateScopeIds?.some(id => !v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Targeted duplicate comparisons must use selected source solutions" });
   if (!v.content) return;
   const ids = (v.attachments ?? []).map(a => a.id);
   const refs = v.content.flatMap(b => b.type === "attachment" ? [b.attachmentId] : []);

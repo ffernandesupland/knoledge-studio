@@ -129,6 +129,12 @@ CREATE TABLE IF NOT EXISTS solution_launches (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_solution_launches_author ON solution_launches(author, created_at DESC);
+CREATE TABLE IF NOT EXISTS solution_launch_contexts (
+  launch_id TEXT PRIMARY KEY REFERENCES solution_launches(id) ON DELETE CASCADE,
+  source_solution_ids TEXT NOT NULL,
+  operations TEXT NOT NULL,
+  duplicate_scope_ids TEXT NOT NULL
+);
 
 -- A customer-defined review is an analytic objective, never an executable pipeline action.
 CREATE TABLE IF NOT EXISTS solution_review_definitions (
