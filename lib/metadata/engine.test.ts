@@ -10,7 +10,7 @@ it("builds an API-compatible structured-output schema including reference eviden
  expect(() => zodTextFormat(RecommendationSchema, "metadata_recommendations")).not.toThrow();
 });
 const target: WSSolution = { id: "target", title: "Reset a RightAnswers password", status: "Published", collections: ["support"], taxonomy: ["Wrong label"], fields: [{ name: "Steps", content: "Use the password reset link in RightAnswers." }] };
-const option: MetadataOption = { id: "c:support", kind: "collection", value: "support", label: "Support", origin: "catalog" };
+const option: MetadataOption = { id: "c:0", kind: "collection", value: "support", label: "Support", origin: "catalog" };
 const suggestion = { candidateId: option.id, reason: "Support task", sourceEvidence: "password reset link", exampleIds: ["example"] };
 const example = { id: "example", title: "Account recovery", summary: "", collections: ["support"], taxonomy: [] };
 beforeEach(() => vi.resetAllMocks());
@@ -48,9 +48,20 @@ it("runs scoped read-only research, explores child paths and hides existing targ
  expect(mocks.search.mock.calls[0][1]).toEqual({impUser:"alice"});
  expect(JSON.stringify(mocks.runOperation.mock.calls)).not.toContain("Wrong label");
  const routing=mocks.runOperation.mock.calls.find(([a])=>a.schemaName==="metadata_branches")![0];
- expect(routing.schema.safeParse({paths:["Invented//Branch"]}).success).toBe(false);
+ expect(routing.schema.safeParse({paths:["Invented//Branch"]}).success).toBe(true); // Membership is checked after parsing so customer labels need not be enum literals.
  const final=mocks.runOperation.mock.calls.find(([a])=>a.schemaName==="metadata_recommendations")![0];
  expect(final.schema.safeParse({rationale:"",uncertainties:[],suggestions:[{...suggestion,candidateId:"invented"}]}).success).toBe(false);
+});
+it("keeps strict-output candidate IDs safe when catalog values contain quotes", async () => {
+ mocks.getSolution.mockResolvedValue(target);
+ mocks.getCollections.mockResolvedValue([{ code: 'collection:"unsafe"', displayName: 'Collection "unsafe"' }]);
+ mocks.getBrowsePaths.mockResolvedValue([]);
+ mocks.search.mockResolvedValue({ solutions: [] });
+ mocks.runOperation.mockImplementation(async (args: { schemaName: string }) => ({ inputTokens: 10, outputTokens: 5, costUsd: .001, data: args.schemaName === "metadata_search_plan" ? { queries: ["RightAnswers password"], terms: [] } : { rationale: "Article fit", suggestions: [{ ...suggestion, candidateId: "c:0", exampleIds: [] }], uncertainties: [] } }));
+ const report = await analyzeMetadata("target", { impUser: "alice" });
+ expect(report.suggestions[0].option).toMatchObject({ id: "c:0", value: 'collection:"unsafe"' });
+ const final = mocks.runOperation.mock.calls.find(([a]) => a.schemaName === "metadata_recommendations")![0];
+ expect(final.schema.safeParse({ rationale: "", uncertainties: [], suggestions: [{ ...suggestion, candidateId: "c:0", exampleIds: [] }] }).success).toBe(true);
 });
 it("stops before model calls when cancelled", async () => {
  mocks.getSolution.mockResolvedValue(target); const abort = new AbortController(); abort.abort();
