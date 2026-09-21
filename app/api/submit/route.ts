@@ -15,7 +15,7 @@ import { ra, withRaConnection } from "@/lib/ra/client";
 import { runConnection } from "@/lib/ra/connections";
 
 import { submissionIdentity } from "@/lib/ks/submission-plan";
-import { runSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { assertReviewHandoffResolved, runSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     const connection = await runConnection(user, run.id);
     const reviewHandoff = await runSolutionReviewHandoff(user, run.id);
     if (reviewHandoff?.stale) throw new Error("This solution changed after review. Refresh the review before preparing a draft.");
+    if (reviewHandoff) assertReviewHandoffResolved(reviewHandoff);
     await assertGuided(run.id);
     const snapshot = canonicalSnapshot(run, body.snapshot);
     const plan = buildWritePlan({ runId: run.id, candidates: snapshot.candidates, groups: snapshot.groups, selected: new Set(snapshot.selectedKeys), resolutions: snapshot.resolutions, metadata: snapshot.metadata });

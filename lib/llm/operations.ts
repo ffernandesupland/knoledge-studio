@@ -106,7 +106,7 @@ Use EXACTLY these field names, spelled and cased as shown, and no others:
 ${fieldList}
 
 Rules:
-- A reviewed plan, if supplied, guides scope only. It is not factual evidence. Use source material to support every claim; never answer open questions by guessing. Final template and edited sources take precedence.
+- A reviewed plan, if supplied, guides scope only. It is not factual evidence. Use source material to support every claim; never answer open questions by guessing. An author-confirmed contradiction resolution is an explicit final editorial decision: apply its final information exactly to resolve that conflict, but do not extend it with new inferred facts. Final template and edited sources take precedence.
 - Populate required fields only when supported by the source; otherwise leave them empty for human review.
 - ${primary ? `"${primary}" is the answer/body field; put the substantive answer there.` : "Map content by each field’s name and description; field order does not indicate importance."}
 - Put causes only in cause fields and error messages only in error-message fields.
@@ -121,7 +121,7 @@ Rules:
   paragraphs when the content is actually a list or a procedure.
 - "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
 - "keywords" are 3-8 search terms a user would actually type.`,
-    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(reviewObjectives.length ? [{ label: "selected review findings (scope and formatting guidance, not factual evidence)", content: JSON.stringify(reviewObjectives) }] : [])],
+    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(reviewObjectives.length ? [{ label: "selected review findings and author-confirmed contradiction resolutions", content: JSON.stringify(reviewObjectives) }] : [])],
   });
 }
 
