@@ -119,6 +119,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [kbRows, setKbRows] = useState<KbRow[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
   const [kbSelected, setKbSelected] = useState<Record<string, KbRow>>({});
+  /** A launch from Duplicate Detection may intentionally narrow comparison to these IDs. */
+  const [duplicateScopeIds, setDuplicateScopeIds] = useState<string[]>([]);
 
   const [ops, setOps] = useState(() => KS_OPS_DEFAULT.map((o) => ({ ...o })));
 
@@ -155,13 +157,16 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
-  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = []) {
+  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = [], launchContext?: { sourceSolutionIds?: string[]; duplicateScopeIds?: string[] }) {
     setConnectionId(source.connectionId ?? "");
     setPath("improve");
     const required = fromReview ? ["Restructure content", ...nativeOperations] : nativeOperations;
-    setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: KS_PATHS.improve.on.includes(o.name) || required.includes(o.name) })));
+    const exactLaunchOperations = !fromReview && nativeOperations.length > 0;
+    setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: exactLaunchOperations ? required.includes(o.name) : KS_PATHS.improve.on.includes(o.name) || required.includes(o.name) })));
     if (reviewStandards.length) { setCsStandard("Selected review requirements"); setCsRules(reviewStandards); }
-    setKbSelected({ [source.id]: { id: source.id, title: source.title ?? `Solution ${source.id}`, meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Knowledge Creation" } });
+    const ids = [...new Set([source.id, ...(launchContext?.sourceSolutionIds ?? [])])];
+    setKbSelected(Object.fromEntries(ids.map((id) => [id, { id, title: id === source.id ? source.title ?? `Solution ${id}` : `Solution ${id}`, meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Solution View" }])));
+    setDuplicateScopeIds(launchContext?.duplicateScopeIds ?? []);
   }
 
   /* A run costs minutes and real money, so a refresh resumes rather than discards it. */
@@ -257,7 +262,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       .then(async response => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Unable to load Knowledge Studio launch");
-        return data.launch as { solutionId: string; connectionId: string; title: string; stale: boolean };
+        return data.launch as { solutionId: string; connectionId: string; title: string; stale: boolean; sourceSolutionIds: string[]; operations: string[]; duplicateScopeIds: string[] };
       })
       .then(launch => {
         if (cancelled) return;
@@ -265,8 +270,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           showToast({ message: "The source solution changed after this launch was prepared. Return to AI Solution View and open a new pipeline launch.", icon: "error" });
           return;
         }
-        bootstrapSource({ id: launch.solutionId, connectionId: launch.connectionId, title: launch.title });
-        showToast({ message: "AI Knowledge Creation opened this saved solution in the pipeline. Review the options, then start analysis.", icon: "auto_awesome" });
+        bootstrapSource({ id: launch.solutionId, connectionId: launch.connectionId, title: launch.title }, launch.operations, false, [], launch);
+        showToast({ message: launch.duplicateScopeIds.length ? `Targeted duplicate detection opened with ${launch.duplicateScopeIds.length} selected solutions.` : launch.operations.includes("Find duplicates") ? "Duplicate detection opened for this solution. Review the scope, then start analysis." : "AI Knowledge Creation opened this saved solution in the pipeline. Review the options, then start analysis.", icon: "auto_awesome" });
       })
       .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
     return () => { cancelled = true; };
@@ -333,6 +338,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     const sourceSolutionIds = Object.entries(kbSelected)
       .filter(([, on]) => on)
       .map(([id]) => id);
+    const activeDuplicateScopeIds = duplicateScopeIds.filter((id) => sourceSolutionIds.includes(id));
+    const duplicateScope = activeDuplicateScopeIds.length >= 2 ? activeDuplicateScopeIds : undefined;
     if (!contentText.trim() && attachments.length === 0 && sourceSolutionIds.length === 0 && !ops.some((o) => o.name === "Find gaps" && o.on)) {
       showToast({ message: "Add some content, a file, or pick a solution first" });
       return;
@@ -348,6 +355,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         content: orderedContent,
         attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
         groundContext, sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
+        duplicateScopeIds: duplicateScope,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
       };
       const fingerprint = JSON.stringify(input);
@@ -375,6 +383,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
       groundContext,
       sourceSolutionIds,
+      duplicateScopeIds: duplicateScope,
       operations: ops.filter((o) => o.on).map((o) => o.name),
       path: path ?? undefined,
     });
@@ -458,6 +467,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setKbQuery("");
     setKbRows([]);
     setKbSelected({});
+    setDuplicateScopeIds([]);
     setGroundContext(emptyGroundSelection);
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o })));
     setMetadataSettings({});
@@ -757,15 +767,18 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               kbRows={kbRows}
               kbLoading={kbLoading}
               kbSelected={kbSelected}
-              onToggleKbRow={(id) => setKbSelected((previous) => {
-                const next = { ...previous };
-                if (next[id]) delete next[id];
-                else {
-                  const row = kbRows.find((item) => item.id === id);
-                  if (row) next[id] = row;
-                }
-                return next;
-              })}
+              onToggleKbRow={(id) => {
+                if (kbSelected[id]) setDuplicateScopeIds((scope) => scope.filter((scopeId) => scopeId !== id));
+                setKbSelected((previous) => {
+                  const next = { ...previous };
+                  if (next[id]) delete next[id];
+                  else {
+                    const row = kbRows.find((item) => item.id === id);
+                    if (row) next[id] = row;
+                  }
+                  return next;
+                });
+              }}
               showToast={showToast}
             />
           </div>

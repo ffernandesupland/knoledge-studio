@@ -11,6 +11,7 @@ import type { WSTemplate } from "../ra/types";
 import { chooseTemplate, findGaps, optimizeForSearch, splitTopics } from "../llm/operations";
 import {
   SolutionCache,
+  adjudicateDuplicates,
   findDuplicatesFor,
   findIntraBatchOverlaps,
   type Candidate,
@@ -38,6 +39,8 @@ export interface RunInput {
   content?: SourceBlock[];
   /** Existing solutions pulled in from the KB picker. */
   sourceSolutionIds?: string[];
+  /** Limits duplicate adjudication to a selected set of existing solutions. */
+  duplicateScopeIds?: string[];
   operations: OperationName[];
   /** Fixed template for every topic. Omit to let the pipeline pick one per topic. */
   templateName?: string;
@@ -218,19 +221,34 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
     }));
 
     const matchesByCandidate: Record<string, DuplicateMatch[]> = {};
+    const targetedScope = input.duplicateScopeIds?.length ? new Set(input.duplicateScopeIds) : undefined;
+    if (targetedScope && [...targetedScope].some((id) => !sourceSolutions.some((source) => source.id === id))) throw new Error("Targeted duplicate comparisons must use selected source solutions");
     const exclude = new Set([...sourceSolutions.map((s) => s.id), ...(groundContext?.selection.enabled ? groundContext.references.map(r => r.id) : [])]);
 
     for (const c of candidates) {
       const matches = await step(`Duplicates: ${c.title}`, onProgress, steps, async () => {
-        const m = await findDuplicatesFor(c, { cache, exclude, collection: input.collection, language: input.language });
-        return { value: m.matches, costUsd: m.costUsd, model: m.model, details: m.retrieval };
+        if (targetedScope) {
+          // One adjudication per pair is sufficient for grouping. Comparing both directions (and
+          // again as an intra-batch pair) would spend model calls without adding evidence.
+          const sourceId = planned.find((solution) => solution.key === c.key)?.sourceSolutionId;
+          const neighbours = sourceSolutions.filter((solution) => targetedScope.has(solution.id) && solution.id !== sourceId && (!sourceId || solution.id > sourceId));
+          if (!neighbours.length) return { value: [] as DuplicateMatch[], costUsd: 0, details: { scope: "selected", comparedIds: [] } };
+          const result = await adjudicateDuplicates(c, neighbours);
+          const byId = new Map(neighbours.map((solution) => [solution.id, solution]));
+          const value = result.data.matches.filter((match) => match.verdict !== "distinct")
+            .map((match) => ({ ...match, title: byId.get(match.solutionId)!.title, viewCount: byId.get(match.solutionId)!.viewCount ?? 0 }))
+            .sort((a, b) => b.similarity - a.similarity);
+          return { value, costUsd: result.costUsd, model: result.model, details: { scope: "selected", comparedIds: neighbours.map((solution) => solution.id) } };
+        }
+        const result = await findDuplicatesFor(c, { cache, exclude, collection: input.collection, language: input.language });
+        return { value: result.matches, costUsd: result.costUsd, model: result.model, details: result.retrieval };
       });
       matchesByCandidate[c.key] = matches;
       const sol = planned.find((p) => p.key === c.key);
       if (sol) sol.duplicates = matches;
     }
 
-    const intraBatchPairs = await step("Duplicates: within batch", onProgress, steps, async () => {
+    const intraBatchPairs = targetedScope ? [] : await step("Duplicates: within batch", onProgress, steps, async () => {
       const r = await findIntraBatchOverlaps(candidates);
       return { value: r.pairs, costUsd: r.costUsd, model: r.model };
     });
