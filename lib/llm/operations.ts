@@ -4,7 +4,7 @@ import { runOperation } from "./client";
 import type { UntrustedBlock } from "./prompt";
 import { bodyField } from "../pipeline/content";
 import type { WSTemplate } from "../ra/types";
-import type { ReviewObjective } from "../ks/solution-reviews";
+import type { ScopedDirective } from "../demand/spec";
 
 /* ── Split topics ─────────────────────────────────────────────────────────── */
 
@@ -88,7 +88,7 @@ export type RestructureResult = z.infer<typeof RestructureSchema>;
  * Field names come from the live template, never a hardcoded list — the tenant has no
  * "KCS Solution" template and field names are case-sensitive on write (findings V3, §4.2).
  */
-export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false, reviewObjectives: ReviewObjective[] = []) {
+export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false, directives: ScopedDirective[] = []) {
   const fieldList = template.fields
     .map((f) => `- ${f.fieldName}${f.required ? " (required)" : ""}${f.description ? ` — ${f.description}` : ""}`)
     .join("\n");
@@ -106,7 +106,7 @@ Use EXACTLY these field names, spelled and cased as shown, and no others:
 ${fieldList}
 
 Rules:
-- A reviewed plan, if supplied, guides scope only. It is not factual evidence. Use source material to support every claim; never answer open questions by guessing. An author-confirmed contradiction resolution is an explicit final editorial decision: apply its final information exactly to resolve that conflict, but do not extend it with new inferred facts. Final template and edited sources take precedence.
+- A reviewed plan or authorized demand requirement, if supplied, guides scope only. It is not factual evidence. Use source material to support every claim; never answer open questions by guessing. An author-confirmed contradiction resolution is an explicit final editorial decision: apply its final information exactly to resolve that conflict, but do not extend it with new inferred facts. Final template and edited sources take precedence.
 - Populate required fields only when supported by the source; otherwise leave them empty for human review.
 - ${primary ? `"${primary}" is the answer/body field; put the substantive answer there.` : "Map content by each field’s name and description; field order does not indicate importance."}
 - Put causes only in cause fields and error messages only in error-message fields.
@@ -121,7 +121,7 @@ Rules:
   paragraphs when the content is actually a list or a procedure.
 - "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
 - "keywords" are 3-8 search terms a user would actually type.`,
-    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(reviewObjectives.length ? [{ label: "selected review findings and author-confirmed contradiction resolutions", content: JSON.stringify(reviewObjectives) }] : [])],
+    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
   });
 }
 
@@ -163,6 +163,7 @@ export function mergeSections(
   sources: { label: string; templateName: string; body: string }[],
   target: WSTemplate,
   proposals: ContentProposal[] = [],
+  directives: ScopedDirective[] = [],
 ) {
   const fieldList = target.fields.map((f) => `- ${f.fieldName}`).join("\n");
 
@@ -175,6 +176,7 @@ export function mergeSections(
 Return a specific title, one-sentence summary and 3–8 relevant keywords for the combined article. Title, summary and keywords MUST be plain text without HTML tags; HTML is only for template field content.
 Populate every relevant field from supported source evidence, including optional fields.
 All combined field values MUST be HTML, never Markdown. Convert headings, lists, links and code to HTML; do not emit Markdown fences or literal ##, ** or backtick formatting.
+Authorized demand requirements and reviewed scope guidance may shape coverage and presentation, but are never factual evidence. Do not add unsupported facts, resolve conflicts by guessing, or change the required field contract.
 
 Return one entry for EVERY field below, in this order, using the exact field names:
 ${fieldList}
@@ -194,12 +196,12 @@ For each field:
 - Default formatting for "combined" (unless the organisation's own content standards say
   otherwise): HTML, with <ol> for sequential steps, <ul> for unordered lists, and <p> for prose.
 
-Reviewed plans guide scope only and are not evidence. Preserve supported details from the selected sources. Never invent answers to open questions. The final survivor template and edited sources take precedence.
+Reviewed plans and authorized demand requirements guide scope only and are not evidence. Preserve supported details from the selected sources. Never invent answers to open questions. The final survivor template and edited sources take precedence.
 Never invent facts. If the sources disagree, surface it rather than choosing silently.`,
     blocks: [...sources.map((s) => ({
       label: `${s.label} (${s.templateName})`,
       content: s.body,
-    })), ...proposals.map((p) => ({ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(p) }))],
+    })), ...proposals.map((p) => ({ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(p) })), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
   });
 }
 
@@ -221,6 +223,7 @@ export type StandardsResult = z.infer<typeof StandardsSchema>;
 export function applyStandards(
   fields: { fieldName: string; fieldValue: string }[],
   rules: string[],
+  directives: ScopedDirective[] = [],
 ) {
   const blocks: UntrustedBlock[] = fields.map((f) => ({ label: f.fieldName, content: f.fieldValue }));
   return runOperation({
@@ -238,7 +241,7 @@ Change wording and formatting only — never add, remove or reinterpret technica
 Do not convert units unless an exact equivalent is already supplied. If a rule cannot be applied
 without changing facts, preserve the content and explain the limitation in its note.
 For each rule report whether the original already passed, whether you changed anything, and a short note.`,
-    blocks,
+    blocks: [...blocks, ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
   });
 }
 

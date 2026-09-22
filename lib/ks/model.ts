@@ -56,6 +56,8 @@ export interface ViewDupeGroup {
 
 export interface ViewRun {
   groundContext?: import("../ground-context/types").GroundContextSnapshot;
+  demandSpecification?: import("../demand/spec").DemandSpecification;
+  demandRecommendation?: import("../demand/store").StoredDemandRecommendation;
   candidates: ViewCandidate[];
   groups: ViewDupeGroup[];
   warnings?: string[];

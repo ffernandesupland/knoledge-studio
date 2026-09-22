@@ -16,6 +16,7 @@ import { runConnection } from "@/lib/ra/connections";
 
 import { submissionIdentity } from "@/lib/ks/submission-plan";
 import { assertReviewHandoffResolved, runSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { demandDirectives, reviewDirectives } from "@/lib/demand/spec";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -49,11 +50,12 @@ export async function POST(request: Request) {
           await withRaConnection(user, connection, () => withRunLock(run.id, async () => {
             const stored = await loadExecution<ExecuteArgs>(run.id);
             const reviewObjectives = reviewHandoff?.reviewObjectives ?? [];
+            const directives = [...demandDirectives(run.demandSpecification), ...reviewDirectives(reviewObjectives)];
             const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
-            const restructureEnabled = snapshot.operations.some((o) => o.name === "Restructure content" && o.on) || reviewObjectives.length > 0;
+            const restructureEnabled = snapshot.operations.some((o) => o.name === "Restructure content" && o.on) || directives.length > 0;
             const standardsRules = [...new Set([...(snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : []), ...reviewStandards])];
-            const reviewIdentity = submissionIdentity(plan, snapshot, { objectives: reviewObjectives, restructure: restructureEnabled, standards: standardsRules });
-            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled, standardsRules, reviewObjectives };
+            const reviewIdentity = submissionIdentity(plan, snapshot, { objectives: directives, restructure: restructureEnabled, standards: standardsRules });
+            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled, standardsRules, reviewObjectives, directives };
             let args: ExecuteArgs;
             if (body.action === "prepare") {
               args = await savePreparationPlan(run.id, proposed);

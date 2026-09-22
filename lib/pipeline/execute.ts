@@ -21,6 +21,8 @@ import { describeOp, type WriteOp } from "./submit";
 import { validateFields, validateSummary } from "./content";
 import { getWriteState, saveWriteState } from "./state";
 import type { ReviewObjective } from "../ks/solution-reviews";
+import { applicableDirectives, type ScopedDirective } from "../demand/spec";
+import { assessDemandCompliance, validateDemandCompliance, type DemandCompliance } from "../demand/compliance";
 
 export interface PreparedContent {
   groundContext?: GroundContextSnapshot;
@@ -42,6 +44,7 @@ export interface PreparedContent {
   sections?: MergeWorkspaceResult["sections"];
   warnings: string[];
   ruleResults?: StandardsResult["ruleResults"];
+  demandCompliance?: DemandCompliance;
   reviewed?: boolean;
   standardsApplied?: boolean;
 }
@@ -69,6 +72,8 @@ export interface ExecuteArgs {
   standardsRules?: string[];
   /** Server-bound review findings that must shape the draft, never authorize a write. */
   reviewObjectives?: ReviewObjective[];
+  /** Unified demand and review guidance, already bound to the saved run. */
+  directives?: ScopedDirective[];
   reviews?: Record<string, ContentReview>;
 }
 export interface OpResult {
@@ -115,7 +120,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
 }
 async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void, groundContext?: GroundContextSnapshot): Promise<OpResult[]> {
-  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [], reviewObjectives = [] } = args;
+  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [], directives = [] } = args;
   if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
   const ctx = { impUser: user };
@@ -144,7 +149,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         if (op.kind !== "create" || op.mergeSources?.length || !op.rawContent) throw new Error("Regeneration is available for unwritten new articles with saved source content.");
         const target = templates.find((t) => t.templateName === (review.templateName ?? prepared!.templateName));
         if (!target) throw new Error("Choose an available template.");
-        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, reviewObjectives);
+        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"));
         prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
         if (groundContext?.selection.enabled) {
           prepared.groundContext = groundContext;
@@ -176,7 +181,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
           if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare this draft before submitting.");
           prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [], ...(groundContext?.selection.enabled ? { groundContext } : {}) };
           if (op.mergeSources?.length) {
-            const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion });
+            const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion, directives: applicableDirectives(directives, "merge") });
             prepared.fields = merged.fields;
             prepared.title = op.titleLocked ? op.title : merged.title ?? op.title;
             prepared.summary = merged.summary ?? prepared.summary;
@@ -190,7 +195,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             onProgress?.({ index, total: plan.length, description: `Generating draft: ${op.title}` });
             const target = templates.find((t) => t.templateName === op.templateName);
             if (!target) throw new Error("Final template is unavailable; choose a valid template in a new run.");
-            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, reviewObjectives);
+            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"));
             prepared.fields = r.data.fields;
             prepared.title = op.titleLocked ? op.title : r.data.title;
             prepared.summary = r.data.summary;
@@ -226,7 +231,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             prepared.fields = validateFields(prepared.fields, target);
             if (standardsRules.length && !prepared.standardsApplied) {
               if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare standards changes before submitting.");
-              const standards = await applyStandards(prepared.fields, standardsRules);
+              const standards = await applyStandards(prepared.fields, standardsRules, applicableDirectives(directives, "standards"));
               prepared.fields = validateFields(standards.data.fields, target);
               prepared.ruleResults = standards.data.ruleResults;
               prepared.standardsApplied = true;
@@ -273,6 +278,22 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             const finalText = normalizeText([prepared.title, prepared.summary, ...prepared.fields.map(f => f.fieldValue)].join(" "));
             const researchIdentity = prepared.metadataResearch?.identity;
             prepared.metadataEvidenceChanged = (!!prepared.metadataResearch && prepared.metadataResearch.planSourceKey !== JSON.stringify({ ...op, metadata: undefined })) || Object.values(prepared.metadataDecisions ?? {}).some(d => d.status === "accepted" && d.kind !== "attribute" && (!finalText.includes(normalizeText(d.sourceEvidence)) || d.researchIdentity !== researchIdentity));
+          }
+          const qualityDirectives = applicableDirectives(directives, "quality");
+          if (args.prepareOnly && qualityDirectives.length) {
+            onProgress?.({ index, total: plan.length, description: `Checking demand requirements: ${prepared.title}` });
+            const assessment = await assessDemandCompliance(prepared, qualityDirectives);
+            validateDemandCompliance(assessment.data, prepared, qualityDirectives);
+            prepared.demandCompliance = assessment.data;
+            const blockers = assessment.data.checks.filter((check) => qualityDirectives.find((directive) => directive.id === check.directiveId)?.priority === "required" && check.verdict !== "met");
+            if (blockers.length) {
+              prepared.readyForSubmission = false;
+              const reviewResult: OpResult = { ...base, outcome: "review", prepared, message: "Resolve the required demand requirement checks below, then save and validate the draft." };
+              await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult });
+              results.push(reviewResult);
+              onProgress?.({ index, total: plan.length, description, outcome: "review", result: reviewResult });
+              continue;
+            }
           }
           prepared.readyForSubmission = true;
           (await saveWriteState(runId, op.idempotencyKey, { status: "prepared", prepared }));

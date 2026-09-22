@@ -55,6 +55,8 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .form-input:focus { outline: none; border: 2px solid #0C5CC5; padding: 0 11px; }
 .form-textarea { width: 100%; min-height: 72px; border: 1px solid #6B7786; border-radius: 4px; padding: 10px 12px; font-size: 14px; font-family: inherit; color: #252B31; background: #fff; resize: vertical; }
 .form-textarea:focus { outline: none; border: 2px solid #0C5CC5; padding: 9px 11px; }
+.ks-demand-directive { display:grid; grid-template-columns:minmax(0,1fr) 126px auto; gap:10px; align-items:start; }
+@media (max-width: 620px) { .ks-demand-directive { grid-template-columns:minmax(0,1fr) auto; } .ks-demand-directive > label:first-child { grid-column:1 / -1; } }
 /* DsDropdown trigger — DS 2.1 "Dropdown Field" spec (border #525C69, 16px padding — confirmed
      2026-07-13; replaces the previous .form-select, a native <select> with no chevron rendered
      and the wrong (Text Field's) border colour, removed 2026-07-16). */

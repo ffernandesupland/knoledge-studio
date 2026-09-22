@@ -4,12 +4,26 @@ import { ApiError } from "./auth";
 import type { StoredRun, DecisionSnapshot } from "../db/runs";
 import { KS_OPS_DEFAULT } from "../ks/data";
 
+const demandStage = z.enum(["plan", "author", "merge", "standards", "quality"]);
+export const demandSpecificationSchema = z.object({
+  version: z.literal(1),
+  intent: z.string().trim().max(2_000),
+  directives: z.array(z.object({
+    id: z.string().regex(/^operator-[a-z0-9-]{1,80}$/),
+    text: z.string().trim().min(1).max(1_000),
+    priority: z.enum(["required", "preferred"]),
+    appliesTo: z.array(demandStage).min(1).max(5).refine((stages) => new Set(stages).size === stages.length, "Directive stages must be unique"),
+  }).strict()).max(12),
+}).strict().refine((specification) => specification.intent.length > 0 || specification.directives.length > 0, "Add an outcome or at least one requirement");
+
 export const fieldSchema = z.object({ fieldName: z.string().min(1).max(200), fieldValue: z.string().max(500_000) });
 const fields = z.array(fieldSchema).max(100);
 const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 export const runSchema = z.object({
   connectionId: z.string().max(100).optional(),
   reviewHandoffId: z.string().uuid().optional(),
+  demandSpecification: demandSpecificationSchema.optional(),
+  demandRecommendationId: z.string().uuid().optional(),
   groundContext: groundContextSchema.optional(),
   text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), fileId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
   content: z.array(z.discriminatedUnion("type", [

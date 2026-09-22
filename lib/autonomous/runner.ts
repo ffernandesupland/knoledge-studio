@@ -21,6 +21,7 @@ import { decide, decisionSnapshot, reviewDraft, validateQuality, type Catalog, t
 import { assertLease, checkpoint, event, finish, saveCheckpoint, stage } from "./store";
 import { withAutonomousContext } from "./telemetry";
 import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, type AutonomousJob, type AutonomousStage } from "./types";
+import { demandDirectives } from "../demand/spec";
 
 export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
@@ -116,7 +117,8 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
         await saveCheckpoint(id, "metadata-complete", true);
       }
       const plan = autonomousWritePlan(id, snapshot);
-      const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot), restructureEnabled: job.input.operations.includes("Restructure content"), standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] };
+      const directives = demandDirectives(job.input.demandSpecification);
+      const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot, { objectives: directives, restructure: job.input.operations.includes("Restructure content") || directives.length > 0, standards: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] }), restructureEnabled: job.input.operations.includes("Restructure content") || directives.length > 0, standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [], directives };
       await savePreparationPlan(id, args);
       if (!plan.length) {
         await finish(id, token, "partial", "The agent excluded all proposals from submission. See the recorded reasons for each exclusion.");

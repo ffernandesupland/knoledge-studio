@@ -34,7 +34,7 @@ export async function saveExecutedFlow(runId: string): Promise<ExecutedFlow> {
   const choices = run.snapshot;
   const tree: ExecutedNode[] = [
     node("sources", "1 · Sources and selected options", "input", `${run.path ?? "Content"} · ${run.candidates.length} analyzed proposals · Enabled: ${run.operations.join(", ") || "No optional operations"}`, {
-      pastedCharacters: run.inputText.length, attachments: run.attachments?.map((a) => ({ label: a.label, kind: a.kind ?? "not recorded", characters: a.text.length })), sourceSolutionIds: run.sourceIds, groundContext: run.groundContext, analysisOptions: run.operations,
+      pastedCharacters: run.inputText.length, attachments: run.attachments?.map((a) => ({ label: a.label, kind: a.kind ?? "not recorded", characters: a.text.length })), sourceSolutionIds: run.sourceIds, groundContext: run.groundContext, demandSpecification: run.demandSpecification, analysisOptions: run.operations,
     }),
     node("analysis", "2 · Recorded analysis", "logic", `${run.steps.length} completed tool steps · ${aiNodes("analysis").length} recorded AI calls. Tool steps and AI calls are separate records; not every API read has an individual event.`, undefined, [
       node("steps", "Completed tool steps", "logic", "Durations and costs recorded by the analysis pipeline.", run.steps),

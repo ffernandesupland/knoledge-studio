@@ -25,11 +25,12 @@ import { RaError } from "../ra/http";
 
 const mocks = vi.hoisted(() => ({
   templates: vi.fn(), solution: vi.fn(), search: vi.fn(), history: vi.fn(), write: vi.fn(), update: vi.fn(), flag: vi.fn(),
-  metadata: vi.fn(), ground: vi.fn(), groundReview: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
+  metadata: vi.fn(), ground: vi.fn(), groundReview: vi.fn(), compliance: vi.fn(), plan: vi.fn(), split: vi.fn(), choose: vi.fn(), restructure: vi.fn(), standards: vi.fn(), optimize: vi.fn(), gaps: vi.fn(), merge: vi.fn(),
 }));
 vi.mock("../ra/client", () => ({ withRaActor: (_user: string, fn: () => unknown) => fn(), withRaConnection: (_user: string, _connection: unknown, fn: () => unknown) => fn(), ra: { getCollections: async () => [{ code: "custom_kb", displayName: "Custom" }], getTemplates: mocks.templates, getSolution: mocks.solution, getSolutionHtml: mocks.solution, search: mocks.search, getCompanyTopSearches: mocks.history, manageSolution: mocks.write, updateSolution: mocks.update, flagMergedInto: mocks.flag } }));
 vi.mock("../llm/planning", () => ({ planContent: mocks.plan }));
 vi.mock("../llm/operations", () => ({ splitTopics: mocks.split, chooseTemplate: mocks.choose, restructure: mocks.restructure, applyStandards: mocks.standards, optimizeForSearch: mocks.optimize, findGaps: mocks.gaps, mergeSections: mocks.merge }));
+vi.mock("../demand/compliance", async (importOriginal) => ({ ...(await importOriginal<typeof import("../demand/compliance")>()), assessDemandCompliance: mocks.compliance }));
 
 vi.mock("../ground-context/operations", () => ({ enrichWithReferences: mocks.ground, reviewGrounding: mocks.groundReview }));
 vi.mock("../metadata/engine", () => ({ analyzeMetadataSource: mocks.metadata }));
@@ -55,11 +56,20 @@ beforeEach(async () => {
   mocks.restructure.mockResolvedValue(result({ title: "Generated title", summary: "Generated summary", keywords: ["vpn"], fields: [{ fieldName: "Solution", fieldValue: "<ol><li>Authored answer</li></ol>" }, fields[1]] }));
   mocks.standards.mockImplementation(async (f) => result({ fields: f, ruleResults: [{ rule: "Numbered steps", passedBefore: true, changed: false, note: "Already numbered" }] }));
   mocks.merge.mockResolvedValue(result({ sections: fields.map((f) => ({ fieldName: f.fieldName, combined: f.fieldValue, contributions: [], noMatchNote: "", conflict: { present: false, optionA: { from: "", text: "" }, optionB: { from: "", text: "" }, mergedDefault: "" } })) }));
+  mocks.compliance.mockResolvedValue(result({ summary: "All requirements are met.", checks: [] }));
 });
 const newOp = (key = "c0"): Extract<WriteOp, { kind: "create" }> => ({ kind: "create", candidateKey: key, title: "Raw title", templateName: template.templateName, fields, rawContent: "Original answer", idempotencyKey: `${runId}:create:${key}` });
 const args = (plan: WriteOp[], extra: Partial<ExecuteArgs> = {}): ExecuteArgs => ({ runId, user: "sauser", plan, collection: "custom_kb", language: "English", ...extra });
 
 describe("analysis → view → plan contract", () => {
+  it("passes saved demand requirements to planning as non-factual scope guidance", async () => {
+    await runPipeline({ text: "Supported source", operations: [], demandSpecification: { version: 1, intent: "Create a field-technician procedure.", directives: [{ id: "operator-1", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] } });
+
+    expect(mocks.plan.mock.calls.at(-1)?.[5]).toEqual([
+      expect.objectContaining({ source: "operator", text: "Create a field-technician procedure.", appliesTo: expect.arrayContaining(["plan"]) }),
+      expect.objectContaining({ source: "operator", text: "Use numbered steps.", appliesTo: ["author", "standards"] }),
+    ]);
+  });
   it("reports template loading before waiting for RightAnswers", async () => {
     const progress = vi.fn();
     mocks.templates.mockImplementation(async () => {
@@ -178,6 +188,24 @@ describe("analysis → view → plan contract", () => {
 });
 
 describe("submission contracts", () => {
+  it("passes applicable demand requirements through merge and standards", async () => {
+    const directive: import("../demand/spec").ScopedDirective = { id: "operator-1", source: "operator", text: "Use a field-technician procedure.", priority: "required", appliesTo: ["merge", "standards"] };
+    const op = { ...newOp(), mergeSources: [{ id: "c1", title: "Other topic", fields, rawContent: "Unique verified source" }] };
+
+    await executeWritePlan(args([op], { directives: [directive], standardsRules: ["Numbered steps"] }));
+
+    expect(mocks.merge.mock.calls[0][3]).toEqual([directive]);
+    expect(mocks.standards.mock.calls[0][2]).toEqual([directive]);
+  });
+  it("holds a draft for review when a required demand check is not met", async () => {
+    const directive: import("../demand/spec").ScopedDirective = { id: "operator-quality", source: "operator", text: "Use numbered steps.", priority: "required", appliesTo: ["quality"] };
+    mocks.compliance.mockResolvedValue(result({ summary: "Numbered steps are missing.", checks: [{ directiveId: directive.id, verdict: "not_met", rationale: "The draft has no numbered steps.", draftEvidence: [] }] }));
+
+    const [prepared] = await executeWritePlan(args([newOp()], { prepareOnly: true, directives: [directive] }));
+
+    expect(prepared).toMatchObject({ outcome: "review", prepared: { readyForSubmission: false, demandCompliance: { checks: [{ verdict: "not_met" }] } } });
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
   it("passes reviewed scope and original source text into merges even before template fields are authored", async () => {
     const proposal = { purpose: "Consolidate supported coverage", coverage: ["Shared problem", "Unique details"], rationale: "Same need", openQuestions: [] };
     const op = { ...newOp(), fields: [], proposal, mergeSources: [{ id: "c1", title: "Other topic", fields: [], rawContent: "Unique verified source", proposal }] };
