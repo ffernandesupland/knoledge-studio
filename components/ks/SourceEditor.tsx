@@ -41,7 +41,7 @@ export const SourceEditor = forwardRef<SourceEditorHandle, {
       ? <div className="ks-editor-source" key={block.id} data-source-id={block.attachmentId}>{renderSource(block.attachmentId)}</div>
       : <textarea key={block.id} data-block-id={block.id} className="ks-editor-text" rows={1}
           aria-label={index === 0 ? "Source text" : `Source text ${index + 1}`}
-          placeholder={index === 0 ? "Write or paste text. Insert images and files at your cursor…" : "Continue writing here…"}
+          placeholder={index === 0 ? "Write or paste text, or attach PDF, Word, image, or text files. Mix sources in any order…" : "Continue writing or attach another source here…"}
           value={block.text}
           onSelect={e => remember(e.currentTarget, block.id)}
           onBlur={e => remember(e.currentTarget, block.id)}
