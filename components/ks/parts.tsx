@@ -318,8 +318,8 @@ export function KsSmartInput({
         <button
           type="button"
           className="icon-btn"
-          title="Attach files"
-          aria-label="Attach files"
+          title="Attach documents or files"
+          aria-label="Attach documents or files"
           onClick={() => fileInput.current?.click()}
         >
           <span className="ms">attach_file</span>
@@ -333,7 +333,7 @@ export function KsSmartInput({
           <span className="ms">database</span>
         </button>
         <span className="ks-si-help">
-          {pendingCount > 0 ? `Reading ${pendingCount} sources. You can add more files while these finish.` : `Select or drop multiple PNG, JPEG, WebP, PDF, Word or text files. ${MAX_UPLOAD_MB} MB each.`}
+          {pendingCount > 0 ? `Reading ${pendingCount} sources. You can add more files while these finish.` : `Select or drop multiple PDF, Word, image, or text files. Files can be the only source or can be mixed with typed text. ${MAX_UPLOAD_MB} MB each.`}
         </span>
       </div>
       {(kbOpen || kbCount > 0) && (

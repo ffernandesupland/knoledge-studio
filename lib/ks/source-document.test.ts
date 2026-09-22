@@ -27,3 +27,17 @@ it("accepts an original file ID but strips a forged file owner", () => {
   expect(parsed.attachments?.[0].fileId).toBe("11111111-1111-4111-8111-111111111111");
   expect(parsed.attachments?.[0]).not.toHaveProperty("fileOwner");
 });
+it("accepts documents without typed text and preserves mixed source order", () => {
+  const content: SourceBlock[] = [
+    { id: "pdf", type: "attachment", attachmentId: "manual" },
+    { id: "text", type: "text", text: "Use the approved revision only." },
+    { id: "word", type: "attachment", attachmentId: "procedure" },
+  ];
+  const attachments = [
+    { id: "manual", label: "manual.pdf", text: "PDF manual", fileId: "11111111-1111-4111-8111-111111111111" },
+    { id: "procedure", label: "procedure.docx", text: "Word procedure", fileId: "22222222-2222-4222-8222-222222222222" },
+  ];
+
+  expect(runSchema.safeParse({ text: "", operations: [], content, attachments }).success).toBe(true);
+  expect(orderedSources({ text: "", content, attachments }).map((source) => source.label)).toEqual(["manual.pdf", "Text 2", "procedure.docx"]);
+});
