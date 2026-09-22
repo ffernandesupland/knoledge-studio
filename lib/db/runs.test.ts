@@ -15,6 +15,8 @@ import {
 } from "@/lib/db/runs";
 import { alreadySucceeded, auditForRun, recordAudit } from "@/lib/pipeline/audit";
 import type { ViewCandidate, ViewDupeGroup } from "@/lib/ks/model";
+import { attachDemandRecommendation, createDemandRecommendation, setDemandRecommendationStatus } from "@/lib/demand/store";
+import type { DemandSpecification } from "@/lib/demand/spec";
 
 let dir: string;
 
@@ -71,6 +73,31 @@ describe("run persistence", () => {
     expect(stored.candidates[0].title).toBe("Printer offline");
     expect(stored.candidates[0].fields[0].fieldValue).toBe("Restart the spooler.");
     expect(stored.groups[0].survivorId).toBe("c0");
+  });
+
+  it("persists demand requirements with the run", async () => {
+    (await createRun({
+      id: "requirements",
+      author: "sauser",
+      path: "create",
+      inputText: "printer notes",
+      sourceIds: [],
+      operations: [],
+      demandSpecification: { version: 1, intent: "Create a technician procedure.", directives: [{ id: "operator-1", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] },
+    }));
+
+    expect((await getRun("requirements"))?.demandSpecification).toEqual({ version: 1, intent: "Create a technician procedure.", directives: [{ id: "operator-1", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] });
+  });
+
+  it("links an accepted, matching workflow recommendation to its run", async () => {
+    const specification: DemandSpecification = { version: 1, intent: "Create a technician procedure.", directives: [{ id: "operator-2", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] };
+    await createRun({ id: "recommended", author: "sauser", path: "create", inputText: "printer notes", sourceIds: [], operations: ["Restructure content"], demandSpecification: specification });
+    const recommendation = await createDemandRecommendation({ author: "sauser", specification, sourceSummary: "Supported printer notes", recommendation: { recommendedOperations: ["Restructure content"], rationale: "A procedure needs clear steps.", questions: [], evidenceGaps: [] }, model: "test-model" });
+    await expect(attachDemandRecommendation("recommended", "sauser", recommendation.id, specification)).rejects.toThrow("Apply the workflow recommendation");
+    await setDemandRecommendationStatus("sauser", recommendation.id, "accepted");
+    await attachDemandRecommendation("recommended", "sauser", recommendation.id, specification);
+
+    expect((await getRun("recommended"))?.demandRecommendation).toMatchObject({ id: recommendation.id, model: "test-model", status: "accepted" });
   });
 
   it("selects everything by default so a restored run matches a fresh one", async () => {

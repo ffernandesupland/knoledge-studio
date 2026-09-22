@@ -4,9 +4,13 @@ import { useRef, useState } from "react";
 import type { ProgressEvent, RunOutput } from "@/lib/pipeline/run";
 import { mapRunToView, type ViewCandidate, type ViewRun } from "@/lib/ks/model";
 import { readNdjson } from "@/lib/ks/stream";
+import type { DemandSpecification } from "@/lib/demand/spec";
+import type { StoredDemandRecommendation } from "@/lib/demand/store";
 export interface RunRequest {
   connectionId?: string;
   reviewHandoffId?: string;
+  demandSpecification?: DemandSpecification;
+  demandRecommendationId?: string;
   groundContext?: import("@/lib/ground-context/types").GroundContextInput;
   text: string;
   attachments?: SourceAttachment[];
@@ -38,7 +42,13 @@ export function usePipelineRun() {
         else if (msg.type === "progress") {
           const e = msg as unknown as ProgressEvent;
           setSteps((prev) => e.status === "start" ? [...prev, { name: e.step, status: "running" }] : prev.map((s) => s.name === e.step ? { ...s, status: "done" } : s));
-        } else if (msg.type === "result") completed = mapRunToView(msg as unknown as RunOutput);
+        } else if (msg.type === "result") {
+          completed = {
+            ...mapRunToView(msg as unknown as RunOutput),
+            demandSpecification: (msg as { demandSpecification?: DemandSpecification }).demandSpecification,
+            demandRecommendation: (msg as { demandRecommendation?: StoredDemandRecommendation }).demandRecommendation,
+          };
+        }
       });
       if (current !== generation.current) return null;
       setRun(completed); setPhase("done"); return completed;

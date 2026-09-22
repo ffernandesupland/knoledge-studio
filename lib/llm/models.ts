@@ -28,6 +28,8 @@ export const OPERATION_TIER: Record<string, ModelTier> = {
   autonomousReview: "reasoning",
   readImage: "reasoning",
   split: "reasoning",
+  demandPlan: "reasoning",
+  demandCompliance: "reasoning",
   plan: "reasoning",
   restructure: "reasoning",
   compose: "reasoning",

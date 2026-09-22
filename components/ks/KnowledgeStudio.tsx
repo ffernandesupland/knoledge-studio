@@ -49,6 +49,8 @@ import { buildWritePlan, isSolutionId } from "@/lib/pipeline/submit";
 import { T } from "@/lib/ks/theme";
 import type { MetadataOptions } from "@/app/api/metadata/route";
 import type { SolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { DEMAND_STAGES, demandDirectives, emptyDemandSpecification, hasDemandRequirements, reviewDirectives, type DemandSpecification } from "@/lib/demand/spec";
+import type { StoredDemandRecommendation } from "@/lib/demand/store";
 
 /** Preserves content for fields the old and new templates share by name; drops the rest. */
 function remapFieldsToTemplate(
@@ -112,6 +114,13 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [sourcesBusy, setSourcesBusy] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [demandSpecification, setDemandSpecification] = useState<DemandSpecification>(() => emptyDemandSpecification());
+  const [demandRecommendation, setDemandRecommendation] = useState<StoredDemandRecommendation | null>(null);
+  const [demandPlanning, setDemandPlanning] = useState(false);
+  function updateDemandSpecification(update: (current: DemandSpecification) => DemandSpecification) {
+    setDemandSpecification(update);
+    setDemandRecommendation(null);
+  }
 
   const [groundContext, setGroundContext] = useState<GroundSelection>(emptyGroundSelection);
   const [kbSearchOpen, setKbSearchOpen] = useState(false);
@@ -186,6 +195,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         setGroundContext(stored.groundContext?.selection ?? emptyGroundSelection);
         pipeline.restore(stored.id, {
           groundContext: stored.groundContext,
+          demandSpecification: stored.demandSpecification,
+          demandRecommendation: stored.demandRecommendation,
           candidates: snapshot?.candidates ?? stored.candidates, groups: snapshot?.groups ?? stored.groups,
           costUsd: stored.costUsd, steps: stored.steps,
         });
@@ -202,7 +213,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: stored.decisions.collection, Language: stored.decisions.language ?? p.Language }));
         }
-        setPath(stored.path ?? null); setContentText(stored.inputText ?? "");
+        setPath(stored.path ?? null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null);
         const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
         setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, fileId: a.fileId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
@@ -343,6 +354,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       .map(([id]) => id);
     const activeDuplicateScopeIds = duplicateScopeIds.filter((id) => sourceSolutionIds.includes(id));
     const duplicateScope = activeDuplicateScopeIds.length >= 2 ? activeDuplicateScopeIds : undefined;
+    const savedDemandSpecification = hasDemandRequirements(demandSpecification) ? { ...demandSpecification, intent: demandSpecification.intent.trim(), directives: demandSpecification.directives.filter((directive) => directive.text.trim()).map((directive) => ({ ...directive, text: directive.text.trim() })) } : undefined;
     if (!contentText.trim() && attachments.length === 0 && sourceSolutionIds.length === 0 && !ops.some((o) => o.name === "Find gaps" && o.on)) {
       showToast({ message: "Add some content, a file, or pick a solution first" });
       return;
@@ -360,6 +372,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         groundContext, sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         duplicateScopeIds: duplicateScope,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
+        demandSpecification: savedDemandSpecification,
+        demandRecommendationId: demandRecommendation?.status === "accepted" ? demandRecommendation.id : undefined,
       };
       const fingerprint = JSON.stringify(input);
       if (autoRequest.current?.fingerprint !== fingerprint) autoRequest.current = { fingerprint, id: crypto.randomUUID() };
@@ -381,6 +395,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     const view = await pipeline.start({
       connectionId,
       reviewHandoffId: reviewHandoff?.id,
+      demandSpecification: savedDemandSpecification,
+      demandRecommendationId: demandRecommendation?.status === "accepted" ? demandRecommendation.id : undefined,
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
@@ -394,6 +410,55 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       setSelected(new Set(view.candidates.filter((c) => !c.researchOnly).map((c) => c.key)));
       setResolutions(view.groups.map(() => "merged"));
       setNewSolutionTemplate(view.candidates.find((c) => !c.targetSolutionId)?.templateName ?? null);
+    }
+  }
+
+  async function recommendWorkflow() {
+    const specification = hasDemandRequirements(demandSpecification) ? { ...demandSpecification, intent: demandSpecification.intent.trim(), directives: demandSpecification.directives.filter((directive) => directive.text.trim()).map((directive) => ({ ...directive, text: directive.text.trim() })) } : undefined;
+    if (!specification) {
+      showToast({ message: "Add a desired outcome or requirement before requesting a workflow recommendation.", icon: "error" });
+      return;
+    }
+    setDemandPlanning(true);
+    try {
+      const sourceSummary = [contentText, ...attachments.map((attachment) => `${attachment.name}\n${attachment.text}`)].filter(Boolean).join("\n\n").slice(0, 150_000);
+      const response = await fetch("/api/demand/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ demandSpecification: specification, sourceSummary }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not recommend a workflow.");
+      setDemandRecommendation(data.recommendation as StoredDemandRecommendation);
+    } catch (error) {
+      showToast({ message: error instanceof Error ? error.message : "Could not recommend a workflow.", icon: "error" });
+    } finally {
+      setDemandPlanning(false);
+    }
+  }
+
+  async function updateDemandRecommendationStatus(status: "accepted" | "dismissed") {
+    if (!demandRecommendation) return;
+    const response = await fetch(`/api/demand/recommendation/${encodeURIComponent(demandRecommendation.id)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Could not update the workflow recommendation.");
+    return data.recommendation as StoredDemandRecommendation;
+  }
+
+  async function applyDemandRecommendation() {
+    try {
+      const recommendation = await updateDemandRecommendationStatus("accepted");
+      if (!recommendation) return;
+      setDemandRecommendation(recommendation);
+      setOps(KS_OPS_DEFAULT.map((operation) => ({ ...operation, on: recommendation.recommendation.recommendedOperations.includes(operation.name as typeof recommendation.recommendation.recommendedOperations[number]) })));
+      showToast({ message: "Recommended workflow applied. Review the selected operations before analysis.", icon: "fact_check" });
+    } catch (error) {
+      showToast({ message: error instanceof Error ? error.message : "Could not apply the workflow recommendation.", icon: "error" });
+    }
+  }
+
+  async function dismissDemandRecommendation() {
+    try {
+      await updateDemandRecommendationStatus("dismissed");
+      setDemandRecommendation(null);
+    } catch (error) {
+      showToast({ message: error instanceof Error ? error.message : "Could not dismiss the workflow recommendation.", icon: "error" });
     }
   }
 
@@ -463,7 +528,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setReviewHandoff(null);
     setScreen("input");
     setPath(null);
-    setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]);
+    setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]); setDemandSpecification(emptyDemandSpecification());
     setAttachments([]);
     setDragOver(false);
     setKbSearchOpen(false);
@@ -587,14 +652,18 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     catch (e) { return { plan: [], error: (e as Error).message }; }
   }, [pipeline.runId, candidates, effectiveGroups, selected, resolutions, metadataSettings]);
   const reviewObjectives = reviewHandoff?.reviewObjectives ?? [];
+  const scopedDirectives = [...demandDirectives(demandSpecification), ...reviewDirectives(reviewObjectives)];
   const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
-  const reviewRestructureEnabled = ops.some((o) => o.name === "Restructure content" && o.on) || reviewObjectives.length > 0;
+  const reviewRestructureEnabled = ops.some((o) => o.name === "Restructure content" && o.on) || scopedDirectives.length > 0;
   const reviewRules = [...new Set([...(ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : []), ...reviewStandards])];
-  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: reviewObjectives, restructure: reviewRestructureEnabled, standards: reviewRules });
+  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: scopedDirectives, restructure: reviewRestructureEnabled, standards: reviewRules });
   const preparedMatches = submitRun.identity === currentIdentity;
   const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
   const displayResults = preparedMatches || submitRun.locked ? submitRun.results : submitRun.results.filter(result => displayPlan.some(op => op.idempotencyKey === result.idempotencyKey)).map(result => ({ ...result, outcome: "review" as const, message: "Previous draft retained for comparison. Prepare the updated plan before editing or submitting this version.", prepared: result.prepared ? { ...result.prepared, readyForSubmission: false } : undefined }));
-  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groundContext: pipeline.run?.groundContext, groups: effectiveGroups, restructureEnabled: ops.some((o) => o.name === "Restructure content" && o.on), standardsRules: ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : [] });
+  const frozenDemandDirectives = demandDirectives(pipeline.run?.demandSpecification);
+  const demandDirectiveLabels = new Map(frozenDemandDirectives.map((directive) => [directive.id, directive]));
+  const demandComplianceResults = displayResults.flatMap((result) => result.prepared?.demandCompliance ? [{ result, assessment: result.prepared.demandCompliance }] : []);
+  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groundContext: pipeline.run?.groundContext, groups: effectiveGroups, restructureEnabled: reviewRestructureEnabled, standardsRules: reviewRules });
   const submissionBusy = submitRun.phase === "preparing" || submitRun.phase === "submitting";
   const draftsReady = displayPlan.some((op) => op.kind !== "flag") && (preparedMatches || submitRun.locked) && displayPlan.every((op) => op.kind === "flag" || displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && (r.outcome === "ok" || (r.prepared?.readyForSubmission && r.outcome !== "uncertain"))));
   const completion = submissionStatus(displayPlan, displayResults);
@@ -793,6 +862,43 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               showToast={showToast}
             />
           </div>
+          <section className="ks-card" aria-labelledby="demand-requirements-title">
+            <div className="ks-card-head">
+              <span className="ms">assignment</span><span id="demand-requirements-title">Demand requirements</span>
+            </div>
+            <div style={{ padding: "0 20px 20px" }}>
+              <p style={{ margin: "0 0 14px", color: T.textSecondary, fontSize: 13, lineHeight: 1.55 }}>Describe the outcome, audience, constraints, or format that this work must follow. Requirements guide the plan and draft; they never add facts, change permissions, or bypass review.</p>
+              <label className="form-label" htmlFor="demand-intent">Desired outcome <span className="req">Optional</span>
+                <textarea id="demand-intent" className="form-textarea" rows={3} maxLength={2000} value={demandSpecification.intent} onChange={(event) => updateDemandSpecification((current) => ({ ...current, intent: event.target.value }))} placeholder="Example: Create a field-technician procedure with prerequisites, numbered steps, validation, and escalation guidance." />
+              </label>
+              <div style={{ display: "grid", gap: 10, marginTop: 14 }} aria-label="Specific requirements">
+                {demandSpecification.directives.map((directive, index) => <div className="ks-demand-directive" key={directive.id}>
+                  <label className="form-label" style={{ margin: 0 }}>
+                    <span className="sr-only">Requirement {index + 1}</span>
+                    <textarea className="form-textarea" rows={2} maxLength={1000} value={directive.text} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, text: event.target.value } : item) }))} placeholder="Example: Do not state a time limit unless the source explicitly supports it." />
+                  </label>
+                  <label className="form-label" style={{ margin: 0 }}>Priority
+                    <select className="form-input" value={directive.priority} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, priority: event.target.value as "required" | "preferred" } : item) }))}>
+                      <option value="required">Required</option>
+                      <option value="preferred">Preferred</option>
+                    </select>
+                  </label>
+                  <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 22, height: 40 }} aria-label={`Remove requirement ${index + 1}`} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: current.directives.filter((item) => item.id !== directive.id) }))}><span className="ms" aria-hidden="true">delete</span></button>
+                </div>)}
+              </div>
+              <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} disabled={demandSpecification.directives.length >= 12} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: [...current.directives, { id: `operator-${crypto.randomUUID()}`, text: "", priority: "required", appliesTo: [...DEMAND_STAGES] }] }))}><span className="ms" aria-hidden="true">add</span>Add requirement</button>
+              <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12, marginLeft: 10 }} disabled={demandPlanning || !hasDemandRequirements(demandSpecification)} onClick={() => void recommendWorkflow()}><span className="ms" aria-hidden="true">auto_awesome</span>{demandPlanning ? "Recommending workflow…" : "Recommend workflow"}</button>
+              {demandRecommendation && <section aria-label="Workflow recommendation" style={{ marginTop: 16, padding: 14, border: `1px solid ${T.accentLight15}`, borderRadius: 6, background: T.bgPrimary }}>
+                <strong style={{ color: T.textPrimary }}>Recommended workflow</strong>
+                <p style={{ margin: "6px 0", color: T.textSecondary, fontSize: 12 }}>{demandRecommendation.recommendation.rationale}</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0" }}>{demandRecommendation.recommendation.recommendedOperations.length ? demandRecommendation.recommendation.recommendedOperations.map((operation) => <span className="ks-chip" key={operation}>{operation}</span>) : <span style={{ color: T.textSecondary, fontSize: 12 }}>No optional operation is recommended.</span>}</div>
+                {demandRecommendation.recommendation.questions.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Questions:</strong> {demandRecommendation.recommendation.questions.join(" · ")}</p>}
+                {demandRecommendation.recommendation.evidenceGaps.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Evidence gaps:</strong> {demandRecommendation.recommendation.evidenceGaps.join(" · ")}</p>}
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>{demandRecommendation.status === "accepted" ? <span style={{ color: T.success, fontSize: 12, alignSelf: "center" }}>Applied to this run</span> : <><button type="button" className="ds-btn ds-btn-primary" onClick={() => void applyDemandRecommendation()}><span className="ms" aria-hidden="true">check</span>Apply recommendation</button><button type="button" className="ds-btn ds-btn-secondary" onClick={() => void dismissDemandRecommendation()}>Dismiss</button></>}</div>
+              </section>}
+              <p style={{ margin: "10px 0 0", color: T.textSecondary, fontSize: 11 }}>Requirements apply to planning, drafting, merging, standards, and quality checks where compatible. If a requirement needs unsupported facts, the draft stays in review for a human decision.</p>
+            </div>
+          </section>
           <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
           <div className="ks-card auto-option">
             <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
@@ -923,6 +1029,23 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
             Review the proposed scope and why it matters. Suggested merges are approved automatically; open one only if you want to inspect it, change its destination, or keep the items separate. Templates are confirmed in the next step.
           </div>
+
+          {pipeline.run?.demandSpecification && <section className="ks-card" aria-label="Applied demand requirements">
+            <div className="ks-card-head"><span className="ms">assignment_turned_in</span>Demand requirements applied</div>
+            <div style={{ padding: "0 20px 18px" }}>
+              {pipeline.run.demandSpecification.intent && <p style={{ margin: "0 0 10px", color: T.textPrimary, lineHeight: 1.5 }}>{pipeline.run.demandSpecification.intent}</p>}
+              {pipeline.run.demandSpecification.directives.length > 0 && <div style={{ display: "grid", gap: 8 }}>
+                {pipeline.run.demandSpecification.directives.map((directive) => <div key={directive.id} style={{ display: "flex", alignItems: "start", gap: 8, fontSize: 13, color: T.textSecondary }}>
+                  <span className="ks-chip" style={{ flexShrink: 0 }}>{directive.priority === "required" ? "Required" : "Preferred"}</span><span>{directive.text}</span>
+                </div>)}
+              </div>}
+              <p style={{ margin: "12px 0 0", color: T.textSecondary, fontSize: 12, lineHeight: 1.45 }}>Requirements are bound to planning, drafting, merging, and standards where compatible. They are not source evidence.</p>
+              {pipeline.run.demandRecommendation && <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.borderDivider}` }}>
+                <strong style={{ fontSize: 13, color: T.textPrimary }}>Workflow recommendation recorded</strong>
+                <p style={{ margin: "5px 0 0", color: T.textSecondary, fontSize: 12 }}>Applied by the operator · {pipeline.run.demandRecommendation.model} · prompt version {pipeline.run.demandRecommendation.promptVersion}</p>
+              </div>}
+            </div>
+          </section>}
 
           {candidates.length === 0 ? (
             <div className="list-empty">
@@ -1418,6 +1541,20 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       {submitRun.error && <p className="sg-warning" role="alert">{submitRun.error}</p>}
       {!!submitRun.referenceChanges.length && <section className="ks-card" style={{ padding: 20 }}><h2>Review changed reference knowledge</h2><p>Your original input, selected references and saved drafts are retained. Review the differences before starting a fresh analysis.</p>{submitRun.referenceChanges.map(change => <details key={change.id}><summary>{change.title} · #{change.id} · {change.reason}</summary><p>Saved update: {change.savedUpdated ?? "Not provided"} · Current update: {change.currentUpdated ?? "Not available"}</p><h4>Saved reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.savedBody}</pre><h4>Current reference</h4><pre style={{ whiteSpace: "pre-wrap" }}>{change.currentBody ?? "Could not retrieve current content."}</pre></details>)}<div style={{ display: "flex", gap: 12, marginTop: 16 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={draftEditing} onClick={() => setScreen("input")}>Review references in Content</button><button type="button" className="ds-btn ds-btn-secondary" onClick={() => { const url = URL.createObjectURL(new Blob([JSON.stringify(displayResults, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "saved-drafts.json"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download saved drafts</button></div><p>Creating a new plan retrieves the current references. The previous run remains in execution history.</p></section>}
       <GroundContextSummary context={pipeline.run?.groundContext} scope="the saved drafts below" report={displayResults.some(r => r.prepared?.grounding) ? { evidence: displayResults.flatMap(r => r.prepared?.grounding?.evidence ?? []), issues: displayResults.flatMap(r => r.prepared?.grounding?.issues ?? []) } : undefined} />
+      {demandComplianceResults.length > 0 && <section className="ks-card" aria-label="Demand requirement compliance" style={{ padding: 20 }}>
+        <h2 style={{ marginTop: 0 }}>Demand requirement compliance</h2>
+        <p style={{ color: T.textSecondary, fontSize: 13, lineHeight: 1.5 }}>This review checks the prepared draft against your requirements. It does not verify facts or grant publication approval. Required checks that are not met or need human review keep the draft in review.</p>
+        {demandComplianceResults.map(({ result, assessment }) => <details key={result.idempotencyKey} style={{ marginTop: 12 }}>
+          <summary><strong>{result.prepared?.title ?? result.description}</strong> · {assessment.summary}</summary>
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            {assessment.checks.map((check) => <div key={check.directiveId} style={{ padding: 10, background: T.bgSecondary, borderRadius: 6 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span className="ks-chip">{check.verdict === "met" ? "Met" : check.verdict === "not_met" ? "Not met" : "Human review"}</span><strong style={{ fontSize: 13 }}>{demandDirectiveLabels.get(check.directiveId)?.text ?? "Reviewed scope requirement"}</strong></div>
+              <p style={{ margin: "7px 0 0", color: T.textSecondary, fontSize: 12 }}>{check.rationale}</p>
+              {check.draftEvidence.length > 0 && <p style={{ margin: "7px 0 0", color: T.textSecondary, fontSize: 12 }}><strong>Draft evidence:</strong> {check.draftEvidence.join(" · ")}</p>}
+            </div>)}
+          </div>
+        </details>)}
+      </section>}
       {pipeline.runId && <a href={"/api/runs/drafts?runId=" + encodeURIComponent(pipeline.runId)} className="ds-btn ds-btn-secondary">Download previous draft versions</a>}
       {submissionBusy && <p role="status">{submitRun.progress}</p>}
       {proposedWritePlan.error && !submitRun.locked && <p role="alert">{proposedWritePlan.error}</p>}

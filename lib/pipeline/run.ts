@@ -19,6 +19,7 @@ import {
 } from "./dedupe";
 import { buildDuplicateGroups, type DuplicateGroup } from "./grouping";
 import type { ReviewObjective } from "../ks/solution-reviews";
+import { demandDirectives, reviewDirectives, type DemandSpecification } from "../demand/spec";
 
 export type OperationName =
   | "Discover and suggest metadata"
@@ -48,6 +49,10 @@ export interface RunInput {
   language?: string;
   /** Server-authorized review scope guidance; never supplied directly by the browser. */
   reviewObjectives?: ReviewObjective[];
+  /** User-authored requirements, validated and frozen when the run starts. */
+  demandSpecification?: DemandSpecification;
+  /** Server-owned recommendation reference, validated before this input is executed. */
+  demandRecommendationId?: string;
 }
 
 export interface PlannedSolution {
@@ -308,7 +313,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
           reason: p.rationale,
           duplicateEvidence: { checked: has("Find duplicates") && !p.researchOnly, matches: p.duplicates, group },
         };
-      }), input.operations, steps.map((s) => s.name), warnings, groundContext, input.reviewObjectives);
+      }), input.operations, steps.map((s) => s.name), warnings, groundContext, [...demandDirectives(input.demandSpecification), ...reviewDirectives(input.reviewObjectives)]);
       return { value: r.data.proposals, costUsd: r.costUsd, model: r.model };
     });
     if (proposals.length !== planned.length || new Set(proposals.map((p) => p.key)).size !== planned.length || proposals.some((p) => !planned.some((s) => s.key === p.key))) {

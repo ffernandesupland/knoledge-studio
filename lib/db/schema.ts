@@ -10,6 +10,24 @@ CREATE TABLE IF NOT EXISTS source_image_chunks (
 );
 CREATE TABLE IF NOT EXISTS run_ground_context (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS run_source_documents (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS run_demand_specifications (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS demand_recommendations (
+  id TEXT PRIMARY KEY,
+  author TEXT NOT NULL,
+  requirement_hash TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demand_recommendations_author ON demand_recommendations(author, created_at DESC);
+CREATE TABLE IF NOT EXISTS run_demand_recommendations (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  recommendation_id TEXT NOT NULL REFERENCES demand_recommendations(id) ON DELETE RESTRICT
+);
 
 CREATE TABLE IF NOT EXISTS runs (
   id            TEXT PRIMARY KEY,

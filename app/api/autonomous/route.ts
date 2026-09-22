@@ -12,6 +12,7 @@ import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
 import { autonomousOutcome } from "@/lib/autonomous/outcome";
 import { resolveConnection } from "@/lib/ra/connections";
 import { withRaConnection } from "@/lib/ra/client";
+import { attachDemandRecommendation, validateDemandRecommendation } from "@/lib/demand/store";
 
 export const dynamic = "force-dynamic";
 // Starts are explicitly selected per run; the app advances their saved steps automatically.
@@ -26,11 +27,13 @@ export async function POST(request: Request) {
     await assertAgentFileOwnership((body.input.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
     // fileOwner is established here, never accepted from the browser payload.
     const input = { ...body.input, attachments: body.input.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
+    if (input.demandRecommendationId) await validateDemandRecommendation(author, input.demandRecommendationId, input.demandSpecification);
     const id = `auto-${body.requestId}`;
     const existing = await getJob(id);
     const connection = await resolveConnection(author, input.connectionId);
     const groundContext = existing ? undefined : await withRaConnection(author, connection, () => resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
     const job = await enqueue(id, author, input, groundContext);
+    if (input.demandRecommendationId) await attachDemandRecommendation(id, author, input.demandRecommendationId, input.demandSpecification);
     return json({ runId: job.runId, status: job.status }, 202);
   } catch (e) { return apiError(e); }
 }

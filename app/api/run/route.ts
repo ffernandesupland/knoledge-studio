@@ -11,6 +11,7 @@ import { withAiAudit } from "@/lib/llm/audit";
 import { withRaConnection } from "@/lib/ra/client";
 import { resolveConnection } from "@/lib/ra/connections";
 import { assertReviewHandoffResolved, getSolutionReviewHandoff, saveRunSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
+import { attachDemandRecommendation, validateDemandRecommendation } from "@/lib/demand/store";
 import { randomUUID } from "node:crypto";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +28,12 @@ export async function POST(request: Request) {
     await assertAgentFileOwnership((authorizedInput.attachments ?? []).flatMap(attachment => attachment.fileId ? [attachment.fileId] : []), author);
     // The browser may identify an uploaded file, but only the server binds it to its owner.
     const safeInput = { ...authorizedInput, attachments: authorizedInput.attachments?.map(attachment => attachment.fileId ? { ...attachment, fileOwner: author } : attachment) };
+    if (safeInput.demandRecommendationId) await validateDemandRecommendation(author, safeInput.demandRecommendationId, safeInput.demandSpecification);
     const connection = await resolveConnection(author, safeInput.connectionId);
     const runId = `run-${randomUUID()}`;
     const groundContext = await withRaConnection(author, connection, () => resolveGroundContext(safeInput.groundContext, safeInput.sourceSolutionIds, author));
-    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
+    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, demandSpecification: safeInput.demandSpecification, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
+    const demandRecommendation = safeInput.demandRecommendationId ? await attachDemandRecommendation(runId, author, safeInput.demandRecommendationId, safeInput.demandSpecification) : undefined;
     if (handoff) await saveRunSolutionReviewHandoff(runId, handoff.id);
     const encoder = new TextEncoder();
     let connected = true;
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
           const result = await withRaConnection(author, connection, () => withAiAudit(runId, "analysis", () => runPipeline(safeInput, (e) => send({ type: "progress", ...e }), groundContext)));
           (await completeRun(runId, mapRunToView(result)));
           (await saveExecutedFlow(runId));
-          send({ type: "result", runId, ...result });
+          send({ type: "result", runId, demandSpecification: safeInput.demandSpecification, demandRecommendation, ...result });
         } catch (err) {
           const message = (err as Error).message;
           (await failRun(runId, message));
