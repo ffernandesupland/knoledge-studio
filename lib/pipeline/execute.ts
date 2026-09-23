@@ -45,6 +45,8 @@ export interface PreparedContent {
   sections?: MergeWorkspaceResult["sections"];
   warnings: string[];
   ruleResults?: StandardsResult["ruleResults"];
+  /** Exact frozen standards material supplied to the standards operation for this output. */
+  standardsUsed?: string[];
   /** IDs of reusable HTML structures made available during authoring. */
   snippetIds?: string[];
   demandCompliance?: DemandCompliance;
@@ -243,6 +245,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
               const standards = await applyStandards(prepared.fields, applicableStandards, applicableDirectives(directives, "standards"), snippets);
               prepared.fields = validateFields(standards.data.fields, target);
               prepared.ruleResults = standards.data.ruleResults;
+              prepared.standardsUsed = applicableStandards;
               prepared.standardsApplied = true;
             }
           } catch (e) {

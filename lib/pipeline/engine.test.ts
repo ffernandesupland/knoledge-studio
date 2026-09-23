@@ -363,7 +363,7 @@ describe("prepare, review, then write", () => {
     const op = newOp();
     const [prepared] = await executeWritePlan(args([op], { prepareOnly: true, standardsRules: ["Numbered steps"] }));
     expect(prepared.outcome).toBe("ready");
-    expect(prepared.prepared).toMatchObject({ readyForSubmission: true, title: "Generated title", summary: "Generated summary", keywords: ["vpn"], standardsApplied: true });
+    expect(prepared.prepared).toMatchObject({ readyForSubmission: true, title: "Generated title", summary: "Generated summary", keywords: ["vpn"], standardsApplied: true, standardsUsed: ["Numbered steps"] });
     expect(mocks.write).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.flag).not.toHaveBeenCalled();
     const [written] = await executeWritePlan(args([op], { requirePrepared: true, approvals: { [op.idempotencyKey]: prepared.prepared!.version }, standardsRules: ["Numbered steps"] }));
     expect(written.outcome).toBe("ok");
