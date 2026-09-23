@@ -1629,7 +1629,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             <div style={{ fontSize: 16, fontWeight: 600, color: T.textPrimary, marginBottom: 12 }}>
               {preview.title}
             </div>
-            {proposal ? <ProposalPreview candidate={proposal} group={proposal.dupeGroup != null ? effectiveGroups[proposal.dupeGroup] : undefined} resolution={proposal.dupeGroup != null ? resolutions[proposal.dupeGroup] : undefined} duplicatesChecked={ops.some((o) => o.name === "Find duplicates" && o.on)} /> : <ArticlePreview article={{ title: preview.title, ...preview.article }} />}
+            {proposal ? <ProposalPreview candidate={proposal} group={proposal.dupeGroup != null ? effectiveGroups[proposal.dupeGroup] : undefined} resolution={proposal.dupeGroup != null ? resolutions[proposal.dupeGroup] : undefined} duplicatesChecked={ops.some((o) => o.name === "Find duplicates" && o.on)} operations={ops.filter((operation) => operation.on).map((operation) => operation.name)} /> : <ArticlePreview article={{ title: preview.title, ...preview.article }} />}
           </div>
           <div className="entity-modal-footer">
             <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setPreview(null)}>
