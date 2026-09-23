@@ -476,6 +476,17 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .auto-option > div { flex: 1 1 300px; min-width: 0; }
 .auto-option p { margin: 8px 0; }
 .auto-option .toggle { flex-shrink: 0; }
+.ks-advanced-toggle { display: grid; gap: 10px; margin: 18px 0; }
+.ks-advanced-summary { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid #C5DDFB; border-radius: 6px; background: #F0F6FE; }
+.ks-advanced-summary > .ms { color: #2574DB; font-size: 20px; }
+.ks-advanced-summary > div { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.ks-advanced-summary strong { color: #252B31; font-size: 13px; }
+.ks-advanced-summary span { color: #525C69; font-size: 12px; line-height: 1.4; }
+.ks-advanced-options { display: grid; gap: 18px; margin-top: 18px; }
+.ks-advanced-options-head { padding: 4px 0; }
+.ks-advanced-options-head h2 { margin: 0; color: #252B31; font-size: 18px; }
+.ks-advanced-options-head p { margin: 5px 0 0; color: #525C69; font-size: 13px; line-height: 1.5; }
+@media (max-width: 600px) { .ks-advanced-summary { align-items: flex-start; flex-wrap: wrap; } .ks-advanced-summary > .ds-btn { margin-left: 30px; } }
 .auto-run { padding: 24px; }
 .auto-run > .ks-card { padding: 20px; }
 .auto-outcome { padding: 24px; margin: 20px 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; min-width: 0; overflow-wrap: anywhere; }
