@@ -1,1 +1,53 @@
-aW1wb3J0IHsgYWZ0ZXJBbGwsIGJlZm9yZUFsbCwgZGVzY3JpYmUsIGV4cGVjdCwgaXQgfSBmcm9tICJ2aXRlc3QiOw0KaW1wb3J0IHsgbWtkdGVtcFN5bmMsIHJtU3luYyB9IGZyb20gIm5vZGU6ZnMiOw0KaW1wb3J0IHsgdG1wZGlyIH0gZnJvbSAibm9kZTpvcyI7DQppbXBvcnQgcGF0aCBmcm9tICJub2RlOnBhdGgiOw0KaW1wb3J0IHsgY2xvc2VEYXRhYmFzZSwgZGIsIHVzZURhdGFiYXNlIH0gZnJvbSAiLi4vZGIiOwppbXBvcnQgeyBDb25maWd1cmF0aW9uU2NvcGVDb25mbGljdEVycm9yLCBhcmNoaXZlQ29uZmlndXJhdGlvblByb2ZpbGUsIGNyZWF0ZUNvbmZpZ3VyYXRpb25Qcm9maWxlLCBsaXN0Q29uZmlndXJhdGlvblByb2ZpbGVzLCB1cGRhdGVDb25maWd1cmF0aW9uUHJvZmlsZSB9IGZyb20gIi4vc3RvcmUiOw0KDQpsZXQgZGlyZWN0b3J5OiBzdHJpbmc7DQpjb25zdCBjb25uZWN0aW9uSWQgPSAiZW52aXJvbm1lbnQiOw0KY29uc3QgdGV4dCA9IHsgdHlwZTogInRleHQiLCB0ZXh0OiAiVXNlIHNob3J0LCBkaXJlY3Qgc2VudGVuY2VzLiIgfSBhcyBjb25zdDsNCg0KYmVmb3JlQWxsKCgpID0+IHsNCiAgZGlyZWN0b3J5ID0gbWtkdGVtcFN5bmMocGF0aC5qb2luKHRtcGRpcigpLCAia3MtY29uZmlnLSIpKTsNCiAgdXNlRGF0YWJhc2UocGF0aC5qb2luKGRpcmVjdG9yeSwgInRlc3QuZGIiKSk7DQp9KTsNCmFmdGVyQWxsKCgpID0+IHsNCiAgY2xvc2VEYXRhYmFzZSgpOw0KICAvLyBsaWJzcWwgY2FuIHJlbGVhc2UgdGhlIFdpbmRvd3MgZmlsZSBoYW5kbGUganVzdCBhZnRlciBjbG9zZURhdGFiYXNlIHJldHVybnMuDQogIC8vIEEgZmFpbGVkIHRlbXBvcmFyeS1kaXJlY3RvcnkgY2xlYW51cCBtdXN0IG5vdCBoaWRlIHRoZSBwZXJzaXN0ZW5jZSBhc3NlcnRpb25zLg0KICB0cnkgeyBybVN5bmMoZGlyZWN0b3J5LCB7IHJlY3Vyc2l2ZTogdHJ1ZSwgZm9yY2U6IHRydWUgfSk7IH0gY2F0Y2ggeyAvKiBCZXN0LWVmZm9ydCB0ZXN0IGNsZWFudXAgb24gV2luZG93cy4gKi8gfQ0KfSk7DQoNCmRlc2NyaWJlKCJjb25maWd1cmF0aW9uIHByb2ZpbGUgc3RvcmFnZSIsICgpID0+IHsNCiAgaXQoInBlcnNpc3RzIG1peGVkIHByb2ZpbGUgc291cmNlcyBhbmQgaW5jcmVtZW50cyByZXZpc2lvbnMiLCBhc3luYyAoKSA9PiB7DQogICAgY29uc3QgY3JlYXRlZCA9IGF3YWl0IGNyZWF0ZUNvbmZpZ3VyYXRpb25Qcm9maWxlKHsgY29ubmVjdGlvbklkLCBjcmVhdGVkQnk6ICJvcGVyYXRvciIsIGRyYWZ0OiB7IGtpbmQ6ICJjb250ZW50X3N0YW5kYXJkIiwgbmFtZTogIkNvbXBhbnkgc3RhbmRhcmQiLCBpc0RlZmF1bHQ6IHRydWUsIHNvdXJjZXM6IFt0ZXh0LCB7IHR5cGU6ICJzb2x1dGlvbiIsIHNvbHV0aW9uSWQ6ICIyNjA5MjMwMDAwMDAwMDEiIH1dIH0gfSk7DQogICAgZXhwZWN0KGNyZWF0ZWQucmV2aXNpb24pLnRvQmUoMSk7DQogICAgZXhwZWN0KChhd2FpdCBsaXN0Q29uZmlndXJhdGlvblByb2ZpbGVzKGNvbm5lY3Rpb25JZCwgImNvbnRlbnRfc3RhbmRhcmQiKSlbMF0uc291cmNlcykudG9IYXZlTGVuZ3RoKDIpOw0KICAgIGNvbnN0IHVwZGF0ZWQgPSBhd2FpdCB1cGRhdGVDb25maWd1cmF0aW9uUHJvZmlsZSh7IGlkOiBjcmVhdGVkLmlkLCBjb25uZWN0aW9uSWQsIGRyYWZ0OiB7IGtpbmQ6ICJjb250ZW50X3N0YW5kYXJkIiwgbmFtZTogIkNvbXBhbnkgc3RhbmRhcmQiLCBpc0RlZmF1bHQ6IHRydWUsIGd1aWRhbmNlOiAiVXNlIHRoaXMgb25seSBmb3IgZmluYWwgZHJhZnRzLiIsIHNvdXJjZXM6IFt0ZXh0XSB9IH0pOw0KICAgIGV4cGVjdCh1cGRhdGVkLnJldmlzaW9uKS50b0JlKDIpOw0KICAgIGV4cGVjdCh1cGRhdGVkLmd1aWRhbmNlKS50b0NvbnRhaW4oImZpbmFsIGRyYWZ0cyIpOw0KICB9KTsNCg0KICBpdCgicHJldmVudHMgZHVwbGljYXRlIGFjdGl2ZSBzY29wZXMgYnV0IGFsbG93cyBhbiBhcmNoaXZlZCBwcmVkZWNlc3NvciIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGZpcnN0ID0gYXdhaXQgY3JlYXRlQ29uZmlndXJhdGlvblByb2ZpbGUoeyBjb25uZWN0aW9uSWQsIGNyZWF0ZWRCeTogIm9wZXJhdG9yIiwgZHJhZnQ6IHsga2luZDogImdyb3VuZF90cnV0aCIsIG5hbWU6ICJWUE4gZXZpZGVuY2UiLCBzY29wZTogeyB0YXhvbm9teTogIlByb2R1Y3RzLy9WUE4iIH0sIHNvdXJjZXM6IFt0ZXh0XSB9IH0pOw0KICAgIGF3YWl0IGV4cGVjdChjcmVhdGVDb25maWd1cmF0aW9uUHJvZmlsZSh7IGNvbm5lY3Rpb25JZCwgY3JlYXRlZEJ5OiAib3BlcmF0b3IiLCBkcmFmdDogeyBraW5kOiAiZ3JvdW5kX3RydXRoIiwgbmFtZTogIkR1cGxpY2F0ZSBWUE4gZXZpZGVuY2UiLCBzY29wZTogeyB0YXhvbm9teTogInByb2R1Y3RzLy92cG4iIH0sIHNvdXJjZXM6IFt0ZXh0XSB9IH0pKS5yZWplY3RzLnRvQmVJbnN0YW5jZU9mKENvbmZpZ3VyYXRpb25TY29wZUNvbmZsaWN0RXJyb3IpOw0KICAgIGF3YWl0IGFyY2hpdmVDb25maWd1cmF0aW9uUHJvZmlsZShmaXJzdC5pZCwgY29ubmVjdGlvbklkKTsNCiAgICBhd2FpdCBleHBlY3QoY3JlYXRlQ29uZmlndXJhdGlvblByb2ZpbGUoeyBjb25uZWN0aW9uSWQsIGNyZWF0ZWRCeTogIm9wZXJhdG9yIiwgZHJhZnQ6IHsga2luZDogImdyb3VuZF90cnV0aCIsIG5hbWU6ICJSZXBsYWNlbWVudCBWUE4gZXZpZGVuY2UiLCBzY29wZTogeyB0YXhvbm9teTogInByb2R1Y3RzLy92cG4iIH0sIHNvdXJjZXM6IFt0ZXh0XSB9IH0pKS5yZXNvbHZlcy50b01hdGNoT2JqZWN0KHsgbmFtZTogIlJlcGxhY2VtZW50IFZQTiBldmlkZW5jZSIgfSk7DQogIH0pOwoKICBpdCgicGVyc2lzdHMgbXVsdGktdmFsdWUgc2NvcGVzIGFuZCB0aGVpciBBTkQvT1IgbWF0Y2hpbmcgcnVsZSIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGNyZWF0ZWQgPSBhd2FpdCBjcmVhdGVDb25maWd1cmF0aW9uUHJvZmlsZSh7IGNvbm5lY3Rpb25JZCwgY3JlYXRlZEJ5OiAib3BlcmF0b3IiLCBkcmFmdDogeyBraW5kOiAiY29udGVudF9zdGFuZGFyZCIsIG5hbWU6ICJTdXBwb3J0IGFuZCBWUE4iLCBzY29wZTogeyBjb2xsZWN0aW9uczogWyJTdXBwb3J0IiwgIklUIl0sIHRheG9ub21pZXM6IFsiUHJvZHVjdHMvL1ZQTiIsICJIUi8vQmVuZWZpdHMiXSwgb3BlcmF0b3I6ICJvciIgfSwgc291cmNlczogW3RleHRdIH0gfSk7CiAgICBleHBlY3QoY3JlYXRlZC5zY29wZSkudG9FcXVhbCh7IGNvbGxlY3Rpb25zOiBbIlN1cHBvcnQiLCAiSVQiXSwgdGF4b25vbWllczogWyJQcm9kdWN0cy8vVlBOIiwgIkhSLy9CZW5lZml0cyJdLCBvcGVyYXRvcjogIm9yIiB9KTsKICAgIGNvbnN0IGxvYWRlZCA9IChhd2FpdCBsaXN0Q29uZmlndXJhdGlvblByb2ZpbGVzKGNvbm5lY3Rpb25JZCwgImNvbnRlbnRfc3RhbmRhcmQiKSkuZmluZChwcm9maWxlID0+IHByb2ZpbGUuaWQgPT09IGNyZWF0ZWQuaWQpOwogICAgZXhwZWN0KGxvYWRlZD8uc2NvcGUpLnRvRXF1YWwoY3JlYXRlZC5zY29wZSk7CiAgfSk7CgogIGl0KCJyZWFkcyBhIHByb2ZpbGUgc2F2ZWQgd2l0aCB0aGUgZm9ybWVyIHNpbmd1bGFyIHNjb3BlIGNvbHVtbnMiLCBhc3luYyAoKSA9PiB7CiAgICBhd2FpdCBkYigpLnByZXBhcmUoIklOU0VSVCBJTlRPIGNvbmZpZ3VyYXRpb25fcHJvZmlsZXMoaWQsY29ubmVjdGlvbl9pZCxraW5kLG5hbWUsc2NvcGVfY29sbGVjdGlvbixzY29wZV90YXhvbm9teSxpc19kZWZhdWx0LHN0YXR1cyxndWlkYW5jZSxyZXZpc2lvbixjcmVhdGVkX2J5LGNyZWF0ZWRfYXQsdXBkYXRlZF9hdCkgVkFMVUVTKD8sPyw/LD8sPyw/LD8sPyw/LD8sPyw/LD8pIikKICAgICAgLnJ1bigibGVnYWN5LXNjb3BlIiwgY29ubmVjdGlvbklkLCAiZ3JvdW5kX3RydXRoIiwgIkxlZ2FjeSBzY29wZSIsICJTdXBwb3J0IiwgIlByb2R1Y3RzLy9WUE4iLCAwLCAiYWN0aXZlIiwgIiIsIDEsICJvcGVyYXRvciIsICIyMDI2LTA5LTIzIiwgIjIwMjYtMDktMjMiKTsKICAgIGNvbnN0IGxlZ2FjeSA9IChhd2FpdCBsaXN0Q29uZmlndXJhdGlvblByb2ZpbGVzKGNvbm5lY3Rpb25JZCwgImdyb3VuZF90cnV0aCIpKS5maW5kKHByb2ZpbGUgPT4gcHJvZmlsZS5pZCA9PT0gImxlZ2FjeS1zY29wZSIpOwogICAgZXhwZWN0KGxlZ2FjeT8uc2NvcGUpLnRvRXF1YWwoeyBjb2xsZWN0aW9uczogWyJTdXBwb3J0Il0sIHRheG9ub21pZXM6IFsiUHJvZHVjdHMvL1ZQTiJdLCBvcGVyYXRvcjogImFuZCIgfSk7CiAgfSk7Cn0pOwo=
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { closeDatabase, db, useDatabase } from "../db";
+import { ConfigurationScopeConflictError, archiveConfigurationProfile, createConfigurationProfile, listConfigurationProfiles, updateConfigurationProfile } from "./store";
+
+let directory: string;
+const connectionId = "environment";
+const text = { type: "text", text: "Use short, direct sentences." } as const;
+
+beforeAll(() => {
+  directory = mkdtempSync(path.join(tmpdir(), "ks-config-"));
+  useDatabase(path.join(directory, "test.db"));
+});
+afterAll(() => {
+  closeDatabase();
+  // libsql can release the Windows file handle just after closeDatabase returns.
+  // A failed temporary-directory cleanup must not hide the persistence assertions.
+  try { rmSync(directory, { recursive: true, force: true }); } catch { /* Best-effort test cleanup on Windows. */ }
+});
+
+describe("configuration profile storage", () => {
+  it("persists mixed profile sources and increments revisions", async () => {
+    const created = await createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "content_standard", name: "Company standard", isDefault: true, sources: [text, { type: "solution", solutionId: "260923000000001" }] } });
+    expect(created.revision).toBe(1);
+    expect((await listConfigurationProfiles(connectionId, "content_standard"))[0].sources).toHaveLength(2);
+    const updated = await updateConfigurationProfile({ id: created.id, connectionId, draft: { kind: "content_standard", name: "Company standard", isDefault: true, guidance: "Use this only for final drafts.", sources: [text] } });
+    expect(updated.revision).toBe(2);
+    expect(updated.guidance).toContain("final drafts");
+  });
+
+  it("prevents duplicate active scopes but allows an archived predecessor", async () => {
+    const first = await createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "ground_truth", name: "VPN evidence", scope: { taxonomy: "Products//VPN" }, sources: [text] } });
+    await expect(createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "ground_truth", name: "Duplicate VPN evidence", scope: { taxonomy: "products//vpn" }, sources: [text] } })).rejects.toBeInstanceOf(ConfigurationScopeConflictError);
+    await archiveConfigurationProfile(first.id, connectionId);
+    await expect(createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "ground_truth", name: "Replacement VPN evidence", scope: { taxonomy: "products//vpn" }, sources: [text] } })).resolves.toMatchObject({ name: "Replacement VPN evidence" });
+  });
+
+  it("persists multi-value scopes and their AND/OR matching rule", async () => {
+    const created = await createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "content_standard", name: "Support and VPN", scope: { collections: ["Support", "IT"], taxonomies: ["Products//VPN", "HR//Benefits"], operator: "or" }, sources: [text] } });
+    expect(created.scope).toEqual({ collections: ["Support", "IT"], taxonomies: ["Products//VPN", "HR//Benefits"], operator: "or" });
+    const loaded = (await listConfigurationProfiles(connectionId, "content_standard")).find(profile => profile.id === created.id);
+    expect(loaded?.scope).toEqual(created.scope);
+  });
+
+  it("reads a profile saved with the former singular scope columns", async () => {
+    await db().prepare("INSERT INTO configuration_profiles(id,connection_id,kind,name,scope_collection,scope_taxonomy,is_default,status,guidance,revision,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run("legacy-scope", connectionId, "ground_truth", "Legacy scope", "Support", "Products//VPN", 0, "active", "", 1, "operator", "2026-09-23", "2026-09-23");
+    const legacy = (await listConfigurationProfiles(connectionId, "ground_truth")).find(profile => profile.id === "legacy-scope");
+    expect(legacy?.scope).toEqual({ collections: ["Support"], taxonomies: ["Products//VPN"], operator: "and" });
+  });
+});

@@ -1,1 +1,23 @@
-LyoqCiAqIE5vcm1hbGl6ZXMgZXh0cmFjdGVkIGNvbmZpZ3VyYXRpb24gbWF0ZXJpYWwgYmVmb3JlIGl0IGlzIHBlcnNpc3RlZCBvciBzaG93biB0bwogKiBhIG1vZGVsLiBUaGlzIGRlbGliZXJhdGVseSBwcmVzZXJ2ZXMgd29yZGluZyBhbmQgcGFyYWdyYXBoIGJvdW5kYXJpZXM7IGl0CiAqIG9ubHkgcmVwYWlycyBjb21tb24gVVRGLTgtYXMtTGF0aW4tMSBtb2ppYmFrZSwgaW52aXNpYmxlIGNvbnRyb2xzLCBhbmQKICogd2hpdGVzcGFjZSBub2lzZSBpbnRyb2R1Y2VkIGJ5IFBERi9ET0NYIGV4dHJhY3RvcnMuCiAqLwpmdW5jdGlvbiByZXBhaXJNb2ppYmFrZSh2YWx1ZTogc3RyaW5nKTogc3RyaW5nIHsKICByZXR1cm4gdmFsdWUucmVwbGFjZSgvKD86w4NbXHUwMDgwLVx1MDBCRl18w4JbXHUwMEEwXHNdfMOiW1x1MDA4MC1cdTAwQkZdezJ9KS9nLCBjYW5kaWRhdGUgPT4gewogICAgY29uc3QgcmVwYWlyZWQgPSBCdWZmZXIuZnJvbShjYW5kaWRhdGUsICJsYXRpbjEiKS50b1N0cmluZygidXRmOCIpOwogICAgcmV0dXJuIHJlcGFpcmVkLmluY2x1ZGVzKCLvv70iKSA/IGNhbmRpZGF0ZSA6IHJlcGFpcmVkOwogIH0pOwp9CgpleHBvcnQgZnVuY3Rpb24gY2xlYW5Db25maWd1cmF0aW9uVGV4dCh2YWx1ZTogc3RyaW5nKTogc3RyaW5nIHsKICByZXR1cm4gcmVwYWlyTW9qaWJha2UodmFsdWUpCiAgICAubm9ybWFsaXplKCJORkMiKQogICAgLnJlcGxhY2UoL1xyXG4/L2csICJcbiIpCiAgICAucmVwbGFjZSgvW1x1MDAwMC1cdTAwMDhcdTAwMEJcdTAwMENcdTAwMEUtXHUwMDFGXHUwMDdGLVx1MDA5Rlx1MjAwQi1cdTIwMERcdUZFRkZdL2csICIiKQogICAgLnJlcGxhY2UoL1tcdTAwQTBcdCBdKy9nLCAiICIpCiAgICAucmVwbGFjZSgvICpcbiAqL2csICJcbiIpCiAgICAucmVwbGFjZSgvXG57Myx9L2csICJcblxuIikKICAgIC50cmltKCk7Cn0K
+/**
+ * Normalizes extracted configuration material before it is persisted or shown to
+ * a model. This deliberately preserves wording and paragraph boundaries; it
+ * only repairs common UTF-8-as-Latin-1 mojibake, invisible controls, and
+ * whitespace noise introduced by PDF/DOCX extractors.
+ */
+function repairMojibake(value: string): string {
+  return value.replace(/(?:Ã[\u0080-\u00BF]|Â[\u00A0\s]|â[\u0080-\u00BF]{2})/g, candidate => {
+    const repaired = Buffer.from(candidate, "latin1").toString("utf8");
+    return repaired.includes("�") ? candidate : repaired;
+  });
+}
+
+export function cleanConfigurationText(value: string): string {
+  return repairMojibake(value)
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[\u00A0\t ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

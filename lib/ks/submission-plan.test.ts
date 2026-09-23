@@ -1,1 +1,7 @@
-aW1wb3J0IHsgZXhwZWN0LCBpdCB9IGZyb20gInZpdGVzdCI7CmltcG9ydCB7IGZyb3plbkNvbmZpZ3VyYXRpb25JZGVudGl0eSB9IGZyb20gIi4vc3VibWlzc2lvbi1wbGFuIjsKCml0KCJrZWVwcyBvbmx5IGZyb3plbiBjb25maWd1cmF0aW9uIHN0YW5kYXJkcyBhbmQgc25pcHBldHMgZnJvbSBhIHByZXBhcmVkIGlkZW50aXR5IiwgKCkgPT4gewogIGNvbnN0IGlkZW50aXR5ID0gSlNPTi5zdHJpbmdpZnkoeyBzdGFuZGFyZHM6IFsiU2VudGVuY2UtY2FzZSBoZWFkaW5ncyIsICJbQ29tcGFueSBTdGFuZGFyZCDCtyBIYW5kYm9vay5wZGZdXG5Vc2UgZGlyZWN0IGxhbmd1YWdlLiJdLCBzbmlwcGV0czogeyBhcnRpY2xlOiBbIm5vdGU6MiJdIH0gfSk7CiAgZXhwZWN0KGZyb3plbkNvbmZpZ3VyYXRpb25JZGVudGl0eShpZGVudGl0eSkpLnRvRXF1YWwoeyBzdGFuZGFyZHM6IFsiW0NvbXBhbnkgU3RhbmRhcmQgwrcgSGFuZGJvb2sucGRmXVxuVXNlIGRpcmVjdCBsYW5ndWFnZS4iXSwgc25pcHBldHM6IHsgYXJ0aWNsZTogWyJub3RlOjIiXSB9IH0pOwp9KTsK
+import { expect, it } from "vitest";
+import { frozenConfigurationIdentity } from "./submission-plan";
+
+it("keeps only frozen configuration standards and snippets from a prepared identity", () => {
+  const identity = JSON.stringify({ standards: ["Sentence-case headings", "[Company Standard · Handbook.pdf]\nUse direct language."], snippets: { article: ["note:2"] } });
+  expect(frozenConfigurationIdentity(identity)).toEqual({ standards: ["[Company Standard · Handbook.pdf]\nUse direct language."], snippets: { article: ["note:2"] } });
+});

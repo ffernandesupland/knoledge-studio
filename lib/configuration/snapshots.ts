@@ -1,1 +1,93 @@
-aW1wb3J0IHNhbml0aXplSHRtbCBmcm9tICJzYW5pdGl6ZS1odG1sIjsNCmltcG9ydCB7IGNyZWF0ZUhhc2ggfSBmcm9tICJub2RlOmNyeXB0byI7DQppbXBvcnQgeyBkYiB9IGZyb20gIi4uL2RiIjsNCmltcG9ydCB7IHJhIH0gZnJvbSAiLi4vcmEvY2xpZW50IjsNCmltcG9ydCB7IGdldENvbmZpZ3VyYXRpb25Eb2N1bWVudCB9IGZyb20gIi4vZG9jdW1lbnRzIjsNCmltcG9ydCB7IGxpc3RDb25maWd1cmF0aW9uUHJvZmlsZXMgfSBmcm9tICIuL3N0b3JlIjsNCmltcG9ydCB7IGxpc3RTbmlwcGV0cyB9IGZyb20gIi4vc25pcHBldHMiOwppbXBvcnQgdHlwZSB7IENvbmZpZ3VyYXRpb25Qcm9maWxlLCBDb25maWd1cmF0aW9uUHJvZmlsZUtpbmQsIENvbmZpZ3VyYXRpb25Tb3VyY2UsIFNuaXBwZXQgfSBmcm9tICIuL3R5cGVzIjsKaW1wb3J0IHsgY2xlYW5Db25maWd1cmF0aW9uVGV4dCB9IGZyb20gIi4vY2xlYW4tdGV4dCI7Cg0KZXhwb3J0IGludGVyZmFjZSBDYXB0dXJlZENvbmZpZ3VyYXRpb25Tb3VyY2Ugew0KICB0eXBlOiBDb25maWd1cmF0aW9uU291cmNlWyJ0eXBlIl07DQogIGxhYmVsOiBzdHJpbmc7DQogIGNvbnRlbnQ6IHN0cmluZzsNCiAgc291cmNlSWQ/OiBzdHJpbmc7DQogIHZlcnNpb246IHN0cmluZzsNCn0NCmV4cG9ydCBpbnRlcmZhY2UgQ2FwdHVyZWRDb25maWd1cmF0aW9uUHJvZmlsZSBleHRlbmRzIE9taXQ8Q29uZmlndXJhdGlvblByb2ZpbGUsICJzb3VyY2VzIj4gew0KICBzb3VyY2VzOiBDYXB0dXJlZENvbmZpZ3VyYXRpb25Tb3VyY2VbXTsNCn0NCmV4cG9ydCBpbnRlcmZhY2UgQ2FwdHVyZWRDb25maWd1cmF0aW9uU25hcHNob3Qgew0KICBjYXB0dXJlZEF0OiBzdHJpbmc7DQogIHByb2ZpbGVzOiBDYXB0dXJlZENvbmZpZ3VyYXRpb25Qcm9maWxlW107DQp9DQpleHBvcnQgaW50ZXJmYWNlIFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMgew0KICBjb250ZW50U3RhbmRhcmRzOiBDYXB0dXJlZENvbmZpZ3VyYXRpb25TbmFwc2hvdDsNCiAgZ3JvdW5kVHJ1dGg6IENhcHR1cmVkQ29uZmlndXJhdGlvblNuYXBzaG90Ow0KICBzbmlwcGV0czogeyBjYXB0dXJlZEF0OiBzdHJpbmc7IHNuaXBwZXRzOiBTbmlwcGV0W10gfTsNCn0NCg0KY29uc3QgZmluZ2VycHJpbnQgPSAoY29udGVudDogc3RyaW5nKSA9PiBjcmVhdGVIYXNoKCJzaGEyNTYiKS51cGRhdGUoY29udGVudC5ub3JtYWxpemUoIk5GQyIpKS5kaWdlc3QoImhleCIpOwpjb25zdCBjbGVhbiA9ICh2YWx1ZTogc3RyaW5nKSA9PiBzYW5pdGl6ZUh0bWwodmFsdWUsIHsgYWxsb3dlZFRhZ3M6IFtdLCBhbGxvd2VkQXR0cmlidXRlczoge30gfSkucmVwbGFjZSgvXHMrL2csICIgIikudHJpbSgpOw0KDQpmdW5jdGlvbiBzb2x1dGlvblRleHQoc29sdXRpb246IHsgdGl0bGU6IHN0cmluZzsgc3VtbWFyeT86IHN0cmluZzsgZmllbGRzPzogeyBuYW1lOiBzdHJpbmc7IGNvbnRlbnQ6IHN0cmluZyB9W10gfSkgew0KICByZXR1cm4gW3NvbHV0aW9uLnRpdGxlLCBzb2x1dGlvbi5zdW1tYXJ5ID8/ICIiLCAuLi4oc29sdXRpb24uZmllbGRzID8/IFtdKS5tYXAoZmllbGQgPT4gYCR7ZmllbGQubmFtZX1cbiR7Y2xlYW4oZmllbGQuY29udGVudCl9YCldLmZpbHRlcihCb29sZWFuKS5qb2luKCJcblxuIik7DQp9DQoNCmFzeW5jIGZ1bmN0aW9uIGNhcHR1cmVTb3VyY2UoY29ubmVjdGlvbklkOiBzdHJpbmcsIHNvdXJjZTogQ29uZmlndXJhdGlvblNvdXJjZSwgdXNlcjogc3RyaW5nKTogUHJvbWlzZTxDYXB0dXJlZENvbmZpZ3VyYXRpb25Tb3VyY2U+IHsNCiAgaWYgKHNvdXJjZS50eXBlID09PSAidGV4dCIpIHsKICAgIGNvbnN0IGNvbnRlbnQgPSBjbGVhbkNvbmZpZ3VyYXRpb25UZXh0KHNvdXJjZS50ZXh0KTsKICAgIHJldHVybiB7IHR5cGU6ICJ0ZXh0IiwgbGFiZWw6ICJXcml0dGVuIGluc3RydWN0aW9uIiwgY29udGVudCwgdmVyc2lvbjogZmluZ2VycHJpbnQoY29udGVudCkgfTsKICB9CiAgaWYgKHNvdXJjZS50eXBlID09PSAiZG9jdW1lbnQiKSB7DQogICAgY29uc3QgZG9jdW1lbnQgPSBhd2FpdCBnZXRDb25maWd1cmF0aW9uRG9jdW1lbnQoc291cmNlLmRvY3VtZW50SWQsIGNvbm5lY3Rpb25JZCk7DQogICAgY29uc3QgY29udGVudCA9IGNsZWFuQ29uZmlndXJhdGlvblRleHQoZG9jdW1lbnQuZXh0cmFjdGVkVGV4dCk7CiAgICByZXR1cm4geyB0eXBlOiAiZG9jdW1lbnQiLCBsYWJlbDogZG9jdW1lbnQubmFtZSwgY29udGVudCwgc291cmNlSWQ6IGRvY3VtZW50LmlkLCB2ZXJzaW9uOiBmaW5nZXJwcmludChjb250ZW50KSB9OwogIH0NCiAgY29uc3Qgc29sdXRpb24gPSBhd2FpdCByYS5nZXRTb2x1dGlvbihzb3VyY2Uuc29sdXRpb25JZCwgeyBpbXBVc2VyOiB1c2VyIH0pOw0KICBpZiAoc29sdXRpb24uaWQgIT09IHNvdXJjZS5zb2x1dGlvbklkKSB0aHJvdyBuZXcgRXJyb3IoIkNvbmZpZ3VyYXRpb24gc29sdXRpb24gcmV0cmlldmFsIHJldHVybmVkIGEgZGlmZmVyZW50IHNvbHV0aW9uLiIpOw0KICBjb25zdCBjb250ZW50ID0gY2xlYW5Db25maWd1cmF0aW9uVGV4dChzb2x1dGlvblRleHQoc29sdXRpb24pKTsKICBpZiAoIWNvbnRlbnQpIHRocm93IG5ldyBFcnJvcihgQ29uZmlndXJhdGlvbiBzb2x1dGlvbiAke3NvdXJjZS5zb2x1dGlvbklkfSBoYXMgbm8gcmVhZGFibGUgY29udGVudC5gKTsNCiAgcmV0dXJuIHsgdHlwZTogInNvbHV0aW9uIiwgbGFiZWw6IHNvbHV0aW9uLnRpdGxlLCBjb250ZW50LCBzb3VyY2VJZDogc29sdXRpb24uaWQsIHZlcnNpb246IGZpbmdlcnByaW50KGNvbnRlbnQpIH07DQp9DQoNCmFzeW5jIGZ1bmN0aW9uIGNhcHR1cmVQcm9maWxlcyhjb25uZWN0aW9uSWQ6IHN0cmluZywgdXNlcjogc3RyaW5nLCBraW5kOiBDb25maWd1cmF0aW9uUHJvZmlsZUtpbmQpOiBQcm9taXNlPENhcHR1cmVkQ29uZmlndXJhdGlvblNuYXBzaG90PiB7DQogIGNvbnN0IHByb2ZpbGVzID0gYXdhaXQgbGlzdENvbmZpZ3VyYXRpb25Qcm9maWxlcyhjb25uZWN0aW9uSWQsIGtpbmQpOw0KICBjb25zdCBjYXB0dXJlZEF0ID0gbmV3IERhdGUoKS50b0lTT1N0cmluZygpOw0KICBjb25zdCBjYXB0dXJlZDogQ2FwdHVyZWRDb25maWd1cmF0aW9uUHJvZmlsZVtdID0gW107DQogIGZvciAoY29uc3QgcHJvZmlsZSBvZiBwcm9maWxlcykgew0KICAgIGNvbnN0IHNvdXJjZXMgPSBhd2FpdCBQcm9taXNlLmFsbChwcm9maWxlLnNvdXJjZXMubWFwKHNvdXJjZSA9PiBjYXB0dXJlU291cmNlKGNvbm5lY3Rpb25JZCwgc291cmNlLCB1c2VyKSkpOw0KICAgIGlmIChzb3VyY2VzLnJlZHVjZSgodG90YWwsIHNvdXJjZSkgPT4gdG90YWwgKyBzb3VyY2UuY29udGVudC5sZW5ndGgsIDApID4gMTIwXzAwMCkgdGhyb3cgbmV3IEVycm9yKGAke3Byb2ZpbGUubmFtZX0gZXhjZWVkcyB0aGUgMTIwLDAwMC1jaGFyYWN0ZXIgY29uZmlndXJhdGlvbiBsaW1pdC5gKTsNCiAgICBjYXB0dXJlZC5wdXNoKHsgLi4ucHJvZmlsZSwgc291cmNlcyB9KTsNCiAgfQ0KICByZXR1cm4geyBjYXB0dXJlZEF0LCBwcm9maWxlczogY2FwdHVyZWQgfTsNCn0NCg0KZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIGNhcHR1cmVSdW5Db25maWd1cmF0aW9uU25hcHNob3RzKGNvbm5lY3Rpb25JZDogc3RyaW5nLCB1c2VyOiBzdHJpbmcpOiBQcm9taXNlPFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHM+IHsNCiAgY29uc3QgW2NvbnRlbnRTdGFuZGFyZHMsIGdyb3VuZFRydXRoLCBzbmlwcGV0c10gPSBhd2FpdCBQcm9taXNlLmFsbChbDQogICAgY2FwdHVyZVByb2ZpbGVzKGNvbm5lY3Rpb25JZCwgdXNlciwgImNvbnRlbnRfc3RhbmRhcmQiKSwNCiAgICBjYXB0dXJlUHJvZmlsZXMoY29ubmVjdGlvbklkLCB1c2VyLCAiZ3JvdW5kX3RydXRoIiksDQogICAgbGlzdFNuaXBwZXRzKGNvbm5lY3Rpb25JZCksDQogIF0pOw0KICByZXR1cm4geyBjb250ZW50U3RhbmRhcmRzLCBncm91bmRUcnV0aCwgc25pcHBldHM6IHsgY2FwdHVyZWRBdDogbmV3IERhdGUoKS50b0lTT1N0cmluZygpLCBzbmlwcGV0cyB9IH07DQp9DQoNCmV4cG9ydCBhc3luYyBmdW5jdGlvbiBzYXZlUnVuQ29uZmlndXJhdGlvblNuYXBzaG90cyhydW5JZDogc3RyaW5nLCBzbmFwc2hvdHM6IFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMpOiBQcm9taXNlPHZvaWQ+IHsNCiAgYXdhaXQgZGIoKS50cmFuc2FjdGlvbihhc3luYyAoKSA9PiB7DQogICAgZm9yIChjb25zdCBba2luZCwgcGF5bG9hZF0gb2YgW1siY29udGVudF9zdGFuZGFyZHMiLCBzbmFwc2hvdHMuY29udGVudFN0YW5kYXJkc10sIFsiZ3JvdW5kX3RydXRoIiwgc25hcHNob3RzLmdyb3VuZFRydXRoXSwgWyJzbmlwcGV0cyIsIHNuYXBzaG90cy5zbmlwcGV0c11dIGFzIGNvbnN0KSB7DQogICAgICBhd2FpdCBkYigpLnByZXBhcmUoIklOU0VSVCBJTlRPIHJ1bl9jb25maWd1cmF0aW9uX3NuYXBzaG90cyhydW5faWQsa2luZCxwYXlsb2FkKSBWQUxVRVMoPyw/LD8pIE9OIENPTkZMSUNUKHJ1bl9pZCxraW5kKSBETyBVUERBVEUgU0VUIHBheWxvYWQ9ZXhjbHVkZWQucGF5bG9hZCIpLnJ1bihydW5JZCwga2luZCwgSlNPTi5zdHJpbmdpZnkocGF5bG9hZCkpOw0KICAgIH0NCiAgfSkoKTsNCn0NCg0KZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIGdldFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMocnVuSWQ6IHN0cmluZyk6IFByb21pc2U8UGFydGlhbDxSdW5Db25maWd1cmF0aW9uU25hcHNob3RzPj4gew0KICBjb25zdCByb3dzID0gYXdhaXQgZGIoKS5wcmVwYXJlKCJTRUxFQ1Qga2luZCxwYXlsb2FkIEZST00gcnVuX2NvbmZpZ3VyYXRpb25fc25hcHNob3RzIFdIRVJFIHJ1bl9pZD0/IikuYWxsKHJ1bklkKSBhcyB7IGtpbmQ6IHN0cmluZzsgcGF5bG9hZDogc3RyaW5nIH1bXTsNCiAgY29uc3QgcmVzdWx0OiBQYXJ0aWFsPFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHM+ID0ge307DQogIGZvciAoY29uc3Qgcm93IG9mIHJvd3MpIHsNCiAgICBpZiAocm93LmtpbmQgPT09ICJjb250ZW50X3N0YW5kYXJkcyIpIHJlc3VsdC5jb250ZW50U3RhbmRhcmRzID0gSlNPTi5wYXJzZShyb3cucGF5bG9hZCk7DQogICAgaWYgKHJvdy5raW5kID09PSAiZ3JvdW5kX3RydXRoIikgcmVzdWx0Lmdyb3VuZFRydXRoID0gSlNPTi5wYXJzZShyb3cucGF5bG9hZCk7DQogICAgaWYgKHJvdy5raW5kID09PSAic25pcHBldHMiKSByZXN1bHQuc25pcHBldHMgPSBKU09OLnBhcnNlKHJvdy5wYXlsb2FkKTsNCiAgfQ0KICByZXR1cm4gcmVzdWx0Ow0KfQ0K
+import sanitizeHtml from "sanitize-html";
+import { createHash } from "node:crypto";
+import { db } from "../db";
+import { ra } from "../ra/client";
+import { getConfigurationDocument } from "./documents";
+import { listConfigurationProfiles } from "./store";
+import { listSnippets } from "./snippets";
+import type { ConfigurationProfile, ConfigurationProfileKind, ConfigurationSource, Snippet } from "./types";
+import { cleanConfigurationText } from "./clean-text";
+
+export interface CapturedConfigurationSource {
+  type: ConfigurationSource["type"];
+  label: string;
+  content: string;
+  sourceId?: string;
+  version: string;
+}
+export interface CapturedConfigurationProfile extends Omit<ConfigurationProfile, "sources"> {
+  sources: CapturedConfigurationSource[];
+}
+export interface CapturedConfigurationSnapshot {
+  capturedAt: string;
+  profiles: CapturedConfigurationProfile[];
+}
+export interface RunConfigurationSnapshots {
+  contentStandards: CapturedConfigurationSnapshot;
+  groundTruth: CapturedConfigurationSnapshot;
+  snippets: { capturedAt: string; snippets: Snippet[] };
+}
+
+const fingerprint = (content: string) => createHash("sha256").update(content.normalize("NFC")).digest("hex");
+const clean = (value: string) => sanitizeHtml(value, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, " ").trim();
+
+function solutionText(solution: { title: string; summary?: string; fields?: { name: string; content: string }[] }) {
+  return [solution.title, solution.summary ?? "", ...(solution.fields ?? []).map(field => `${field.name}\n${clean(field.content)}`)].filter(Boolean).join("\n\n");
+}
+
+async function captureSource(connectionId: string, source: ConfigurationSource, user: string): Promise<CapturedConfigurationSource> {
+  if (source.type === "text") {
+    const content = cleanConfigurationText(source.text);
+    return { type: "text", label: "Written instruction", content, version: fingerprint(content) };
+  }
+  if (source.type === "document") {
+    const document = await getConfigurationDocument(source.documentId, connectionId);
+    const content = cleanConfigurationText(document.extractedText);
+    return { type: "document", label: document.name, content, sourceId: document.id, version: fingerprint(content) };
+  }
+  const solution = await ra.getSolution(source.solutionId, { impUser: user });
+  if (solution.id !== source.solutionId) throw new Error("Configuration solution retrieval returned a different solution.");
+  const content = cleanConfigurationText(solutionText(solution));
+  if (!content) throw new Error(`Configuration solution ${source.solutionId} has no readable content.`);
+  return { type: "solution", label: solution.title, content, sourceId: solution.id, version: fingerprint(content) };
+}
+
+async function captureProfiles(connectionId: string, user: string, kind: ConfigurationProfileKind): Promise<CapturedConfigurationSnapshot> {
+  const profiles = await listConfigurationProfiles(connectionId, kind);
+  const capturedAt = new Date().toISOString();
+  const captured: CapturedConfigurationProfile[] = [];
+  for (const profile of profiles) {
+    const sources = await Promise.all(profile.sources.map(source => captureSource(connectionId, source, user)));
+    if (sources.reduce((total, source) => total + source.content.length, 0) > 120_000) throw new Error(`${profile.name} exceeds the 120,000-character configuration limit.`);
+    captured.push({ ...profile, sources });
+  }
+  return { capturedAt, profiles: captured };
+}
+
+export async function captureRunConfigurationSnapshots(connectionId: string, user: string): Promise<RunConfigurationSnapshots> {
+  const [contentStandards, groundTruth, snippets] = await Promise.all([
+    captureProfiles(connectionId, user, "content_standard"),
+    captureProfiles(connectionId, user, "ground_truth"),
+    listSnippets(connectionId),
+  ]);
+  return { contentStandards, groundTruth, snippets: { capturedAt: new Date().toISOString(), snippets } };
+}
+
+export async function saveRunConfigurationSnapshots(runId: string, snapshots: RunConfigurationSnapshots): Promise<void> {
+  await db().transaction(async () => {
+    for (const [kind, payload] of [["content_standards", snapshots.contentStandards], ["ground_truth", snapshots.groundTruth], ["snippets", snapshots.snippets]] as const) {
+      await db().prepare("INSERT INTO run_configuration_snapshots(run_id,kind,payload) VALUES(?,?,?) ON CONFLICT(run_id,kind) DO UPDATE SET payload=excluded.payload").run(runId, kind, JSON.stringify(payload));
+    }
+  })();
+}
+
+export async function getRunConfigurationSnapshots(runId: string): Promise<Partial<RunConfigurationSnapshots>> {
+  const rows = await db().prepare("SELECT kind,payload FROM run_configuration_snapshots WHERE run_id=?").all(runId) as { kind: string; payload: string }[];
+  const result: Partial<RunConfigurationSnapshots> = {};
+  for (const row of rows) {
+    if (row.kind === "content_standards") result.contentStandards = JSON.parse(row.payload);
+    if (row.kind === "ground_truth") result.groundTruth = JSON.parse(row.payload);
+    if (row.kind === "snippets") result.snippets = JSON.parse(row.payload);
+  }
+  return result;
+}

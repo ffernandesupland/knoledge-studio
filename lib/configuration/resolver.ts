@@ -1,1 +1,98 @@
-aW1wb3J0IHR5cGUgeyBDb25maWd1cmF0aW9uUHJvZmlsZSwgQ29uZmlndXJhdGlvblJlc29sdXRpb25UYXJnZXQsIENvbmZpZ3VyYXRpb25TY29wZSB9IGZyb20gIi4vdHlwZXMiOw0KDQp0eXBlIFJlc29sdmFibGVDb25maWd1cmF0aW9uUHJvZmlsZSA9IFBpY2s8Q29uZmlndXJhdGlvblByb2ZpbGUsICJpZCIgfCAia2luZCIgfCAic2NvcGUiIHwgImlzRGVmYXVsdCIgfCAic3RhdHVzIj47DQoNCmV4cG9ydCB0eXBlIFJlc29sdXRpb25SZWFzb24gPSAiY29sbGVjdGlvbi1hbmQtdGF4b25vbXkiIHwgInRheG9ub215IiB8ICJjb2xsZWN0aW9uIiB8ICJjb21wYW55LWRlZmF1bHQiOw0KDQpleHBvcnQgaW50ZXJmYWNlIFJlc29sdmVkQ29uZmlndXJhdGlvblByb2ZpbGU8VCBleHRlbmRzIFJlc29sdmFibGVDb25maWd1cmF0aW9uUHJvZmlsZSA9IENvbmZpZ3VyYXRpb25Qcm9maWxlPiB7DQogIHByb2ZpbGU6IFQ7DQogIHJlYXNvbjogUmVzb2x1dGlvblJlYXNvbjsNCiAgbWF0Y2hlZFRheG9ub215Pzogc3RyaW5nOw0KfQ0KDQpleHBvcnQgY2xhc3MgQ29uZmlndXJhdGlvblJlc29sdXRpb25Db25mbGljdEVycm9yIGV4dGVuZHMgRXJyb3Igew0KICBjb25zdHJ1Y3RvcihwdWJsaWMgcHJvZmlsZUlkczogc3RyaW5nW10pIHsNCiAgICBzdXBlcihgQ29uZmlndXJhdGlvbiBwcm9maWxlcyBhcmUgZXF1YWxseSBzcGVjaWZpYyBmb3IgdGhpcyB0YXJnZXQ6ICR7cHJvZmlsZUlkcy5qb2luKCIsICIpfS4gUmVzb2x2ZSB0aGUgZHVwbGljYXRlIHNjb3BlIGJlZm9yZSBjb250aW51aW5nLmApOw0KICAgIHRoaXMubmFtZSA9ICJDb25maWd1cmF0aW9uUmVzb2x1dGlvbkNvbmZsaWN0RXJyb3IiOw0KICB9DQp9DQoNCmZ1bmN0aW9uIG5vcm1hbGl6ZWQodmFsdWU6IHN0cmluZyB8IHVuZGVmaW5lZCk6IHN0cmluZyB8IHVuZGVmaW5lZCB7CiAgY29uc3QgdHJpbW1lZCA9IHZhbHVlPy50cmltKCk7DQogIHJldHVybiB0cmltbWVkID8gdHJpbW1lZC50b0xvY2FsZUxvd2VyQ2FzZSgpIDogdW5kZWZpbmVkOw0KfQoKZnVuY3Rpb24gbm9ybWFsaXplZFZhbHVlcyh2YWx1ZXM6IHN0cmluZ1tdKTogc3RyaW5nW10gewogIHJldHVybiBbLi4ubmV3IFNldCh2YWx1ZXMubWFwKG5vcm1hbGl6ZWQpLmZpbHRlcigodmFsdWUpOiB2YWx1ZSBpcyBzdHJpbmcgPT4gISF2YWx1ZSkpXS5zb3J0KCk7Cn0KDQpmdW5jdGlvbiB0YXhvbm9teURlcHRoKHRheG9ub215OiBzdHJpbmcpOiBudW1iZXIgew0KICByZXR1cm4gdGF4b25vbXkuc3BsaXQoIi8vIikuZmlsdGVyKEJvb2xlYW4pLmxlbmd0aDsNCn0NCg0KLyoqIEEgdGF4b25vbXkgcHJvZmlsZSBhcHBsaWVzIHRvIGl0cyBleGFjdCBwYXRoIGFuZCBldmVyeSBkZXNjZW5kYW50IHBhdGguICovDQpleHBvcnQgZnVuY3Rpb24gdGF4b25vbXlNYXRjaGVzKHByb2ZpbGVUYXhvbm9teTogc3RyaW5nLCB0YXJnZXRUYXhvbm9teTogc3RyaW5nKTogYm9vbGVhbiB7DQogIGNvbnN0IHByb2ZpbGUgPSBub3JtYWxpemVkKHByb2ZpbGVUYXhvbm9teSk7DQogIGNvbnN0IHRhcmdldCA9IG5vcm1hbGl6ZWQodGFyZ2V0VGF4b25vbXkpOw0KICByZXR1cm4gISFwcm9maWxlICYmICEhdGFyZ2V0ICYmICh0YXJnZXQgPT09IHByb2ZpbGUgfHwgdGFyZ2V0LnN0YXJ0c1dpdGgoYCR7cHJvZmlsZX0vL2ApKTsNCn0NCg0KLyoqIENhbm9uaWNhbCBrZXkgdXNlZCBieSBwZXJzaXN0ZW5jZSB2YWxpZGF0aW9uIHRvIHByZXZlbnQgZHVwbGljYXRlIGFjdGl2ZSBzY29wZXMuICovDQpleHBvcnQgZnVuY3Rpb24gY29uZmlndXJhdGlvblNjb3BlS2V5KHNjb3BlOiBDb25maWd1cmF0aW9uU2NvcGUsIGlzRGVmYXVsdDogYm9vbGVhbik6IHN0cmluZyB7CiAgaWYgKGlzRGVmYXVsdCkgcmV0dXJuICJkZWZhdWx0IjsKICByZXR1cm4gSlNPTi5zdHJpbmdpZnkoeyBjb2xsZWN0aW9uczogbm9ybWFsaXplZFZhbHVlcyhzY29wZS5jb2xsZWN0aW9ucyksIHRheG9ub21pZXM6IG5vcm1hbGl6ZWRWYWx1ZXMoc2NvcGUudGF4b25vbWllcyksIG9wZXJhdG9yOiBzY29wZS5vcGVyYXRvciB9KTsKfQ0KDQpleHBvcnQgZnVuY3Rpb24gZmluZFNjb3BlQ29uZmxpY3RzKHByb2ZpbGVzOiBDb25maWd1cmF0aW9uUHJvZmlsZVtdLCBjYW5kaWRhdGU6IFBpY2s8Q29uZmlndXJhdGlvblByb2ZpbGUsICJpZCIgfCAia2luZCIgfCAic2NvcGUiIHwgImlzRGVmYXVsdCIgfCAic3RhdHVzIj4pOiBDb25maWd1cmF0aW9uUHJvZmlsZVtdIHsNCiAgaWYgKGNhbmRpZGF0ZS5zdGF0dXMgIT09ICJhY3RpdmUiKSByZXR1cm4gW107DQogIGNvbnN0IGtleSA9IGNvbmZpZ3VyYXRpb25TY29wZUtleShjYW5kaWRhdGUuc2NvcGUsIGNhbmRpZGF0ZS5pc0RlZmF1bHQpOw0KICByZXR1cm4gcHJvZmlsZXMuZmlsdGVyKChwcm9maWxlKSA9PiBwcm9maWxlLmlkICE9PSBjYW5kaWRhdGUuaWQgJiYgcHJvZmlsZS5zdGF0dXMgPT09ICJhY3RpdmUiICYmIHByb2ZpbGUua2luZCA9PT0gY2FuZGlkYXRlLmtpbmQgJiYgY29uZmlndXJhdGlvblNjb3BlS2V5KHByb2ZpbGUuc2NvcGUsIHByb2ZpbGUuaXNEZWZhdWx0KSA9PT0ga2V5KTsNCn0NCg0KaW50ZXJmYWNlIENhbmRpZGF0ZTxUIGV4dGVuZHMgUmVzb2x2YWJsZUNvbmZpZ3VyYXRpb25Qcm9maWxlPiB7DQogIHByb2ZpbGU6IFQ7DQogIHJlYXNvbjogUmVzb2x1dGlvblJlYXNvbjsNCiAgc2NvcmU6IG51bWJlcjsNCiAgbWF0Y2hlZFRheG9ub215Pzogc3RyaW5nOw0KfQ0KDQpmdW5jdGlvbiByZXNvbHZlQ2FuZGlkYXRlPFQgZXh0ZW5kcyBSZXNvbHZhYmxlQ29uZmlndXJhdGlvblByb2ZpbGU+KHByb2ZpbGU6IFQsIHRhcmdldDogQ29uZmlndXJhdGlvblJlc29sdXRpb25UYXJnZXQpOiBDYW5kaWRhdGU8VD4gfCB1bmRlZmluZWQgewogIGlmIChwcm9maWxlLnN0YXR1cyAhPT0gImFjdGl2ZSIpIHJldHVybiB1bmRlZmluZWQ7CiAgY29uc3QgcHJvZmlsZUNvbGxlY3Rpb25zID0gbm9ybWFsaXplZFZhbHVlcyhwcm9maWxlLnNjb3BlLmNvbGxlY3Rpb25zKTsKICBjb25zdCBwcm9maWxlVGF4b25vbWllcyA9IG5vcm1hbGl6ZWRWYWx1ZXMocHJvZmlsZS5zY29wZS50YXhvbm9taWVzKTsKICBjb25zdCBjb2xsZWN0aW9ucyA9ICh0YXJnZXQuY29sbGVjdGlvbnMgPz8gW10pLm1hcChub3JtYWxpemVkKS5maWx0ZXIoKHZhbHVlKTogdmFsdWUgaXMgc3RyaW5nID0+ICEhdmFsdWUpOwogIGNvbnN0IHRheG9ub21pZXMgPSB0YXJnZXQudGF4b25vbWllcyA/PyBbXTsKICBjb25zdCBjb2xsZWN0aW9uTWF0Y2hlcyA9IHByb2ZpbGVDb2xsZWN0aW9ucy5zb21lKGNvbGxlY3Rpb24gPT4gY29sbGVjdGlvbnMuaW5jbHVkZXMoY29sbGVjdGlvbikpOwogIGNvbnN0IG1hdGNoZWRUYXhvbm9taWVzID0gcHJvZmlsZVRheG9ub21pZXMuZmxhdE1hcCh0YXhvbm9teSA9PiB0YXhvbm9taWVzLmZpbHRlcih2YWx1ZSA9PiB0YXhvbm9teU1hdGNoZXModGF4b25vbXksIHZhbHVlKSkubWFwKHZhbHVlID0+ICh7IHByb2ZpbGVUYXhvbm9teTogdGF4b25vbXksIHRhcmdldFRheG9ub215OiB2YWx1ZSB9KSkpOwogIGNvbnN0IG1hdGNoZWRUYXhvbm9teSA9IG1hdGNoZWRUYXhvbm9taWVzLnNvcnQoKGEsIGIpID0+IHRheG9ub215RGVwdGgoYi5wcm9maWxlVGF4b25vbXkpIC0gdGF4b25vbXlEZXB0aChhLnByb2ZpbGVUYXhvbm9teSkpWzBdOwogIGNvbnN0IGhhc0NvbGxlY3Rpb25zID0gcHJvZmlsZUNvbGxlY3Rpb25zLmxlbmd0aCA+IDA7CiAgY29uc3QgaGFzVGF4b25vbWllcyA9IHByb2ZpbGVUYXhvbm9taWVzLmxlbmd0aCA+IDA7CiAgY29uc3QgcG9wdWxhdGVkRGltZW5zaW9ucyA9IE51bWJlcihoYXNDb2xsZWN0aW9ucykgKyBOdW1iZXIoaGFzVGF4b25vbWllcyk7CiAgY29uc3QgbWF0Y2hlcyA9IHByb2ZpbGUuc2NvcGUub3BlcmF0b3IgPT09ICJhbmQiCiAgICA/ICghaGFzQ29sbGVjdGlvbnMgfHwgY29sbGVjdGlvbk1hdGNoZXMpICYmICghaGFzVGF4b25vbWllcyB8fCAhIW1hdGNoZWRUYXhvbm9teSkKICAgIDogY29sbGVjdGlvbk1hdGNoZXMgfHwgISFtYXRjaGVkVGF4b25vbXk7CgogIGlmIChwb3B1bGF0ZWREaW1lbnNpb25zICYmIG1hdGNoZXMpIHsKICAgIGNvbnN0IHJlYXNvbjogUmVzb2x1dGlvblJlYXNvbiA9IHBvcHVsYXRlZERpbWVuc2lvbnMgPT09IDIgJiYgY29sbGVjdGlvbk1hdGNoZXMgJiYgbWF0Y2hlZFRheG9ub215ID8gImNvbGxlY3Rpb24tYW5kLXRheG9ub215IiA6IG1hdGNoZWRUYXhvbm9teSA/ICJ0YXhvbm9teSIgOiAiY29sbGVjdGlvbiI7CiAgICBjb25zdCBzY29yZSA9IHBvcHVsYXRlZERpbWVuc2lvbnMgPT09IDIgJiYgY29sbGVjdGlvbk1hdGNoZXMgJiYgbWF0Y2hlZFRheG9ub215ID8gNDBfMDAwICsgdGF4b25vbXlEZXB0aChtYXRjaGVkVGF4b25vbXkucHJvZmlsZVRheG9ub215KQogICAgICA6IG1hdGNoZWRUYXhvbm9teSA/IDMwXzAwMCArIHRheG9ub215RGVwdGgobWF0Y2hlZFRheG9ub215LnByb2ZpbGVUYXhvbm9teSkKICAgICAgICA6IDIwXzAwMDsKICAgIHJldHVybiB7IHByb2ZpbGUsIHJlYXNvbiwgc2NvcmUsIC4uLihtYXRjaGVkVGF4b25vbXkgPyB7IG1hdGNoZWRUYXhvbm9teTogbWF0Y2hlZFRheG9ub215LnRhcmdldFRheG9ub215IH0gOiB7fSkgfTsKICB9CiAgaWYgKCFoYXNDb2xsZWN0aW9ucyAmJiAhaGFzVGF4b25vbWllcyAmJiBwcm9maWxlLmlzRGVmYXVsdCkgcmV0dXJuIHsgcHJvZmlsZSwgcmVhc29uOiAiY29tcGFueS1kZWZhdWx0Iiwgc2NvcmU6IDEwXzAwMCB9OwogIHJldHVybiB1bmRlZmluZWQ7Cn0KDQovKioNCiAqIFJlc29sdmVzIGV4YWN0bHkgb25lIGFjdGl2ZSBwcm9maWxlLiBBIHNwZWNpZmljIHByb2ZpbGUgcmVwbGFjZXMgdGhlIGNvbXBhbnkgZGVmYXVsdDsNCiAqIHByb2ZpbGVzIGFyZSBuZXZlciBzaWxlbnRseSBtZXJnZWQgYmVjYXVzZSB0aGF0IHdvdWxkIG1ha2UgYXV0aG9yZWQgcnVsZXMgbm9uLWRldGVybWluaXN0aWMuDQogKi8NCmV4cG9ydCBmdW5jdGlvbiByZXNvbHZlQ29uZmlndXJhdGlvblByb2ZpbGU8VCBleHRlbmRzIFJlc29sdmFibGVDb25maWd1cmF0aW9uUHJvZmlsZT4ocHJvZmlsZXM6IFRbXSwgdGFyZ2V0OiBDb25maWd1cmF0aW9uUmVzb2x1dGlvblRhcmdldCk6IFJlc29sdmVkQ29uZmlndXJhdGlvblByb2ZpbGU8VD4gfCB1bmRlZmluZWQgew0KICBjb25zdCBjYW5kaWRhdGVzID0gcHJvZmlsZXMubWFwKChwcm9maWxlKSA9PiByZXNvbHZlQ2FuZGlkYXRlKHByb2ZpbGUsIHRhcmdldCkpLmZpbHRlcigodmFsdWUpOiB2YWx1ZSBpcyBDYW5kaWRhdGU8VD4gPT4gISF2YWx1ZSk7DQogIGlmICghY2FuZGlkYXRlcy5sZW5ndGgpIHJldHVybiB1bmRlZmluZWQ7DQogIGNvbnN0IGhpZ2hlc3RTY29yZSA9IE1hdGgubWF4KC4uLmNhbmRpZGF0ZXMubWFwKChjYW5kaWRhdGUpID0+IGNhbmRpZGF0ZS5zY29yZSkpOw0KICBjb25zdCB3aW5uZXJzID0gY2FuZGlkYXRlcy5maWx0ZXIoKGNhbmRpZGF0ZSkgPT4gY2FuZGlkYXRlLnNjb3JlID09PSBoaWdoZXN0U2NvcmUpOw0KICBpZiAod2lubmVycy5sZW5ndGggPiAxKSB0aHJvdyBuZXcgQ29uZmlndXJhdGlvblJlc29sdXRpb25Db25mbGljdEVycm9yKHdpbm5lcnMubWFwKChjYW5kaWRhdGUpID0+IGNhbmRpZGF0ZS5wcm9maWxlLmlkKSk7DQogIGNvbnN0IHdpbm5lciA9IHdpbm5lcnNbMF07DQogIHJldHVybiB7IHByb2ZpbGU6IHdpbm5lci5wcm9maWxlLCByZWFzb246IHdpbm5lci5yZWFzb24sIC4uLih3aW5uZXIubWF0Y2hlZFRheG9ub215ID8geyBtYXRjaGVkVGF4b25vbXk6IHdpbm5lci5tYXRjaGVkVGF4b25vbXkgfSA6IHt9KSB9Ow0KfQ0K
+import type { ConfigurationProfile, ConfigurationResolutionTarget, ConfigurationScope } from "./types";
+
+type ResolvableConfigurationProfile = Pick<ConfigurationProfile, "id" | "kind" | "scope" | "isDefault" | "status">;
+
+export type ResolutionReason = "collection-and-taxonomy" | "taxonomy" | "collection" | "company-default";
+
+export interface ResolvedConfigurationProfile<T extends ResolvableConfigurationProfile = ConfigurationProfile> {
+  profile: T;
+  reason: ResolutionReason;
+  matchedTaxonomy?: string;
+}
+
+export class ConfigurationResolutionConflictError extends Error {
+  constructor(public profileIds: string[]) {
+    super(`Configuration profiles are equally specific for this target: ${profileIds.join(", ")}. Resolve the duplicate scope before continuing.`);
+    this.name = "ConfigurationResolutionConflictError";
+  }
+}
+
+function normalized(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLocaleLowerCase() : undefined;
+}
+
+function normalizedValues(values: string[]): string[] {
+  return [...new Set(values.map(normalized).filter((value): value is string => !!value))].sort();
+}
+
+function taxonomyDepth(taxonomy: string): number {
+  return taxonomy.split("//").filter(Boolean).length;
+}
+
+/** A taxonomy profile applies to its exact path and every descendant path. */
+export function taxonomyMatches(profileTaxonomy: string, targetTaxonomy: string): boolean {
+  const profile = normalized(profileTaxonomy);
+  const target = normalized(targetTaxonomy);
+  return !!profile && !!target && (target === profile || target.startsWith(`${profile}//`));
+}
+
+/** Canonical key used by persistence validation to prevent duplicate active scopes. */
+export function configurationScopeKey(scope: ConfigurationScope, isDefault: boolean): string {
+  if (isDefault) return "default";
+  return JSON.stringify({ collections: normalizedValues(scope.collections), taxonomies: normalizedValues(scope.taxonomies), operator: scope.operator });
+}
+
+export function findScopeConflicts(profiles: ConfigurationProfile[], candidate: Pick<ConfigurationProfile, "id" | "kind" | "scope" | "isDefault" | "status">): ConfigurationProfile[] {
+  if (candidate.status !== "active") return [];
+  const key = configurationScopeKey(candidate.scope, candidate.isDefault);
+  return profiles.filter((profile) => profile.id !== candidate.id && profile.status === "active" && profile.kind === candidate.kind && configurationScopeKey(profile.scope, profile.isDefault) === key);
+}
+
+interface Candidate<T extends ResolvableConfigurationProfile> {
+  profile: T;
+  reason: ResolutionReason;
+  score: number;
+  matchedTaxonomy?: string;
+}
+
+function resolveCandidate<T extends ResolvableConfigurationProfile>(profile: T, target: ConfigurationResolutionTarget): Candidate<T> | undefined {
+  if (profile.status !== "active") return undefined;
+  const profileCollections = normalizedValues(profile.scope.collections);
+  const profileTaxonomies = normalizedValues(profile.scope.taxonomies);
+  const collections = (target.collections ?? []).map(normalized).filter((value): value is string => !!value);
+  const taxonomies = target.taxonomies ?? [];
+  const collectionMatches = profileCollections.some(collection => collections.includes(collection));
+  const matchedTaxonomies = profileTaxonomies.flatMap(taxonomy => taxonomies.filter(value => taxonomyMatches(taxonomy, value)).map(value => ({ profileTaxonomy: taxonomy, targetTaxonomy: value })));
+  const matchedTaxonomy = matchedTaxonomies.sort((a, b) => taxonomyDepth(b.profileTaxonomy) - taxonomyDepth(a.profileTaxonomy))[0];
+  const hasCollections = profileCollections.length > 0;
+  const hasTaxonomies = profileTaxonomies.length > 0;
+  const populatedDimensions = Number(hasCollections) + Number(hasTaxonomies);
+  const matches = profile.scope.operator === "and"
+    ? (!hasCollections || collectionMatches) && (!hasTaxonomies || !!matchedTaxonomy)
+    : collectionMatches || !!matchedTaxonomy;
+
+  if (populatedDimensions && matches) {
+    const reason: ResolutionReason = populatedDimensions === 2 && collectionMatches && matchedTaxonomy ? "collection-and-taxonomy" : matchedTaxonomy ? "taxonomy" : "collection";
+    const score = populatedDimensions === 2 && collectionMatches && matchedTaxonomy ? 40_000 + taxonomyDepth(matchedTaxonomy.profileTaxonomy)
+      : matchedTaxonomy ? 30_000 + taxonomyDepth(matchedTaxonomy.profileTaxonomy)
+        : 20_000;
+    return { profile, reason, score, ...(matchedTaxonomy ? { matchedTaxonomy: matchedTaxonomy.targetTaxonomy } : {}) };
+  }
+  if (!hasCollections && !hasTaxonomies && profile.isDefault) return { profile, reason: "company-default", score: 10_000 };
+  return undefined;
+}
+
+/**
+ * Resolves exactly one active profile. A specific profile replaces the company default;
+ * profiles are never silently merged because that would make authored rules non-deterministic.
+ */
+export function resolveConfigurationProfile<T extends ResolvableConfigurationProfile>(profiles: T[], target: ConfigurationResolutionTarget): ResolvedConfigurationProfile<T> | undefined {
+  const candidates = profiles.map((profile) => resolveCandidate(profile, target)).filter((value): value is Candidate<T> => !!value);
+  if (!candidates.length) return undefined;
+  const highestScore = Math.max(...candidates.map((candidate) => candidate.score));
+  const winners = candidates.filter((candidate) => candidate.score === highestScore);
+  if (winners.length > 1) throw new ConfigurationResolutionConflictError(winners.map((candidate) => candidate.profile.id));
+  const winner = winners[0];
+  return { profile: winner.profile, reason: winner.reason, ...(winner.matchedTaxonomy ? { matchedTaxonomy: winner.matchedTaxonomy } : {}) };
+}

@@ -1,1 +1,34 @@
-aW1wb3J0IHsgYWZ0ZXJBbGwsIGJlZm9yZUFsbCwgZXhwZWN0LCBpdCwgdmkgfSBmcm9tICJ2aXRlc3QiOw0KaW1wb3J0IHsgbWtkdGVtcFN5bmMsIHJtU3luYyB9IGZyb20gIm5vZGU6ZnMiOw0KaW1wb3J0IHsgdG1wZGlyIH0gZnJvbSAibm9kZTpvcyI7DQppbXBvcnQgcGF0aCBmcm9tICJub2RlOnBhdGgiOw0KaW1wb3J0IHsgY2xvc2VEYXRhYmFzZSwgdXNlRGF0YWJhc2UgfSBmcm9tICIuLi9kYiI7DQppbXBvcnQgeyBjcmVhdGVSdW4gfSBmcm9tICIuLi9kYi9ydW5zIjsNCmltcG9ydCB7IGNyZWF0ZUNvbmZpZ3VyYXRpb25Qcm9maWxlIH0gZnJvbSAiLi9zdG9yZSI7DQppbXBvcnQgeyBjcmVhdGVTbmlwcGV0IH0gZnJvbSAiLi9zbmlwcGV0cyI7DQppbXBvcnQgeyBjYXB0dXJlUnVuQ29uZmlndXJhdGlvblNuYXBzaG90cywgZ2V0UnVuQ29uZmlndXJhdGlvblNuYXBzaG90cywgc2F2ZVJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMgfSBmcm9tICIuL3NuYXBzaG90cyI7DQoNCnZpLm1vY2soIi4uL3JhL2NsaWVudCIsICgpID0+ICh7IHJhOiB7IGdldFNvbHV0aW9uOiB2aS5mbigpIH0gfSkpOw0KbGV0IGRpcmVjdG9yeTogc3RyaW5nOw0KDQpiZWZvcmVBbGwoKCkgPT4gew0KICBkaXJlY3RvcnkgPSBta2R0ZW1wU3luYyhwYXRoLmpvaW4odG1wZGlyKCksICJrcy1jb25maWctc25hcHNob3QtIikpOw0KICB1c2VEYXRhYmFzZShwYXRoLmpvaW4oZGlyZWN0b3J5LCAidGVzdC5kYiIpKTsNCn0pOw0KYWZ0ZXJBbGwoKCkgPT4gew0KICBjbG9zZURhdGFiYXNlKCk7DQogIHRyeSB7IHJtU3luYyhkaXJlY3RvcnksIHsgcmVjdXJzaXZlOiB0cnVlLCBmb3JjZTogdHJ1ZSB9KTsgfSBjYXRjaCB7IC8qIEJlc3QtZWZmb3J0IFdpbmRvd3MgY2xlYW51cC4gKi8gfQ0KfSk7DQoNCml0KCJmcmVlemVzIGFjdGl2ZSBjb25maWd1cmF0aW9uIGNvbnRlbnQgYW5kIHNuaXBwZXRzIHdpdGggYSBydW4iLCBhc3luYyAoKSA9PiB7DQogIGF3YWl0IGNyZWF0ZUNvbmZpZ3VyYXRpb25Qcm9maWxlKHsgY29ubmVjdGlvbklkOiAiZW52aXJvbm1lbnQiLCBjcmVhdGVkQnk6ICJvcGVyYXRvciIsIGRyYWZ0OiB7IGtpbmQ6ICJjb250ZW50X3N0YW5kYXJkIiwgbmFtZTogIkNvbXBhbnkgc3RhbmRhcmQiLCBpc0RlZmF1bHQ6IHRydWUsIHNvdXJjZXM6IFt7IHR5cGU6ICJ0ZXh0IiwgdGV4dDogIlVzZSBudW1iZXJlZCBzdGVwcy4iIH1dIH0gfSk7DQogIGF3YWl0IGNyZWF0ZUNvbmZpZ3VyYXRpb25Qcm9maWxlKHsgY29ubmVjdGlvbklkOiAiZW52aXJvbm1lbnQiLCBjcmVhdGVkQnk6ICJvcGVyYXRvciIsIGRyYWZ0OiB7IGtpbmQ6ICJncm91bmRfdHJ1dGgiLCBuYW1lOiAiVlBOIHJlZmVyZW5jZSIsIHNjb3BlOiB7IHRheG9ub215OiAiUHJvZHVjdHMvL1ZQTiIgfSwgc291cmNlczogW3sgdHlwZTogInRleHQiLCB0ZXh0OiAiTWFuYWdlZCBkZXZpY2VzIG9ubHkuIiB9XSB9IH0pOw0KICBhd2FpdCBjcmVhdGVTbmlwcGV0KHsgY29ubmVjdGlvbklkOiAiZW52aXJvbm1lbnQiLCBjcmVhdGVkQnk6ICJvcGVyYXRvciIsIGRyYWZ0OiB7IG5hbWU6ICJQcmVyZXF1aXNpdGVzIiwgcHVycG9zZTogIlVzZSBiZWZvcmUgcHJvY2VkdXJlcy4iLCBodG1sOiAiPHNlY3Rpb24+PGgzPlByZXJlcXVpc2l0ZXM8L2gzPjxwPlVzZSBhIG1hbmFnZWQgZGV2aWNlLjwvcD48L3NlY3Rpb24+IiwgYWN0aXZlOiB0cnVlLCBzY29wZToge30gfSB9KTsNCiAgY29uc3Qgc25hcHNob3RzID0gYXdhaXQgY2FwdHVyZVJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMoImVudmlyb25tZW50IiwgIm9wZXJhdG9yIik7DQogIGV4cGVjdChzbmFwc2hvdHMuY29udGVudFN0YW5kYXJkcy5wcm9maWxlc1swXS5zb3VyY2VzWzBdKS50b01hdGNoT2JqZWN0KHsgY29udGVudDogIlVzZSBudW1iZXJlZCBzdGVwcy4iLCB2ZXJzaW9uOiBleHBlY3Quc3RyaW5nTWF0Y2hpbmcoL15cd3s2NH0kLykgfSk7DQogIGV4cGVjdChzbmFwc2hvdHMuZ3JvdW5kVHJ1dGgucHJvZmlsZXNbMF0uc2NvcGUudGF4b25vbWllcykudG9FcXVhbChbIlByb2R1Y3RzLy9WUE4iXSk7CiAgZXhwZWN0KHNuYXBzaG90cy5zbmlwcGV0cy5zbmlwcGV0cykudG9IYXZlTGVuZ3RoKDEpOw0KICBhd2FpdCBjcmVhdGVSdW4oeyBpZDogImNvbmZpZ3VyYXRpb24tcnVuIiwgYXV0aG9yOiAib3BlcmF0b3IiLCBwYXRoOiAiY3JlYXRlIiwgaW5wdXRUZXh0OiAiV3JpdGUgYSBndWlkZSIsIHNvdXJjZUlkczogW10sIG9wZXJhdGlvbnM6IFtdIH0pOw0KICBhd2FpdCBzYXZlUnVuQ29uZmlndXJhdGlvblNuYXBzaG90cygiY29uZmlndXJhdGlvbi1ydW4iLCBzbmFwc2hvdHMpOw0KICBleHBlY3QoKGF3YWl0IGdldFJ1bkNvbmZpZ3VyYXRpb25TbmFwc2hvdHMoImNvbmZpZ3VyYXRpb24tcnVuIikpLmNvbnRlbnRTdGFuZGFyZHM/LnByb2ZpbGVzWzBdLm5hbWUpLnRvQmUoIkNvbXBhbnkgc3RhbmRhcmQiKTsNCn0pOw0K
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { closeDatabase, useDatabase } from "../db";
+import { createRun } from "../db/runs";
+import { createConfigurationProfile } from "./store";
+import { createSnippet } from "./snippets";
+import { captureRunConfigurationSnapshots, getRunConfigurationSnapshots, saveRunConfigurationSnapshots } from "./snapshots";
+
+vi.mock("../ra/client", () => ({ ra: { getSolution: vi.fn() } }));
+let directory: string;
+
+beforeAll(() => {
+  directory = mkdtempSync(path.join(tmpdir(), "ks-config-snapshot-"));
+  useDatabase(path.join(directory, "test.db"));
+});
+afterAll(() => {
+  closeDatabase();
+  try { rmSync(directory, { recursive: true, force: true }); } catch { /* Best-effort Windows cleanup. */ }
+});
+
+it("freezes active configuration content and snippets with a run", async () => {
+  await createConfigurationProfile({ connectionId: "environment", createdBy: "operator", draft: { kind: "content_standard", name: "Company standard", isDefault: true, sources: [{ type: "text", text: "Use numbered steps." }] } });
+  await createConfigurationProfile({ connectionId: "environment", createdBy: "operator", draft: { kind: "ground_truth", name: "VPN reference", scope: { taxonomy: "Products//VPN" }, sources: [{ type: "text", text: "Managed devices only." }] } });
+  await createSnippet({ connectionId: "environment", createdBy: "operator", draft: { name: "Prerequisites", purpose: "Use before procedures.", html: "<section><h3>Prerequisites</h3><p>Use a managed device.</p></section>", active: true, scope: {} } });
+  const snapshots = await captureRunConfigurationSnapshots("environment", "operator");
+  expect(snapshots.contentStandards.profiles[0].sources[0]).toMatchObject({ content: "Use numbered steps.", version: expect.stringMatching(/^\w{64}$/) });
+  expect(snapshots.groundTruth.profiles[0].scope.taxonomies).toEqual(["Products//VPN"]);
+  expect(snapshots.snippets.snippets).toHaveLength(1);
+  await createRun({ id: "configuration-run", author: "operator", path: "create", inputText: "Write a guide", sourceIds: [], operations: [] });
+  await saveRunConfigurationSnapshots("configuration-run", snapshots);
+  expect((await getRunConfigurationSnapshots("configuration-run")).contentStandards?.profiles[0].name).toBe("Company standard");
+});

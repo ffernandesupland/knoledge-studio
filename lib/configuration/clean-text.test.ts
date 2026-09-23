@@ -1,1 +1,10 @@
-aW1wb3J0IHsgZXhwZWN0LCBpdCB9IGZyb20gInZpdGVzdCI7CmltcG9ydCB7IGNsZWFuQ29uZmlndXJhdGlvblRleHQgfSBmcm9tICIuL2NsZWFuLXRleHQiOwoKaXQoInJlcGFpcnMgY29tbW9uIGV4dHJhY3RlZC1kb2N1bWVudCBtb2ppYmFrZSB3aXRob3V0IGZsYXR0ZW5pbmcgcGFyYWdyYXBocyIsICgpID0+IHsKICBleHBlY3QoY2xlYW5Db25maWd1cmF0aW9uVGV4dCgiUHJvdGVjdGl2ZcOiwoDCmXMgIGd1aWRlw4LCoFxyXG5cclxuVXNlICBjbGVhclx0c3RlcHMuXHUwMDAwIikpLnRvQmUoIlByb3RlY3RpdmXigJlzIGd1aWRlXG5cblVzZSBjbGVhciBzdGVwcy4iKTsKfSk7CgppdCgiZG9lcyBub3QgdHVybiBhbiBpbnZhbGlkIGJ5dGUgc2VxdWVuY2UgaW50byByZXBsYWNlbWVudCBjaGFyYWN0ZXJzIiwgKCkgPT4gewogIGV4cGVjdChjbGVhbkNvbmZpZ3VyYXRpb25UZXh0KCJLZWVwIMOCIHRoaXMgbGl0ZXJhbCBtYWxmb3JtZWQgbWFya2VyIikpLnRvQmUoIktlZXAgw4IgdGhpcyBsaXRlcmFsIG1hbGZvcm1lZCBtYXJrZXIiKTsKfSk7Cg==
+import { expect, it } from "vitest";
+import { cleanConfigurationText } from "./clean-text";
+
+it("repairs common extracted-document mojibake without flattening paragraphs", () => {
+  expect(cleanConfigurationText("Protectiveâs  guideÂ \r\n\r\nUse  clear\tsteps.\u0000")).toBe("Protective’s guide\n\nUse clear steps.");
+});
+
+it("does not turn an invalid byte sequence into replacement characters", () => {
+  expect(cleanConfigurationText("Keep Â this literal malformed marker")).toBe("Keep Â this literal malformed marker");
+});
