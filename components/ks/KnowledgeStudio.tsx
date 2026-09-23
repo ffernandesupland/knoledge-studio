@@ -62,6 +62,7 @@ function remapFieldsToTemplate(
 }
 
 type Screen = StepId;
+type InputMode = "simple" | "advanced";
 type RaConnection = { id: string; name: string; baseUrl: string; user: string; isDefault: boolean };
 
 const ACTION_CLASS: Record<string, string> = {
@@ -104,6 +105,17 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   // A handoff already has an explicit intent. Start on Improve synchronously so the
   // Create/Improve/Gap chooser never flashes before its source loads.
   const [path, setPath] = useState<PathKey | null>(() => initialLaunchId || initialReviewHandoffId || initialSource ? "improve" : null);
+  const [inputMode, setInputMode] = useState<InputMode>("simple");
+  const [inputModeMessage, setInputModeMessage] = useState("");
+  function setInputPresentation(mode: InputMode) {
+    setInputMode(mode);
+    setInputModeMessage(mode === "advanced"
+      ? "Advanced options shown. Your current inputs are preserved."
+      : "Advanced options hidden. Your current inputs are preserved.");
+  }
+  function toggleInputPresentation() {
+    setInputPresentation(inputMode === "advanced" ? "simple" : "advanced");
+  }
   const [contentText, setContentText] = useState("");
   const [sourceContent, setSourceContent] = useState<SourceBlock[]>([{ id: "text-start", type: "text", text: "" }]);
   function changeSourceContent(blocks: SourceBlock[]) {
@@ -528,6 +540,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setReviewHandoff(null);
     setScreen("input");
     setPath(null);
+    setInputMode("simple");
+    setInputModeMessage("");
     setContentText(""); setSourceContent([{ id: "text-start", type: "text", text: "" }]); setDemandSpecification(emptyDemandSpecification());
     setAttachments([]);
     setDragOver(false);
@@ -717,6 +731,11 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       </section>}
       <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>Preparing the draft always applies selected review findings, even if optional analysis toggles are changed. HTML-compatible formatting is applied to fields; title-rendering requirements are retained as an explicit limitation because a RightAnswers title is plain-text metadata. No analysis or write starts automatically.</div>
     </div>;
+    const advancedSettings = [
+      groundContext.enabled ? `Ground Context: ${groundContext.referenceSolutionIds.length} reference${groundContext.referenceSolutionIds.length === 1 ? "" : "s"}` : null,
+      hasDemandRequirements(demandSpecification) ? `Demand requirements: ${demandSpecification.directives.filter((directive) => directive.text.trim()).length + (demandSpecification.intent.trim() ? 1 : 0)}` : null,
+      autoMode ? "Autonomous run enabled" : null,
+    ].filter((setting): setting is string => !!setting);
     if (!path) {
       return (
         <div className="ks-scroll">
@@ -862,50 +881,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               showToast={showToast}
             />
           </div>
-          <section className="ks-card" aria-labelledby="demand-requirements-title">
-            <div className="ks-card-head">
-              <span className="ms">assignment</span><span id="demand-requirements-title">Demand requirements</span>
-            </div>
-            <div style={{ padding: "0 20px 20px" }}>
-              <p style={{ margin: "0 0 14px", color: T.textSecondary, fontSize: 13, lineHeight: 1.55 }}>Describe the outcome, audience, constraints, or format that this work must follow. Requirements guide the plan and draft; they never add facts, change permissions, or bypass review.</p>
-              <label className="form-label" htmlFor="demand-intent">Desired outcome <span className="req">Optional</span>
-                <textarea id="demand-intent" className="form-textarea" rows={3} maxLength={2000} value={demandSpecification.intent} onChange={(event) => updateDemandSpecification((current) => ({ ...current, intent: event.target.value }))} placeholder="Example: Create a field-technician procedure with prerequisites, numbered steps, validation, and escalation guidance." />
-              </label>
-              <div style={{ display: "grid", gap: 10, marginTop: 14 }} aria-label="Specific requirements">
-                {demandSpecification.directives.map((directive, index) => <div className="ks-demand-directive" key={directive.id}>
-                  <label className="form-label" style={{ margin: 0 }}>
-                    <span className="sr-only">Requirement {index + 1}</span>
-                    <textarea className="form-textarea" rows={2} maxLength={1000} value={directive.text} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, text: event.target.value } : item) }))} placeholder="Example: Do not state a time limit unless the source explicitly supports it." />
-                  </label>
-                  <label className="form-label" style={{ margin: 0 }}>Priority
-                    <select className="form-input" value={directive.priority} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, priority: event.target.value as "required" | "preferred" } : item) }))}>
-                      <option value="required">Required</option>
-                      <option value="preferred">Preferred</option>
-                    </select>
-                  </label>
-                  <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 22, height: 40 }} aria-label={`Remove requirement ${index + 1}`} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: current.directives.filter((item) => item.id !== directive.id) }))}><span className="ms" aria-hidden="true">delete</span></button>
-                </div>)}
-              </div>
-              <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} disabled={demandSpecification.directives.length >= 12} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: [...current.directives, { id: `operator-${crypto.randomUUID()}`, text: "", priority: "required", appliesTo: [...DEMAND_STAGES] }] }))}><span className="ms" aria-hidden="true">add</span>Add requirement</button>
-              <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12, marginLeft: 10 }} disabled={demandPlanning || !hasDemandRequirements(demandSpecification)} onClick={() => void recommendWorkflow()}><span className="ms" aria-hidden="true">auto_awesome</span>{demandPlanning ? "Recommending workflow…" : "Recommend workflow"}</button>
-              {demandRecommendation && <section aria-label="Workflow recommendation" style={{ marginTop: 16, padding: 14, border: `1px solid ${T.accentLight15}`, borderRadius: 6, background: T.bgPrimary }}>
-                <strong style={{ color: T.textPrimary }}>Recommended workflow</strong>
-                <p style={{ margin: "6px 0", color: T.textSecondary, fontSize: 12 }}>{demandRecommendation.recommendation.rationale}</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0" }}>{demandRecommendation.recommendation.recommendedOperations.length ? demandRecommendation.recommendation.recommendedOperations.map((operation) => <span className="ks-chip" key={operation}>{operation}</span>) : <span style={{ color: T.textSecondary, fontSize: 12 }}>No optional operation is recommended.</span>}</div>
-                {demandRecommendation.recommendation.questions.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Questions:</strong> {demandRecommendation.recommendation.questions.join(" · ")}</p>}
-                {demandRecommendation.recommendation.evidenceGaps.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Evidence gaps:</strong> {demandRecommendation.recommendation.evidenceGaps.join(" · ")}</p>}
-                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>{demandRecommendation.status === "accepted" ? <span style={{ color: T.success, fontSize: 12, alignSelf: "center" }}>Applied to this run</span> : <><button type="button" className="ds-btn ds-btn-primary" onClick={() => void applyDemandRecommendation()}><span className="ms" aria-hidden="true">check</span>Apply recommendation</button><button type="button" className="ds-btn ds-btn-secondary" onClick={() => void dismissDemandRecommendation()}>Dismiss</button></>}</div>
-              </section>}
-              <p style={{ margin: "10px 0 0", color: T.textSecondary, fontSize: 11 }}>Requirements apply to planning, drafting, merging, standards, and quality checks where compatible. If a requirement needs unsupported facts, the draft stays in review for a human decision.</p>
-            </div>
-          </section>
-          <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
-          <div className="ks-card auto-option">
-            <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p>
-            </div>
-            <button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode(value => !value)} />
-            {autoCapability?.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
-          </div>
           <div className="ks-card">
             <div className="ks-card-head">
               <span className="ms">tune</span>Choose what to do
@@ -936,6 +911,65 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               ))}
             </div>
           </div>
+          <section className="ks-advanced-toggle" aria-label="Advanced options">
+            <p className="sr-only" aria-live="polite">{inputModeMessage}</p>
+            {inputMode === "simple" && advancedSettings.length > 0 && <div className="ks-advanced-summary" role="status">
+              <span className="ms" aria-hidden="true">tune</span>
+              <div><strong>Advanced configuration active</strong><span>{advancedSettings.join(" · ")}</span></div>
+              <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setInputPresentation("advanced")}>Edit</button>
+            </div>}
+            <button type="button" className="ds-btn ds-btn-secondary" aria-expanded={inputMode === "advanced"} aria-controls="advanced-options" onClick={toggleInputPresentation}>
+              <span className="ms" aria-hidden="true">tune</span>{inputMode === "advanced" ? "Hide advanced options" : "Show advanced options"}
+            </button>
+          </section>
+          {inputMode === "advanced" && <section id="advanced-options" className="ks-advanced-options" aria-labelledby="advanced-options-title">
+            <div className="ks-advanced-options-head">
+              <div><h2 id="advanced-options-title">Advanced options</h2><p>Your sources, selections, and workflow choices stay in place while you show or hide these settings.</p></div>
+            </div>
+            <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
+            <section className="ks-card" aria-labelledby="demand-requirements-title">
+              <div className="ks-card-head">
+                <span className="ms">assignment</span><span id="demand-requirements-title">Demand requirements</span>
+              </div>
+              <div style={{ padding: "0 20px 20px" }}>
+                <p style={{ margin: "0 0 14px", color: T.textSecondary, fontSize: 13, lineHeight: 1.55 }}>Describe the outcome, audience, constraints, or format that this work must follow. Requirements guide the plan and draft; they never add facts, change permissions, or bypass review.</p>
+                <label className="form-label" htmlFor="demand-intent">Desired outcome <span className="req">Optional</span>
+                  <textarea id="demand-intent" className="form-textarea" rows={3} maxLength={2000} value={demandSpecification.intent} onChange={(event) => updateDemandSpecification((current) => ({ ...current, intent: event.target.value }))} placeholder="Example: Create a field-technician procedure with prerequisites, numbered steps, validation, and escalation guidance." />
+                </label>
+                <div style={{ display: "grid", gap: 10, marginTop: 14 }} aria-label="Specific requirements">
+                  {demandSpecification.directives.map((directive, index) => <div className="ks-demand-directive" key={directive.id}>
+                    <label className="form-label" style={{ margin: 0 }}>
+                      <span className="sr-only">Requirement {index + 1}</span>
+                      <textarea className="form-textarea" rows={2} maxLength={1000} value={directive.text} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, text: event.target.value } : item) }))} placeholder="Example: Do not state a time limit unless the source explicitly supports it." />
+                    </label>
+                    <label className="form-label" style={{ margin: 0 }}>Priority
+                      <select className="form-input" value={directive.priority} onChange={(event) => updateDemandSpecification((current) => ({ ...current, directives: current.directives.map((item) => item.id === directive.id ? { ...item, priority: event.target.value as "required" | "preferred" } : item) }))}>
+                        <option value="required">Required</option>
+                        <option value="preferred">Preferred</option>
+                      </select>
+                    </label>
+                    <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 22, height: 40 }} aria-label={`Remove requirement ${index + 1}`} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: current.directives.filter((item) => item.id !== directive.id) }))}><span className="ms" aria-hidden="true">delete</span></button>
+                  </div>)}
+                </div>
+                <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} disabled={demandSpecification.directives.length >= 12} onClick={() => updateDemandSpecification((current) => ({ ...current, directives: [...current.directives, { id: `operator-${crypto.randomUUID()}`, text: "", priority: "required", appliesTo: [...DEMAND_STAGES] }] }))}><span className="ms" aria-hidden="true">add</span>Add requirement</button>
+                <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12, marginLeft: 10 }} disabled={demandPlanning || !hasDemandRequirements(demandSpecification)} onClick={() => void recommendWorkflow()}><span className="ms" aria-hidden="true">auto_awesome</span>{demandPlanning ? "Recommending workflow…" : "Recommend workflow"}</button>
+                {demandRecommendation && <section aria-label="Workflow recommendation" style={{ marginTop: 16, padding: 14, border: `1px solid ${T.accentLight15}`, borderRadius: 6, background: T.bgPrimary }}>
+                  <strong style={{ color: T.textPrimary }}>Recommended workflow</strong>
+                  <p style={{ margin: "6px 0", color: T.textSecondary, fontSize: 12 }}>{demandRecommendation.recommendation.rationale}</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0" }}>{demandRecommendation.recommendation.recommendedOperations.length ? demandRecommendation.recommendation.recommendedOperations.map((operation) => <span className="ks-chip" key={operation}>{operation}</span>) : <span style={{ color: T.textSecondary, fontSize: 12 }}>No optional operation is recommended.</span>}</div>
+                  {demandRecommendation.recommendation.questions.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Questions:</strong> {demandRecommendation.recommendation.questions.join(" · ")}</p>}
+                  {demandRecommendation.recommendation.evidenceGaps.length > 0 && <p style={{ margin: "8px 0", color: T.textSecondary, fontSize: 12 }}><strong>Evidence gaps:</strong> {demandRecommendation.recommendation.evidenceGaps.join(" · ")}</p>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>{demandRecommendation.status === "accepted" ? <span style={{ color: T.success, fontSize: 12, alignSelf: "center" }}>Applied to this run</span> : <><button type="button" className="ds-btn ds-btn-primary" onClick={() => void applyDemandRecommendation()}><span className="ms" aria-hidden="true">check</span>Apply recommendation</button><button type="button" className="ds-btn ds-btn-secondary" onClick={() => void dismissDemandRecommendation()}>Dismiss</button></>}</div>
+                </section>}
+                <p style={{ margin: "10px 0 0", color: T.textSecondary, fontSize: 11 }}>Requirements apply to planning, drafting, merging, standards, and quality checks where compatible. If a requirement needs unsupported facts, the draft stays in review for a human decision.</p>
+              </div>
+            </section>
+            <div className="ks-card auto-option">
+              <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p></div>
+              <button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode(value => !value)} />
+              {autoCapability?.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
+            </div>
+          </section>}
         </div>
       </div>
     );
