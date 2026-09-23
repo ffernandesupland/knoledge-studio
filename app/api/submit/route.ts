@@ -17,6 +17,9 @@ import { runConnection } from "@/lib/ra/connections";
 import { submissionIdentity } from "@/lib/ks/submission-plan";
 import { assertReviewHandoffResolved, runSolutionReviewHandoff } from "@/lib/ks/solution-reviews";
 import { demandDirectives, reviewDirectives } from "@/lib/demand/spec";
+import { getRunConfigurationSnapshots } from "@/lib/configuration/snapshots";
+import { standardsForPlan } from "@/lib/configuration/standards";
+import { snippetsForTarget } from "@/lib/configuration/snippet-resolution";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -54,8 +57,20 @@ export async function POST(request: Request) {
             const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
             const restructureEnabled = snapshot.operations.some((o) => o.name === "Restructure content" && o.on) || directives.length > 0;
             const standardsRules = [...new Set([...(snapshot.operations.some((o) => o.name === "Apply content standards" && o.on) ? snapshot.standardsRules : []), ...reviewStandards])];
-            const reviewIdentity = submissionIdentity(plan, snapshot, { objectives: directives, restructure: restructureEnabled, standards: standardsRules });
-            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled, standardsRules, reviewObjectives, directives };
+            const configurationSnapshots = await getRunConfigurationSnapshots(run.id);
+            const standardRulesByCandidate = snapshot.operations.some((o) => o.name === "Apply content standards" && o.on)
+              ? standardsForPlan(configurationSnapshots.contentStandards, plan, standardsRules, { collections: [collection] })
+              : {};
+            const snippetsByCandidate = Object.fromEntries(plan.filter((operation) => operation.kind !== "flag").map((operation) => [operation.candidateKey, snippetsForTarget(configurationSnapshots.snippets?.snippets ?? [], {
+              collections: operation.metadata?.collections ?? [collection],
+              taxonomies: operation.metadata?.taxonomies ?? [],
+            })]));
+            const standardsForIdentity = [...new Set([...standardsRules, ...Object.values(standardRulesByCandidate).flat()])];
+            const snippetsForIdentity = Object.fromEntries(Object.entries(snippetsByCandidate)
+              .filter(([, snippets]) => snippets.length > 0)
+              .map(([key, snippets]) => [key, snippets.map((snippet) => `${snippet.id}:${snippet.revision}`)]));
+            const reviewIdentity = submissionIdentity(plan, snapshot, { objectives: directives, restructure: restructureEnabled, standards: standardsForIdentity, snippets: snippetsForIdentity });
+            const proposed: ExecuteArgs = { runId: run.id, user, plan, collection, language: snapshot.language, stage: "preparation", reviewIdentity, restructureEnabled, standardsRules, standardRulesByCandidate, snippetsByCandidate, reviewObjectives, directives };
             let args: ExecuteArgs;
             if (body.action === "prepare") {
               args = await savePreparationPlan(run.id, proposed);

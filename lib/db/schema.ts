@@ -11,6 +11,80 @@ CREATE TABLE IF NOT EXISTS source_image_chunks (
 CREATE TABLE IF NOT EXISTS run_ground_context (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS run_source_documents (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS run_demand_specifications (run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE, payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS configuration_profiles (
+  id TEXT PRIMARY KEY,
+  -- The environment connection is virtual and has no ra_connections row.
+  connection_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('content_standard', 'ground_truth')),
+  name TEXT NOT NULL,
+  scope_collection TEXT,
+  scope_taxonomy TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+  guidance TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (is_default = 0 OR (scope_collection IS NULL AND scope_taxonomy IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profiles_default
+  ON configuration_profiles(connection_id, kind) WHERE is_default = 1 AND status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profiles_scope
+  ON configuration_profiles(connection_id, kind, COALESCE(scope_collection, ''), COALESCE(scope_taxonomy, ''))
+  WHERE status = 'active' AND is_default = 0;
+CREATE TABLE IF NOT EXISTS configuration_documents (
+  id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  extracted_text TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS configuration_document_chunks (
+  document_id TEXT NOT NULL REFERENCES configuration_documents(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  PRIMARY KEY(document_id, position)
+);
+CREATE TABLE IF NOT EXISTS configuration_profile_sources (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL REFERENCES configuration_profiles(id) ON DELETE CASCADE,
+  source_type TEXT NOT NULL CHECK (source_type IN ('text', 'document', 'solution')),
+  text_content TEXT,
+  document_id TEXT REFERENCES configuration_documents(id) ON DELETE RESTRICT,
+  solution_id TEXT,
+  position INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK (
+    (source_type = 'text' AND text_content IS NOT NULL AND document_id IS NULL AND solution_id IS NULL) OR
+    (source_type = 'document' AND text_content IS NULL AND document_id IS NOT NULL AND solution_id IS NULL) OR
+    (source_type = 'solution' AND text_content IS NULL AND document_id IS NULL AND solution_id IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profile_source_position ON configuration_profile_sources(profile_id, position);
+CREATE TABLE IF NOT EXISTS configuration_snippets (
+  id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT '',
+  html TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  scope_collection TEXT,
+  scope_taxonomy TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_configuration_snapshots (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('content_standards', 'ground_truth', 'snippets')),
+  payload TEXT NOT NULL,
+  PRIMARY KEY(run_id, kind)
+);
 CREATE TABLE IF NOT EXISTS demand_recommendations (
   id TEXT PRIMARY KEY,
   author TEXT NOT NULL,

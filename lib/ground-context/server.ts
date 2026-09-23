@@ -45,7 +45,7 @@ export function referenceFromSolution(solution: WSSolution): GroundReference {
 }
 export async function resolveGroundContext(input?: GroundContextInput, sourceIds: string[] = [], user?: string): Promise<GroundContextSnapshot | undefined> {
   if (!input) return undefined;
-  const selection = groundContextSchema.parse(input);
+  const selection = groundContextSchema.parse(input) as GroundContextInput & { referenceDocumentIds: string[]; referenceTextIds: string[]; guidance: string; mode: "manual" | "bundle" | "scope" };
   if (!selection.enabled) return { selection, references: [], capturedAt: new Date().toISOString() };
   if (selection.referenceSolutionIds.some(id => sourceIds.includes(id))) throw new Error("A solution cannot be both a processing target and a Ground Context reference.");
   const references: GroundReference[] = [];
@@ -62,6 +62,9 @@ export async function assertGroundReferencesCurrent(snapshot: GroundContextSnaps
   if (!snapshot?.selection.enabled) return;
   const changes: ReferenceChange[] = [];
   for (const reference of snapshot.references) {
+    // Documents and written bundle instructions are frozen in the run snapshot.
+    // Only RightAnswers solutions have a live resource we must re-check.
+    if (reference.sourceType && reference.sourceType !== "solution") continue;
     try {
       const solution = await ra.getSolution(reference.id, { impUser: user });
       if (solution.id !== reference.id) throw new Error("Retrieved a different solution");
@@ -81,7 +84,12 @@ export async function assertGroundReferencesCurrent(snapshot: GroundContextSnaps
 }
 export function assertReferenceOnlyPlan(plan: WriteOp[], snapshot?: GroundContextSnapshot) {
   if (!snapshot?.selection.enabled) return;
-  const ids = new Set(snapshot.references.map(reference => reference.id));
+  // A document ID or synthetic text-source ID can never be a RightAnswers write
+  // target. Restrict this safeguard to solution references (and legacy snapshots,
+  // which predate sourceType and therefore always represent solutions).
+  const ids = new Set(snapshot.references
+    .filter(reference => !reference.sourceType || reference.sourceType === "solution")
+    .map(reference => reference.id));
   for (const op of plan) {
     if ((op.kind !== "create" && ids.has(op.solutionId)) ||
         (op.kind !== "flag" && (ids.has(op.candidateKey) || op.mergeSources?.some(source => ids.has(source.id))))) {

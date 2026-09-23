@@ -13,6 +13,8 @@ import { autonomousOutcome } from "@/lib/autonomous/outcome";
 import { resolveConnection } from "@/lib/ra/connections";
 import { withRaConnection } from "@/lib/ra/client";
 import { attachDemandRecommendation, validateDemandRecommendation } from "@/lib/demand/store";
+import { captureRunConfigurationSnapshots, saveRunConfigurationSnapshots } from "@/lib/configuration/snapshots";
+import { resolveGroundTruthSelection } from "@/lib/ground-context/ground-truth";
 
 export const dynamic = "force-dynamic";
 // Starts are explicitly selected per run; the app advances their saved steps automatically.
@@ -31,8 +33,12 @@ export async function POST(request: Request) {
     const id = `auto-${body.requestId}`;
     const existing = await getJob(id);
     const connection = await resolveConnection(author, input.connectionId);
-    const groundContext = existing ? undefined : await withRaConnection(author, connection, () => resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
+    const configurationSnapshots = existing ? undefined : await withRaConnection(author, connection, () => captureRunConfigurationSnapshots(connection.id, author));
+    const groundContext = existing ? undefined : await withRaConnection(author, connection, () => input.groundTruth
+      ? resolveGroundTruthSelection(input.groundTruth, configurationSnapshots!.groundTruth, connection.id, input.sourceSolutionIds ?? [], author)
+      : resolveGroundContext(input.groundContext, input.sourceSolutionIds, author));
     const job = await enqueue(id, author, input, groundContext);
+    if (configurationSnapshots) await saveRunConfigurationSnapshots(id, configurationSnapshots);
     if (input.demandRecommendationId) await attachDemandRecommendation(id, author, input.demandRecommendationId, input.demandSpecification);
     return json({ runId: job.runId, status: job.status }, 202);
   } catch (e) { return apiError(e); }

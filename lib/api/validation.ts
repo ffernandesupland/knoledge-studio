@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { groundContextSchema, groundIdentity } from "../ground-context/types";
+import { groundTruthSelectionSchema } from "../ground-context/ground-truth";
 import { ApiError } from "./auth";
 import type { StoredRun, DecisionSnapshot } from "../db/runs";
 import { KS_OPS_DEFAULT } from "../ks/data";
@@ -25,6 +26,7 @@ export const runSchema = z.object({
   demandSpecification: demandSpecificationSchema.optional(),
   demandRecommendationId: z.string().uuid().optional(),
   groundContext: groundContextSchema.optional(),
+  groundTruth: groundTruthSelectionSchema.optional(),
   text: z.string().max(500_000), attachments: z.array(z.object({ label: z.string().max(500), text: z.string().max(500_000), kind: z.enum(["file", "url"]).optional(), id: z.string().max(100).optional(), imageId: z.string().uuid().optional(), fileId: z.string().uuid().optional(), meta: z.string().max(500).optional() })).max(20).optional(),
   content: z.array(z.discriminatedUnion("type", [
     z.object({ id: z.string().max(100), type: z.literal("text"), text: z.string().max(500_000) }),
@@ -39,6 +41,10 @@ export const runSchema = z.object({
     if (v.groundContext.referenceSolutionIds.some(id => v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Processing targets and Ground Context references must be different solutions" });
     if (!v.text.trim() && !v.sourceSolutionIds?.length && !v.attachments?.length && !v.content?.some(block => block.type === "text" && block.text.trim())) ctx.addIssue({ code: "custom", message: "Add a task or source content alongside Ground Context references" });
   }
+  if (v.groundTruth && !v.text.trim() && !v.sourceSolutionIds?.length && !v.attachments?.length && !v.content?.some(block => block.type === "text" && block.text.trim())) {
+    ctx.addIssue({ code: "custom", message: "Add a task or source content alongside Ground Truth." });
+  }
+  if (v.groundContext && v.groundTruth) ctx.addIssue({ code: "custom", message: "Choose either manual Ground Context or a Ground Truth selection, not both." });
   if (v.duplicateScopeIds?.some(id => !v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Targeted duplicate comparisons must use selected source solutions" });
   if (!v.content) return;
   const ids = (v.attachments ?? []).map(a => a.id);

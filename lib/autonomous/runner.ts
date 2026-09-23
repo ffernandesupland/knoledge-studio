@@ -22,6 +22,9 @@ import { assertLease, checkpoint, event, finish, saveCheckpoint, stage } from ".
 import { withAutonomousContext } from "./telemetry";
 import { AUTONOMOUS_POLICY_VERSION, DECISION_REPAIR_KEY, MAX_DECISION_ATTEMPTS, type AutonomousJob, type AutonomousStage } from "./types";
 import { demandDirectives } from "../demand/spec";
+import { getRunConfigurationSnapshots } from "../configuration/snapshots";
+import { standardsForPlan } from "../configuration/standards";
+import { snippetsForTarget } from "../configuration/snippet-resolution";
 
 export async function processJob(job: AutonomousJob, token: string, singleStep = false) {
   const id = job.runId;
@@ -43,7 +46,7 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
           const pending: Promise<unknown>[] = [];
           let logError: unknown;
           const groundContext = (await getRun(id))?.groundContext;
-          if (job.input.groundContext?.enabled && !groundContext) throw new Error("Saved Ground Context is missing. Start a new run.");
+          if ((job.input.groundContext?.enabled || job.input.groundTruth) && !groundContext) throw new Error("Saved Ground Truth is missing. Start a new run.");
           const output = await runPipeline(job.input, p => { pending.push(event(id, "analysis", "state", p.step, p.status === "start" ? "started" : "succeeded").catch(e => { logError = e; })); }, groundContext);
           await Promise.all(pending);
           if (logError) throw logError;
@@ -118,7 +121,20 @@ export async function processJob(job: AutonomousJob, token: string, singleStep =
       }
       const plan = autonomousWritePlan(id, snapshot);
       const directives = demandDirectives(job.input.demandSpecification);
-      const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot, { objectives: directives, restructure: job.input.operations.includes("Restructure content") || directives.length > 0, standards: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [] }), restructureEnabled: job.input.operations.includes("Restructure content") || directives.length > 0, standardsRules: job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [], directives };
+      const standardsRules = job.input.operations.includes("Apply content standards") ? job.input.standardsRules : [];
+      const configurationSnapshots = await getRunConfigurationSnapshots(id);
+      const standardRulesByCandidate = job.input.operations.includes("Apply content standards")
+        ? standardsForPlan(configurationSnapshots.contentStandards, plan, standardsRules, { collections: [snapshot.collection] })
+        : {};
+      const snippetsByCandidate = Object.fromEntries(plan.filter((operation) => operation.kind !== "flag").map((operation) => [operation.candidateKey, snippetsForTarget(configurationSnapshots.snippets?.snippets ?? [], {
+        collections: operation.metadata?.collections ?? [snapshot.collection],
+        taxonomies: operation.metadata?.taxonomies ?? [],
+      })]));
+      const snippetsForIdentity = Object.fromEntries(Object.entries(snippetsByCandidate)
+        .filter(([, snippets]) => snippets.length > 0)
+        .map(([key, snippets]) => [key, snippets.map((snippet) => `${snippet.id}:${snippet.revision}`)]));
+      const standardsForIdentity = [...new Set([...standardsRules, ...Object.values(standardRulesByCandidate).flat()])];
+      const args: ExecuteArgs = { runId: id, user: job.author, plan, collection: snapshot.collection, language: snapshot.language, stage: "preparation", reviewIdentity: submissionIdentity(plan, snapshot, { objectives: directives, restructure: job.input.operations.includes("Restructure content") || directives.length > 0, standards: standardsForIdentity, snippets: snippetsForIdentity }), restructureEnabled: job.input.operations.includes("Restructure content") || directives.length > 0, standardsRules, standardRulesByCandidate, snippetsByCandidate, directives };
       await savePreparationPlan(id, args);
       if (!plan.length) {
         await finish(id, token, "partial", "The agent excluded all proposals from submission. See the recorded reasons for each exclusion.");

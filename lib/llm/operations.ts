@@ -5,6 +5,20 @@ import type { UntrustedBlock } from "./prompt";
 import { bodyField } from "../pipeline/content";
 import type { WSTemplate } from "../ra/types";
 import type { ScopedDirective } from "../demand/spec";
+import type { Snippet } from "../configuration/types";
+
+export type AuthoringSnippet = Pick<Snippet, "id" | "name" | "purpose" | "html" | "revision">;
+
+function snippetBlocks(snippets: AuthoringSnippet[]): UntrustedBlock[] {
+  return snippets.map((snippet) => ({
+    label: `Approved reusable HTML snippet: ${snippet.name} (${snippet.id})`,
+    content: JSON.stringify({ purpose: snippet.purpose, html: snippet.html }),
+  }));
+}
+
+const snippetInstruction = (snippets: AuthoringSnippet[]) => snippets.length
+  ? `\nApproved reusable HTML snippets are supplied below. You may use a relevant structure exactly or adapt it to the output fields. They define presentation only, never factual content. Do not invent facts to fill a snippet, and do not use unrelated snippets.\n`
+  : "";
 
 /* ── Split topics ─────────────────────────────────────────────────────────── */
 
@@ -88,7 +102,7 @@ export type RestructureResult = z.infer<typeof RestructureSchema>;
  * Field names come from the live template, never a hardcoded list — the tenant has no
  * "KCS Solution" template and field names are case-sensitive on write (findings V3, §4.2).
  */
-export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false, directives: ScopedDirective[] = []) {
+export function restructure(blocks: UntrustedBlock[], template: WSTemplate, proposal?: ContentProposal, preserveWording = false, directives: ScopedDirective[] = [], snippets: AuthoringSnippet[] = []) {
   const fieldList = template.fields
     .map((f) => `- ${f.fieldName}${f.required ? " (required)" : ""}${f.description ? ` — ${f.description}` : ""}`)
     .join("\n");
@@ -99,7 +113,7 @@ export function restructure(blocks: UntrustedBlock[], template: WSTemplate, prop
     schemaName: "restructured_solution",
     schema: RestructureSchema,
     role: "You are a KCS-trained knowledge author who reshapes raw content into a structured solution.",
-    task: `${preserveWording ? "Map the source into" : "Rewrite the content into"} the "${template.templateName}" template.
+    /* task: `${preserveWording ? "Map the source into" : "Rewrite the content into"} the "${template.templateName}" template.
 ${preserveWording ? "Preserve source wording and meaning. Only organize passages into the appropriate fields and convert formatting; do not perform a stylistic rewrite." : "Organize and improve clarity while preserving all supported facts."}
 
 Use EXACTLY these field names, spelled and cased as shown, and no others:
@@ -120,8 +134,30 @@ Rules:
   unordered lists, and <strong>/<code> where they aid scanning. Never dump plain unformatted
   paragraphs when the content is actually a list or a procedure.
 - "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
-- "keywords" are 3-8 search terms a user would actually type.`,
-    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
+- "keywords" are 3-8 search terms a user would actually type.`, */
+    task: `${preserveWording ? "Map the source into" : "Rewrite the content into"} the "${template.templateName}" template.
+${preserveWording ? "Preserve source wording and meaning. Only organize passages into the appropriate fields and convert formatting; do not perform a stylistic rewrite." : "Organize and improve clarity while preserving all supported facts."}
+
+Use EXACTLY these field names, spelled and cased as shown, and no others:
+${fieldList}
+
+Rules:
+- A reviewed plan or authorized demand requirement, if supplied, guides scope only. It is not factual evidence. Use source material to support every claim; never answer open questions by guessing. An author-confirmed contradiction resolution is an explicit final editorial decision: apply its final information exactly to resolve that conflict, but do not extend it with new inferred facts. Final template and edited sources take precedence.
+- Populate required fields only when supported by the source; otherwise leave them empty for human review.
+- ${primary ? `"${primary}" is the answer/body field; put the substantive answer there.` : "Map content by each fieldâ€™s name and description; field order does not indicate importance."}
+- Put causes only in cause fields and error messages only in error-message fields.
+- Preserve the source language; the language selector is a classification, not a translation request.
+- Use only information present in the content. Never invent steps, causes, error codes or versions.
+- If a field has no supporting content, return it as an empty string rather than guessing.
+- Preserve the original tone unless an operator-selected content standard requires a change.
+- Populate EVERY relevant field using its name and description, including optional fields when supported. Do not dump everything into the answer field when details, symptoms or causes have their own fields.
+- Field values MUST be HTML, never Markdown. Convert Markdown headings, lists, links and code into their HTML equivalents. Never emit Markdown fences or literal ## headings, **bold**, or backtick formatting.
+- Write each field as HTML. Use <p> for prose, <ol> for sequential steps or instructions, <ul> for
+  unordered lists, and <strong>/<code> where they aid scanning. Never dump plain unformatted
+  paragraphs when the content is actually a list or a procedure.
+- "title" is a specific, searchable headline. "summary" is one sentence in plain text, without HTML tags. Title and keywords must also be plain text.
+- "keywords" are 3-8 search terms a user would actually type.${snippetInstruction(snippets)}`,
+    blocks: [...blocks, ...(proposal ? [{ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(proposal) }] : []), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : []), ...snippetBlocks(snippets)],
   });
 }
 
@@ -164,6 +200,7 @@ export function mergeSections(
   target: WSTemplate,
   proposals: ContentProposal[] = [],
   directives: ScopedDirective[] = [],
+  snippets: AuthoringSnippet[] = [],
 ) {
   const fieldList = target.fields.map((f) => `- ${f.fieldName}`).join("\n");
 
@@ -197,11 +234,11 @@ For each field:
   otherwise): HTML, with <ol> for sequential steps, <ul> for unordered lists, and <p> for prose.
 
 Reviewed plans and authorized demand requirements guide scope only and are not evidence. Preserve supported details from the selected sources. Never invent answers to open questions. The final survivor template and edited sources take precedence.
-Never invent facts. If the sources disagree, surface it rather than choosing silently.`,
+Never invent facts. If the sources disagree, surface it rather than choosing silently.${snippetInstruction(snippets)}`,
     blocks: [...sources.map((s) => ({
       label: `${s.label} (${s.templateName})`,
       content: s.body,
-    })), ...proposals.map((p) => ({ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(p) })), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
+    })), ...proposals.map((p) => ({ label: "reviewed plan (scope guidance, not evidence)", content: JSON.stringify(p) })), ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : []), ...snippetBlocks(snippets)],
   });
 }
 
@@ -224,6 +261,7 @@ export function applyStandards(
   fields: { fieldName: string; fieldValue: string }[],
   rules: string[],
   directives: ScopedDirective[] = [],
+  snippets: AuthoringSnippet[] = [],
 ) {
   const blocks: UntrustedBlock[] = fields.map((f) => ({ label: f.fieldName, content: f.fieldValue }));
   return runOperation({
@@ -240,8 +278,8 @@ Title, summary and keywords are metadata outside this operation and cannot recei
 Change wording and formatting only — never add, remove or reinterpret technical facts.
 Do not convert units unless an exact equivalent is already supplied. If a rule cannot be applied
 without changing facts, preserve the content and explain the limitation in its note.
-For each rule report whether the original already passed, whether you changed anything, and a short note.`,
-    blocks: [...blocks, ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : [])],
+For each rule report whether the original already passed, whether you changed anything, and a short note.${snippetInstruction(snippets)}`,
+    blocks: [...blocks, ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance", content: JSON.stringify(directives) }] : []), ...snippetBlocks(snippets)],
   });
 }
 

@@ -5,13 +5,22 @@
 .brandSubtitle { display: block; color: #6b7786; font-size: 13px; font-weight: 400; }
 .sectionLabel { font-size: 10px; color: #838fa0; letter-spacing: 1.5px; font-weight: 700; padding: 36px 12px 12px; }
 .navigation { display: grid; gap: 8px; }
+.navGroup { display: grid; gap: 6px; }
+.navGroupButton { display: flex; align-items: center; width: 100%; gap: 10px; border: 1px solid transparent; border-radius: 6px; padding: 12px 10px; color: #252b31; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.navGroupButton:hover { background: #f4f6f8; }
+.navGroupButton > .ms { color: #2574db; }
+.navGroupButton strong { display: block; font-size: 13px; font-weight: 700; }
+.navGroupButton small { display: block; color: #6b7786; font-size: 10px; margin-top: 4px; }
+.navGroupChevron { margin-left: auto; color: #6b7786 !important; font-size: 18px; }
+.navChildren { display: grid; gap: 4px; margin-left: 12px; padding-left: 8px; border-left: 1px solid #e0e3e6; }
+.navChildren .navLink { padding-block: 9px; }
 .navLink { display: flex; align-items: center; gap: 10px; border: 1px solid transparent; border-radius: 6px; padding: 12px 10px; color: #525c69; text-decoration: none; }
 .navLink strong { font-size: 13px; font-weight: 600; }
 .navLink small { display: block; color: #6b7786; font-size: 10px; margin-top: 4px; }
 .navLink:hover { background: #f4f6f8; }
 .navLink[aria-current="page"] { background: #f0f6fe; border-color: #c5ddfb; color: #2574db; }
 .navLink[aria-current="page"] small { color: #345c8d; }
-.navLink:focus-visible, .brand:focus-visible { outline: 3px solid #2574db; outline-offset: 2px; }
+.navLink:focus-visible, .navGroupButton:focus-visible, .brand:focus-visible { outline: 3px solid #2574db; outline-offset: 2px; }
 .sidebarFooter { display: flex; align-items: center; gap: 8px; border-top: 1px solid #e0e3e6; margin-top: auto; padding: 18px 8px 0; color: #838fa0; font-size: 10px; }
 .content { min-width: 0; min-height: 0; overflow: auto; container-type: inline-size; }
 .content > :global(.ks-wizard) { height: 100%; }
@@ -19,7 +28,11 @@
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { padding: 10px 16px; border-right: 0; border-bottom: 1px solid #e0e3e6; overflow: visible; }
   .brand, .sectionLabel, .sidebarFooter { display: none; }
-  .navigation { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .navigation { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .navGroup { grid-column: 1 / -1; }
+  .navGroupButton { display: none; }
+  .navChildren { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 0; border: 0; }
+  .navChildren .navLink { padding: 10px; }
   .navLink { padding: 10px; }
   .navLink strong { font-size: 12px; }
   .navLink small { display: none; }
