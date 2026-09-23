@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS configuration_profiles (
   name TEXT NOT NULL,
   scope_collection TEXT,
   scope_taxonomy TEXT,
+  scope_collections TEXT,
+  scope_taxonomies TEXT,
+  scope_operator TEXT NOT NULL DEFAULT 'and' CHECK (scope_operator IN ('and', 'or')),
   is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
   guidance TEXT NOT NULL DEFAULT '',
@@ -30,9 +33,6 @@ CREATE TABLE IF NOT EXISTS configuration_profiles (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profiles_default
   ON configuration_profiles(connection_id, kind) WHERE is_default = 1 AND status = 'active';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profiles_scope
-  ON configuration_profiles(connection_id, kind, COALESCE(scope_collection, ''), COALESCE(scope_taxonomy, ''))
-  WHERE status = 'active' AND is_default = 0;
 CREATE TABLE IF NOT EXISTS configuration_documents (
   id TEXT PRIMARY KEY,
   connection_id TEXT NOT NULL,

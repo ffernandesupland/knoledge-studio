@@ -2,6 +2,11 @@ import { resolveConfigurationProfile } from "./resolver";
 import type { CapturedConfigurationSnapshot } from "./snapshots";
 import type { WriteOp } from "../pipeline/submit";
 
+/** Stable marker for a frozen, resolved standards source in identity payloads. */
+export function formatConfigurationStandard(profileName: string, label: string, content: string): string {
+  return `[${profileName} · ${label}]\n${content}`;
+}
+
 /** Resolves the frozen standards catalog against each article's final metadata. */
 export function standardsForPlan(snapshot: CapturedConfigurationSnapshot | undefined, plan: WriteOp[], fallback: string[], defaultTarget: { collections?: string[]; taxonomies?: string[] } = {}): Record<string, string[]> {
   const resolved: Record<string, string[]> = {};
@@ -13,7 +18,7 @@ export function standardsForPlan(snapshot: CapturedConfigurationSnapshot | undef
       taxonomies: operation.metadata?.taxonomies ?? defaultTarget.taxonomies,
     });
     resolved[operation.candidateKey] = match
-      ? match.profile.sources.map(source => `[${match.profile.name} · ${source.label}]\n${source.content}`)
+      ? match.profile.sources.map(source => formatConfigurationStandard(match.profile.name, source.label, source.content))
       : fallback;
   }
   return resolved;

@@ -26,7 +26,19 @@ function connect() {
     return pending;
   };
   let ready: Promise<void> | undefined;
-  const initialize = () => ready ??= client.executeMultiple("PRAGMA foreign_keys=ON;\n" + SCHEMA + AGENT_SCHEMA).catch((error) => { ready = undefined; throw error; });
+  const initialize = () => ready ??= (async () => {
+    await client.executeMultiple("PRAGMA foreign_keys=ON;\n" + SCHEMA + AGENT_SCHEMA);
+    // SQLite cannot add a column through CREATE TABLE IF NOT EXISTS. Keep old
+    // local databases readable while profiles move to multi-value scopes.
+    const columns = await client.execute("PRAGMA table_info(configuration_profiles)");
+    const names = new Set(columns.rows.map(row => String(row.name)));
+    if (!names.has("scope_collections")) await client.execute("ALTER TABLE configuration_profiles ADD COLUMN scope_collections TEXT");
+    if (!names.has("scope_taxonomies")) await client.execute("ALTER TABLE configuration_profiles ADD COLUMN scope_taxonomies TEXT");
+    if (!names.has("scope_operator")) await client.execute("ALTER TABLE configuration_profiles ADD COLUMN scope_operator TEXT NOT NULL DEFAULT 'and'");
+    await client.execute("UPDATE configuration_profiles SET scope_collections=CASE WHEN scope_collections IS NULL THEN CASE WHEN scope_collection IS NULL THEN '[]' ELSE json_array(scope_collection) END ELSE scope_collections END, scope_taxonomies=CASE WHEN scope_taxonomies IS NULL THEN CASE WHEN scope_taxonomy IS NULL THEN '[]' ELSE json_array(scope_taxonomy) END ELSE scope_taxonomies END, scope_operator=COALESCE(scope_operator, 'and')");
+    await client.execute("DROP INDEX IF EXISTS idx_configuration_profiles_scope");
+    await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_configuration_profiles_scope_v2 ON configuration_profiles(connection_id, kind, COALESCE(scope_collections, '[]'), COALESCE(scope_taxonomies, '[]'), scope_operator) WHERE status = 'active' AND is_default = 0");
+  })().catch((error) => { ready = undefined; throw error; });
   const execute = (sql: string, values: (InValue | Record<string, InValue>)[]) => {
     const args: InArgs = values.length === 1 && values[0] !== null && typeof values[0] === "object" && !ArrayBuffer.isView(values[0]) && !(values[0] instanceof ArrayBuffer)
       ? values[0] as Record<string, InValue> : values as InValue[];

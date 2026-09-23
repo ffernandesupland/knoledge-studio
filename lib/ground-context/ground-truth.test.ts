@@ -7,7 +7,7 @@ const defaultProfile = {
   connectionId: "environment",
   kind: "ground_truth" as const,
   name: "Company policy",
-  scope: {},
+  scope: { collections: [], taxonomies: [], operator: "and" as const },
   isDefault: true,
   guidance: "Use company policy.",
   status: "active" as const,
@@ -21,7 +21,7 @@ const scopedProfile = {
   ...defaultProfile,
   id: "22222222-2222-4222-8222-222222222222",
   name: "VPN policy",
-  scope: { collection: "IT", taxonomy: "Access//VPN" },
+  scope: { collections: ["IT"], taxonomies: ["Access//VPN"], operator: "and" as const },
   isDefault: false,
   sources: [{ type: "text" as const, label: "Written instruction", content: "VPN articles must state device requirements.", version: "vpn-v1" }],
 };

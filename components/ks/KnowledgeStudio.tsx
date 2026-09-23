@@ -24,7 +24,7 @@ import { LoadingProgress } from "./LoadingProgress";
 import { submissionStatus } from "@/lib/ks/submission-status";
 import { SubmissionGraph } from "./SubmissionGraph";
 import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
-import { submissionIdentity } from "@/lib/ks/submission-plan";
+import { frozenConfigurationIdentity, submissionIdentity } from "@/lib/ks/submission-plan";
 import { SubmissionReview } from "./SubmissionReview";
 import { ProposalPreview } from "./ProposalPreview";
 import { ArticlePreview } from "./ArticlePreview";
@@ -678,14 +678,16 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
   const reviewRestructureEnabled = ops.some((o) => o.name === "Restructure content" && o.on) || scopedDirectives.length > 0;
   const reviewRules = [...new Set([...(ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : []), ...reviewStandards])];
-  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: scopedDirectives, restructure: reviewRestructureEnabled, standards: reviewRules });
+  const frozenConfiguration = useMemo(() => frozenConfigurationIdentity(submitRun.identity), [submitRun.identity]);
+  const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: scopedDirectives, restructure: reviewRestructureEnabled, standards: [...new Set([...reviewRules, ...frozenConfiguration.standards])], snippets: frozenConfiguration.snippets });
+  const displayedStandards = frozenConfiguration.standards.length ? frozenConfiguration.standards : reviewRules;
   const preparedMatches = submitRun.identity === currentIdentity;
   const displayPlan = submitRun.locked ? submitRun.plan : proposedWritePlan.plan;
   const displayResults = preparedMatches || submitRun.locked ? submitRun.results : submitRun.results.filter(result => displayPlan.some(op => op.idempotencyKey === result.idempotencyKey)).map(result => ({ ...result, outcome: "review" as const, message: "Previous draft retained for comparison. Prepare the updated plan before editing or submitting this version.", prepared: result.prepared ? { ...result.prepared, readyForSubmission: false } : undefined }));
   const frozenDemandDirectives = demandDirectives(pipeline.run?.demandSpecification);
   const demandDirectiveLabels = new Map(frozenDemandDirectives.map((directive) => [directive.id, directive]));
   const demandComplianceResults = displayResults.flatMap((result) => result.prepared?.demandCompliance ? [{ result, assessment: result.prepared.demandCompliance }] : []);
-  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groundContext: pipeline.run?.groundContext, groups: effectiveGroups, restructureEnabled: reviewRestructureEnabled, standardsRules: reviewRules });
+  const submissionGraph = buildSubmissionGraph(displayPlan, candidates, displayResults, { groundContext: pipeline.run?.groundContext, groups: effectiveGroups, restructureEnabled: reviewRestructureEnabled, standardsRules: displayedStandards });
   const submissionBusy = submitRun.phase === "preparing" || submitRun.phase === "submitting";
   const draftsReady = displayPlan.some((op) => op.kind !== "flag") && (preparedMatches || submitRun.locked) && displayPlan.every((op) => op.kind === "flag" || displayResults.some((r) => r.idempotencyKey === op.idempotencyKey && (r.outcome === "ok" || (r.prepared?.readyForSubmission && r.outcome !== "uncertain"))));
   const completion = submissionStatus(displayPlan, displayResults);
@@ -1627,7 +1629,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             <div style={{ fontSize: 16, fontWeight: 600, color: T.textPrimary, marginBottom: 12 }}>
               {preview.title}
             </div>
-            {proposal ? <ProposalPreview candidate={proposal} group={proposal.dupeGroup != null ? effectiveGroups[proposal.dupeGroup] : undefined} resolution={proposal.dupeGroup != null ? resolutions[proposal.dupeGroup] : undefined} duplicatesChecked={ops.some((o) => o.name === "Find duplicates" && o.on)} /> : <ArticlePreview article={{ title: preview.title, ...preview.article }} />}
+            {proposal ? <ProposalPreview candidate={proposal} group={proposal.dupeGroup != null ? effectiveGroups[proposal.dupeGroup] : undefined} resolution={proposal.dupeGroup != null ? resolutions[proposal.dupeGroup] : undefined} duplicatesChecked={ops.some((o) => o.name === "Find duplicates" && o.on)} operations={ops.filter((operation) => operation.on).map((operation) => operation.name)} /> : <ArticlePreview article={{ title: preview.title, ...preview.article }} />}
           </div>
           <div className="entity-modal-footer">
             <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setPreview(null)}>

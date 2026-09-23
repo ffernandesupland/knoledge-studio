@@ -26,7 +26,7 @@ it("freezes active configuration content and snippets with a run", async () => {
   await createSnippet({ connectionId: "environment", createdBy: "operator", draft: { name: "Prerequisites", purpose: "Use before procedures.", html: "<section><h3>Prerequisites</h3><p>Use a managed device.</p></section>", active: true, scope: {} } });
   const snapshots = await captureRunConfigurationSnapshots("environment", "operator");
   expect(snapshots.contentStandards.profiles[0].sources[0]).toMatchObject({ content: "Use numbered steps.", version: expect.stringMatching(/^\w{64}$/) });
-  expect(snapshots.groundTruth.profiles[0].scope.taxonomy).toBe("Products//VPN");
+  expect(snapshots.groundTruth.profiles[0].scope.taxonomies).toEqual(["Products//VPN"]);
   expect(snapshots.snippets.snippets).toHaveLength(1);
   await createRun({ id: "configuration-run", author: "operator", path: "create", inputText: "Write a guide", sourceIds: [], operations: [] });
   await saveRunConfigurationSnapshots("configuration-run", snapshots);

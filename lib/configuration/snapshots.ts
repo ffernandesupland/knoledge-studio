@@ -6,6 +6,7 @@ import { getConfigurationDocument } from "./documents";
 import { listConfigurationProfiles } from "./store";
 import { listSnippets } from "./snippets";
 import type { ConfigurationProfile, ConfigurationProfileKind, ConfigurationSource, Snippet } from "./types";
+import { cleanConfigurationText } from "./clean-text";
 
 export interface CapturedConfigurationSource {
   type: ConfigurationSource["type"];
@@ -35,14 +36,18 @@ function solutionText(solution: { title: string; summary?: string; fields?: { na
 }
 
 async function captureSource(connectionId: string, source: ConfigurationSource, user: string): Promise<CapturedConfigurationSource> {
-  if (source.type === "text") return { type: "text", label: "Written instruction", content: source.text, version: fingerprint(source.text) };
+  if (source.type === "text") {
+    const content = cleanConfigurationText(source.text);
+    return { type: "text", label: "Written instruction", content, version: fingerprint(content) };
+  }
   if (source.type === "document") {
     const document = await getConfigurationDocument(source.documentId, connectionId);
-    return { type: "document", label: document.name, content: document.extractedText, sourceId: document.id, version: fingerprint(document.extractedText) };
+    const content = cleanConfigurationText(document.extractedText);
+    return { type: "document", label: document.name, content, sourceId: document.id, version: fingerprint(content) };
   }
   const solution = await ra.getSolution(source.solutionId, { impUser: user });
   if (solution.id !== source.solutionId) throw new Error("Configuration solution retrieval returned a different solution.");
-  const content = solutionText(solution);
+  const content = cleanConfigurationText(solutionText(solution));
   if (!content) throw new Error(`Configuration solution ${source.solutionId} has no readable content.`);
   return { type: "solution", label: solution.title, content, sourceId: solution.id, version: fingerprint(content) };
 }

@@ -22,6 +22,10 @@ function normalized(value: string | undefined): string | undefined {
   return trimmed ? trimmed.toLocaleLowerCase() : undefined;
 }
 
+function normalizedValues(values: string[]): string[] {
+  return [...new Set(values.map(normalized).filter((value): value is string => !!value))].sort();
+}
+
 function taxonomyDepth(taxonomy: string): number {
   return taxonomy.split("//").filter(Boolean).length;
 }
@@ -36,7 +40,7 @@ export function taxonomyMatches(profileTaxonomy: string, targetTaxonomy: string)
 /** Canonical key used by persistence validation to prevent duplicate active scopes. */
 export function configurationScopeKey(scope: ConfigurationScope, isDefault: boolean): string {
   if (isDefault) return "default";
-  return JSON.stringify({ collection: normalized(scope.collection) ?? null, taxonomy: normalized(scope.taxonomy) ?? null });
+  return JSON.stringify({ collections: normalizedValues(scope.collections), taxonomies: normalizedValues(scope.taxonomies), operator: scope.operator });
 }
 
 export function findScopeConflicts(profiles: ConfigurationProfile[], candidate: Pick<ConfigurationProfile, "id" | "kind" | "scope" | "isDefault" | "status">): ConfigurationProfile[] {
@@ -54,22 +58,28 @@ interface Candidate<T extends ResolvableConfigurationProfile> {
 
 function resolveCandidate<T extends ResolvableConfigurationProfile>(profile: T, target: ConfigurationResolutionTarget): Candidate<T> | undefined {
   if (profile.status !== "active") return undefined;
-  const collection = normalized(profile.scope.collection);
-  const taxonomy = normalized(profile.scope.taxonomy);
+  const profileCollections = normalizedValues(profile.scope.collections);
+  const profileTaxonomies = normalizedValues(profile.scope.taxonomies);
   const collections = (target.collections ?? []).map(normalized).filter((value): value is string => !!value);
   const taxonomies = target.taxonomies ?? [];
-  const collectionMatches = !!collection && collections.includes(collection);
-  const matchingTaxonomies = taxonomy ? taxonomies.filter((value) => taxonomyMatches(taxonomy, value)) : [];
-  const matchedTaxonomy = matchingTaxonomies.sort((a, b) => taxonomyDepth(b) - taxonomyDepth(a))[0];
+  const collectionMatches = profileCollections.some(collection => collections.includes(collection));
+  const matchedTaxonomies = profileTaxonomies.flatMap(taxonomy => taxonomies.filter(value => taxonomyMatches(taxonomy, value)).map(value => ({ profileTaxonomy: taxonomy, targetTaxonomy: value })));
+  const matchedTaxonomy = matchedTaxonomies.sort((a, b) => taxonomyDepth(b.profileTaxonomy) - taxonomyDepth(a.profileTaxonomy))[0];
+  const hasCollections = profileCollections.length > 0;
+  const hasTaxonomies = profileTaxonomies.length > 0;
+  const populatedDimensions = Number(hasCollections) + Number(hasTaxonomies);
+  const matches = profile.scope.operator === "and"
+    ? (!hasCollections || collectionMatches) && (!hasTaxonomies || !!matchedTaxonomy)
+    : collectionMatches || !!matchedTaxonomy;
 
-  if (collection && taxonomy) {
-    return collectionMatches && matchedTaxonomy
-      ? { profile, reason: "collection-and-taxonomy", score: 40_000 + taxonomyDepth(taxonomy), matchedTaxonomy }
-      : undefined;
+  if (populatedDimensions && matches) {
+    const reason: ResolutionReason = populatedDimensions === 2 && collectionMatches && matchedTaxonomy ? "collection-and-taxonomy" : matchedTaxonomy ? "taxonomy" : "collection";
+    const score = populatedDimensions === 2 && collectionMatches && matchedTaxonomy ? 40_000 + taxonomyDepth(matchedTaxonomy.profileTaxonomy)
+      : matchedTaxonomy ? 30_000 + taxonomyDepth(matchedTaxonomy.profileTaxonomy)
+        : 20_000;
+    return { profile, reason, score, ...(matchedTaxonomy ? { matchedTaxonomy: matchedTaxonomy.targetTaxonomy } : {}) };
   }
-  if (taxonomy && matchedTaxonomy) return { profile, reason: "taxonomy", score: 30_000 + taxonomyDepth(taxonomy), matchedTaxonomy };
-  if (collection && collectionMatches) return { profile, reason: "collection", score: 20_000 };
-  if (!collection && !taxonomy && profile.isDefault) return { profile, reason: "company-default", score: 10_000 };
+  if (!hasCollections && !hasTaxonomies && profile.isDefault) return { profile, reason: "company-default", score: 10_000 };
   return undefined;
 }
 

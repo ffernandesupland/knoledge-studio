@@ -10,6 +10,9 @@ type ProfileRow = {
   name: string;
   scope_collection: string | null;
   scope_taxonomy: string | null;
+  scope_collections: string | null;
+  scope_taxonomies: string | null;
+  scope_operator: "and" | "or" | null;
   is_default: number;
   status: ConfigurationProfileStatus;
   guidance: string;
@@ -41,12 +44,25 @@ async function sourcesForProfile(profileId: string): Promise<ConfigurationSource
 }
 
 async function profileFromRow(row: ProfileRow): Promise<ConfigurationProfile> {
+  const parseValues = (value: string | null, legacy: string | null): string[] => {
+    if (value) {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (Array.isArray(parsed) && parsed.every(item => typeof item === "string")) return parsed;
+      } catch { /* Legacy values below remain available. */ }
+    }
+    return legacy ? [legacy] : [];
+  };
   return {
     id: row.id,
     connectionId: row.connection_id,
     kind: row.kind,
     name: row.name,
-    scope: { ...(row.scope_collection ? { collection: row.scope_collection } : {}), ...(row.scope_taxonomy ? { taxonomy: row.scope_taxonomy } : {}) },
+    scope: {
+      collections: parseValues(row.scope_collections, row.scope_collection),
+      taxonomies: parseValues(row.scope_taxonomies, row.scope_taxonomy),
+      operator: row.scope_operator === "or" ? "or" : "and",
+    },
     isDefault: !!row.is_default,
     guidance: row.guidance,
     sources: await sourcesForProfile(row.id),
@@ -96,8 +112,8 @@ export async function createConfigurationProfile(args: { connectionId: string; c
   await assertNoScopeConflict(args.connectionId, candidate);
   const timestamp = now();
   await db().transaction(async () => {
-    await db().prepare("INSERT INTO configuration_profiles(id,connection_id,kind,name,scope_collection,scope_taxonomy,is_default,status,guidance,revision,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, args.connectionId, draft.kind, draft.name, draft.scope.collection ?? null, draft.scope.taxonomy ?? null, draft.isDefault ? 1 : 0, "active", draft.guidance, 1, args.createdBy, timestamp, timestamp);
+    await db().prepare("INSERT INTO configuration_profiles(id,connection_id,kind,name,scope_collection,scope_taxonomy,scope_collections,scope_taxonomies,scope_operator,is_default,status,guidance,revision,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, args.connectionId, draft.kind, draft.name, draft.scope.collections[0] ?? null, draft.scope.taxonomies[0] ?? null, JSON.stringify(draft.scope.collections), JSON.stringify(draft.scope.taxonomies), draft.scope.operator, draft.isDefault ? 1 : 0, "active", draft.guidance, 1, args.createdBy, timestamp, timestamp);
     await insertSources(id, draft.sources, timestamp);
   })();
   return { ...candidate, createdAt: timestamp, updatedAt: timestamp };
@@ -113,8 +129,8 @@ export async function updateConfigurationProfile(args: { id: string; connectionI
   await assertNoScopeConflict(args.connectionId, candidate);
   const timestamp = candidate.updatedAt;
   await db().transaction(async () => {
-    await db().prepare("UPDATE configuration_profiles SET name=?,scope_collection=?,scope_taxonomy=?,is_default=?,guidance=?,revision=?,updated_at=? WHERE id=? AND connection_id=?")
-      .run(draft.name, draft.scope.collection ?? null, draft.scope.taxonomy ?? null, draft.isDefault ? 1 : 0, draft.guidance, candidate.revision, timestamp, args.id, args.connectionId);
+    await db().prepare("UPDATE configuration_profiles SET name=?,scope_collection=?,scope_taxonomy=?,scope_collections=?,scope_taxonomies=?,scope_operator=?,is_default=?,guidance=?,revision=?,updated_at=? WHERE id=? AND connection_id=?")
+      .run(draft.name, draft.scope.collections[0] ?? null, draft.scope.taxonomies[0] ?? null, JSON.stringify(draft.scope.collections), JSON.stringify(draft.scope.taxonomies), draft.scope.operator, draft.isDefault ? 1 : 0, draft.guidance, candidate.revision, timestamp, args.id, args.connectionId);
     await db().prepare("DELETE FROM configuration_profile_sources WHERE profile_id=?").run(args.id);
     await insertSources(args.id, draft.sources, timestamp);
   })();

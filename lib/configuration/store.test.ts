@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { closeDatabase, useDatabase } from "../db";
+import { closeDatabase, db, useDatabase } from "../db";
 import { ConfigurationScopeConflictError, archiveConfigurationProfile, createConfigurationProfile, listConfigurationProfiles, updateConfigurationProfile } from "./store";
 
 let directory: string;
@@ -35,5 +35,19 @@ describe("configuration profile storage", () => {
     await expect(createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "ground_truth", name: "Duplicate VPN evidence", scope: { taxonomy: "products//vpn" }, sources: [text] } })).rejects.toBeInstanceOf(ConfigurationScopeConflictError);
     await archiveConfigurationProfile(first.id, connectionId);
     await expect(createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "ground_truth", name: "Replacement VPN evidence", scope: { taxonomy: "products//vpn" }, sources: [text] } })).resolves.toMatchObject({ name: "Replacement VPN evidence" });
+  });
+
+  it("persists multi-value scopes and their AND/OR matching rule", async () => {
+    const created = await createConfigurationProfile({ connectionId, createdBy: "operator", draft: { kind: "content_standard", name: "Support and VPN", scope: { collections: ["Support", "IT"], taxonomies: ["Products//VPN", "HR//Benefits"], operator: "or" }, sources: [text] } });
+    expect(created.scope).toEqual({ collections: ["Support", "IT"], taxonomies: ["Products//VPN", "HR//Benefits"], operator: "or" });
+    const loaded = (await listConfigurationProfiles(connectionId, "content_standard")).find(profile => profile.id === created.id);
+    expect(loaded?.scope).toEqual(created.scope);
+  });
+
+  it("reads a profile saved with the former singular scope columns", async () => {
+    await db().prepare("INSERT INTO configuration_profiles(id,connection_id,kind,name,scope_collection,scope_taxonomy,is_default,status,guidance,revision,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run("legacy-scope", connectionId, "ground_truth", "Legacy scope", "Support", "Products//VPN", 0, "active", "", 1, "operator", "2026-09-23", "2026-09-23");
+    const legacy = (await listConfigurationProfiles(connectionId, "ground_truth")).find(profile => profile.id === "legacy-scope");
+    expect(legacy?.scope).toEqual({ collections: ["Support"], taxonomies: ["Products//VPN"], operator: "and" });
   });
 });

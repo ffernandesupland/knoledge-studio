@@ -1,6 +1,18 @@
 import { z } from "zod";
 
 const optionalScopeValue = z.string().trim().min(1).max(500).optional();
+const scopeValue = z.string().trim().min(1).max(500);
+
+function uniqueScopeValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.reduce<string[]>((result, value) => {
+    const normalized = value.trim().toLocaleLowerCase();
+    if (!normalized || seen.has(normalized)) return result;
+    seen.add(normalized);
+    result.push(value.trim());
+    return result;
+  }, []);
+}
 
 export const configurationProfileKindSchema = z.enum(["content_standard", "ground_truth"]);
 export type ConfigurationProfileKind = z.infer<typeof configurationProfileKindSchema>;
@@ -8,11 +20,28 @@ export type ConfigurationProfileKind = z.infer<typeof configurationProfileKindSc
 export const configurationProfileStatusSchema = z.enum(["active", "archived"]);
 export type ConfigurationProfileStatus = z.infer<typeof configurationProfileStatusSchema>;
 
+/**
+ * A profile can target several collection and taxonomy values. Legacy singular
+ * fields are accepted at the API boundary so existing saved drafts remain valid.
+ */
 export const configurationScopeSchema = z.object({
+  collections: z.array(scopeValue).max(40).optional(),
+  taxonomies: z.array(scopeValue).max(40).optional(),
+  operator: z.enum(["and", "or"]).optional(),
+  collection: optionalScopeValue,
+  taxonomy: optionalScopeValue,
+}).transform(value => ({
+  collections: uniqueScopeValues([...(value.collections ?? []), ...(value.collection ? [value.collection] : [])]),
+  taxonomies: uniqueScopeValues([...(value.taxonomies ?? []), ...(value.taxonomy ? [value.taxonomy] : [])]),
+  operator: value.operator ?? "and" as const,
+}));
+export type ConfigurationScope = z.infer<typeof configurationScopeSchema>;
+
+/** Snippets retain their intentionally simple, singular optional targeting. */
+export const snippetScopeSchema = z.object({
   collection: optionalScopeValue,
   taxonomy: optionalScopeValue,
 });
-export type ConfigurationScope = z.infer<typeof configurationScopeSchema>;
 
 export const configurationSourceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string().trim().min(1).max(120_000) }),
@@ -25,12 +54,12 @@ export type ConfigurationSource = z.infer<typeof configurationSourceSchema>;
 export const configurationProfileDraftSchema = z.object({
   kind: configurationProfileKindSchema,
   name: z.string().trim().min(1).max(120),
-  scope: configurationScopeSchema.default({}),
+  scope: configurationScopeSchema.optional().transform(scope => scope ?? { collections: [], taxonomies: [], operator: "and" as const }),
   isDefault: z.boolean().default(false),
   guidance: z.string().trim().max(4_000).default(""),
   sources: z.array(configurationSourceSchema).min(1).max(24),
 }).superRefine((value, ctx) => {
-  const scoped = !!value.scope.collection || !!value.scope.taxonomy;
+  const scoped = value.scope.collections.length > 0 || value.scope.taxonomies.length > 0;
   if (value.isDefault && scoped) {
     ctx.addIssue({ code: "custom", path: ["scope"], message: "A company default cannot also target a collection or taxonomy." });
   }
@@ -60,7 +89,7 @@ export const snippetDraftSchema = z.object({
   purpose: z.string().trim().max(2_000).default(""),
   html: z.string().trim().min(1).max(120_000),
   active: z.boolean().default(true),
-  scope: configurationScopeSchema.default({}),
+  scope: snippetScopeSchema.default({}),
 });
 export type SnippetDraft = z.infer<typeof snippetDraftSchema>;
 

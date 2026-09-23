@@ -17,6 +17,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
   const [zoom, setZoom] = useState(1);
   const [editing, setEditing] = useState(false);
   const [metadataEvidence, setMetadataEvidence] = useState(false);
+  const [standardsReport, setStandardsReport] = useState<NonNullable<OpResult["prepared"]> | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const row = model.rows.find((r) => r.key === selection?.key) ?? model.rows[0];
   const source = row?.sources.find((s) => s.id === selection?.source);
@@ -84,6 +85,7 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
             {prepared.metadataEvidenceChanged && <p className="sg-warning">The final wording differs from an accepted metadata suggestion’s original excerpt. Review the classification against this draft before approving it.</p>}
             {prepared.metadataResearch && <button type="button" onClick={() => setMetadataEvidence(true)}>Review metadata evidence map</button>}
             {!!Object.keys(prepared.metadataDecisions ?? {}).length && <details><summary>Metadata and attribute decisions</summary>{Object.entries(prepared.metadataDecisions ?? {}).map(([key, decision]) => <p key={key}><strong>{decision.label}</strong> · {decision.kind === "attribute" && decision.status === "accepted" ? "Kept for validation — not submitted" : decision.status}{decision.attributeSet ? ` · ${decision.attributeSet}` : ""}</p>)}</details>}
+            {!!prepared.ruleResults?.length && <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} onClick={() => setStandardsReport(prepared)}>Review content standards</button>}
             {prepared.warnings.map((w, i) => <p className="sg-warning" key={i}>{w}</p>)}
             {editing && onSave ? <form key={prepared.version} onSubmit={(e) => {
               e.preventDefault(); const data = new FormData(e.currentTarget);
@@ -106,6 +108,24 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
         </>}
       </aside>
       {metadataEvidence && prepared?.metadataResearch && <MetadataEvidence report={prepared.metadataResearch} onClose={() => setMetadataEvidence(false)} />}
+      {standardsReport && <ContentStandardsDialog prepared={standardsReport} onClose={() => setStandardsReport(null)} />}
     </div>
   </section>;
+}
+
+function ContentStandardsDialog({ prepared, onClose }: { prepared: NonNullable<OpResult["prepared"]>; onClose: () => void }) {
+  const results = prepared.ruleResults ?? [];
+  const changed = results.filter(result => result.changed);
+  const unchanged = results.filter(result => !result.changed);
+  return <div className="entity-modal-scrim" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="entity-modal" role="dialog" aria-modal="true" aria-labelledby="content-standards-title" style={{ maxWidth: 920, maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
+      <div className="entity-modal-hdr"><div className="entity-modal-title"><span className="ms" aria-hidden="true">rule</span><div><span className="ks-eyebrow">CONTENT STANDARDS REPORT</span><h2 id="content-standards-title">What changed in {prepared.title}</h2><p>{changed.length} of {results.length} checks changed the draft. This report never changes the source article.</p></div></div><button type="button" className="ds-btn ds-btn-secondary" aria-label="Close content standards report" onClick={onClose}>Close</button></div>
+      <div className="entity-modal-body" style={{ overflowY: "auto", flex: 1 }}>
+        {prepared.standardsUsed?.length ? <section><h3>Instructions used for this solution</h3><p>The model received these frozen standards sources for this output.</p>{prepared.standardsUsed.map((standard, index) => <details key={`${index}-${standard.slice(0, 80)}`} open={prepared.standardsUsed!.length === 1}><summary>{standard.startsWith("[") ? standard.slice(1, standard.indexOf("]")) : `Standard ${index + 1}`}</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 280, overflowY: "auto" }}>{standard.replace(/^\[[^\]]+\]\n/, "")}</pre></details>)}</section> : <p className="sg-warning">The exact instruction sources were not retained for this older prepared draft. New preparations show them here.</p>}
+        <section style={{ marginTop: 22 }}><h3>Changes made</h3>{changed.length ? <div style={{ display: "grid", gap: 10 }}>{changed.map((result, index) => <article key={`${result.rule}-${index}`} className="ks-card" style={{ padding: 14 }}><span className="ks-chip" style={{ background: "#e7f5eb", color: "#216e39" }}>Changed</span><h4 style={{ margin: "10px 0 6px" }}>{result.rule}</h4><p style={{ margin: 0 }}>{result.note}</p><small>{result.passedBefore ? "The draft already met the rule; a compatible refinement was still made." : "The draft did not meet this rule before the edit."}</small></article>)}</div> : <p>No content changes were needed for the applied standards.</p>}</section>
+        {!!unchanged.length && <details style={{ marginTop: 18 }}><summary>{unchanged.length} check{unchanged.length === 1 ? "" : "s"} with no change</summary><div style={{ display: "grid", gap: 10, marginTop: 10 }}>{unchanged.map((result, index) => <article key={`${result.rule}-${index}`} className="ks-card" style={{ padding: 14 }}><span className="ks-chip">No change</span><h4 style={{ margin: "10px 0 6px" }}>{result.rule}</h4><p style={{ margin: 0 }}>{result.note}</p><small>{result.passedBefore ? "Already compliant before preparation." : "No compatible content edit was made."}</small></article>)}</div></details>}
+      </div>
+      <div className="entity-modal-footer"><span>{prepared.standardsUsed?.length ?? 0} standards source{prepared.standardsUsed?.length === 1 ? "" : "s"} · {results.length} checks</span><button type="button" className="ds-btn ds-btn-primary" onClick={onClose}>Done</button></div>
+    </section>
+  </div>;
 }
