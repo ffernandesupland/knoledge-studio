@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({ getSolution: vi.fn() }));
 vi.mock("../ra/client", () => ({ ra: { getSolution: mocks.getSolution } }));
 const id = "260916000000001";
 const solution = { id, title: "Reference policy", status: "Published", lastModifiedDate: "2026-09-16", fields: [{ name: "Policy", content: "<p>Employees must use a managed device.</p>" }] };
-const selection = { enabled: true, referenceSolutionIds: [id], guidance: "Apply to employees." };
+const selection = { enabled: true, referenceSolutionIds: [id], referenceDocumentIds: [], referenceTextIds: [], guidance: "Apply to employees.", mode: "manual" as const };
 const snapshot = (): GroundContextSnapshot => ({ selection, references: [referenceFromSolution(solution)], capturedAt: "2026-09-16" });
 const article = { title: "Remote access", summary: "", keywords: [], fields: [{ fieldName: "Solution", fieldValue: "<p>Employees must use a managed device.</p>" }] };
 const report = { evidence: [{ referenceId: id, fieldName: "Solution", claim: "Employees must use a managed device.", quote: "Employees must use a managed device." }], issues: [] };

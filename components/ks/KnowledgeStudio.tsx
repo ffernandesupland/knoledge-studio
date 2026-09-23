@@ -1,8 +1,9 @@
 "use client";
 import PipelineMetadata from "./PipelineMetadata";
-import { GroundContextInput } from "./GroundContextInput";
+import { GroundTruthInput } from "./GroundTruthInput";
 import { GroundContextSummary } from "./GroundContextSummary";
-import { emptyGroundSelection, groundIdentity, type GroundContextInput as GroundSelection } from "@/lib/ground-context/types";
+import { emptyGroundSelection, groundIdentity, type GroundContextInput as GroundSelection, type GroundReference } from "@/lib/ground-context/types";
+import type { GroundTruthSelection } from "@/lib/ground-context/ground-truth";
 import type { MetadataSettings } from "@/lib/metadata/settings";
 import { legacyDocument, type SourceBlock, type SourceAttachment } from "@/lib/ks/source-document";
 
@@ -135,6 +136,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   }
 
   const [groundContext, setGroundContext] = useState<GroundSelection>(emptyGroundSelection);
+  const [groundTruth, setGroundTruth] = useState<Exclude<GroundTruthSelection, { mode: "manual" }> | undefined>();
+  const [groundTruthDocuments, setGroundTruthDocuments] = useState<{ id: string; name: string }[]>([]);
   const [kbSearchOpen, setKbSearchOpen] = useState(false);
   const [kbQuery, setKbQuery] = useState("");
   const [kbRows, setKbRows] = useState<KbRow[]>([]);
@@ -205,6 +208,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         if (stored.connectionId) setConnectionId(stored.connectionId);
         const snapshot = stored.snapshot as DecisionSnapshot | undefined;
         setGroundContext(stored.groundContext?.selection ?? emptyGroundSelection);
+        setGroundTruthDocuments((stored.groundContext?.references ?? []).filter((reference: GroundReference) => reference.sourceType === "document").map((reference: GroundReference) => ({ id: reference.id, name: reference.title })));
         pipeline.restore(stored.id, {
           groundContext: stored.groundContext,
           demandSpecification: stored.demandSpecification,
@@ -371,8 +375,12 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       showToast({ message: "Add some content, a file, or pick a solution first" });
       return;
     }
-    if (groundContext.enabled && (!groundContext.referenceSolutionIds.length || groundContext.referenceSolutionIds.some(id => sourceSolutionIds.includes(id)))) {
+    const activeGroundTruth: GroundTruthSelection | undefined = groundTruth ?? (groundTruthDocuments.length ? { mode: "manual", solutionIds: groundContext.referenceSolutionIds, documentIds: groundTruthDocuments.map(document => document.id), guidance: groundContext.guidance } : undefined);
+    if (!activeGroundTruth && groundContext.enabled && (!groundContext.referenceSolutionIds.length || groundContext.referenceSolutionIds.some(id => sourceSolutionIds.includes(id)))) {
       showToast({ message: "Choose Ground Context references that are different from your processing targets." }); return;
+    }
+    if (activeGroundTruth?.mode === "manual" && activeGroundTruth.solutionIds.some(id => sourceSolutionIds.includes(id))) {
+      showToast({ message: "Choose Ground Truth solutions that are different from your processing targets." }); return;
     }
     if (autoMode) {
       if (autoStarting) return;
@@ -381,7 +389,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
         content: orderedContent,
         attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
-        groundContext, sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
+        ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : { groundContext }), sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         duplicateScopeIds: duplicateScope,
         standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
         demandSpecification: savedDemandSpecification,
@@ -412,7 +420,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
       attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
-      groundContext,
+      ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : { groundContext }),
       sourceSolutionIds,
       duplicateScopeIds: duplicateScope,
       operations: ops.filter((o) => o.on).map((o) => o.name),
@@ -732,7 +740,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       <div style={{ color: T.textSecondary, fontSize: 11, marginTop: 10 }}>Preparing the draft always applies selected review findings, even if optional analysis toggles are changed. HTML-compatible formatting is applied to fields; title-rendering requirements are retained as an explicit limitation because a RightAnswers title is plain-text metadata. No analysis or write starts automatically.</div>
     </div>;
     const advancedSettings = [
-      groundContext.enabled ? `Ground Context: ${groundContext.referenceSolutionIds.length} reference${groundContext.referenceSolutionIds.length === 1 ? "" : "s"}` : null,
+      groundTruth ? `Ground Truth: ${groundTruth.mode === "bundle" ? "saved bundle" : "scope match"}` : groundTruthDocuments.length ? `Ground Truth: ${groundContext.referenceSolutionIds.length + groundTruthDocuments.length} direct sources` : groundContext.enabled ? `Ground Context: ${groundContext.referenceSolutionIds.length} reference${groundContext.referenceSolutionIds.length === 1 ? "" : "s"}` : null,
       hasDemandRequirements(demandSpecification) ? `Demand requirements: ${demandSpecification.directives.filter((directive) => directive.text.trim()).length + (demandSpecification.intent.trim() ? 1 : 0)}` : null,
       autoMode ? "Autonomous run enabled" : null,
     ].filter((setting): setting is string => !!setting);
@@ -926,7 +934,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             <div className="ks-advanced-options-head">
               <div><h2 id="advanced-options-title">Advanced options</h2><p>Your sources, selections, and workflow choices stay in place while you show or hide these settings.</p></div>
             </div>
-            <GroundContextInput value={groundContext} onChange={setGroundContext} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
+            <GroundTruthInput value={groundContext} onChange={setGroundContext} selection={groundTruth} onSelectionChange={setGroundTruth} documents={groundTruthDocuments} onDocumentsChange={setGroundTruthDocuments} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
             <section className="ks-card" aria-labelledby="demand-requirements-title">
               <div className="ks-card-head">
                 <span className="ms">assignment</span><span id="demand-requirements-title">Demand requirements</span>

@@ -23,6 +23,7 @@ import { getWriteState, saveWriteState } from "./state";
 import type { ReviewObjective } from "../ks/solution-reviews";
 import { applicableDirectives, type ScopedDirective } from "../demand/spec";
 import { assessDemandCompliance, validateDemandCompliance, type DemandCompliance } from "../demand/compliance";
+import type { AuthoringSnippet } from "../llm/operations";
 
 export interface PreparedContent {
   groundContext?: GroundContextSnapshot;
@@ -44,6 +45,8 @@ export interface PreparedContent {
   sections?: MergeWorkspaceResult["sections"];
   warnings: string[];
   ruleResults?: StandardsResult["ruleResults"];
+  /** IDs of reusable HTML structures made available during authoring. */
+  snippetIds?: string[];
   demandCompliance?: DemandCompliance;
   reviewed?: boolean;
   standardsApplied?: boolean;
@@ -70,6 +73,10 @@ export interface ExecuteArgs {
   language: string;
   restructureEnabled?: boolean;
   standardsRules?: string[];
+  /** Frozen standards resolved against each output's final metadata. */
+  standardRulesByCandidate?: Record<string, string[]>;
+  /** Frozen reusable HTML structures, scoped to each final article. */
+  snippetsByCandidate?: Record<string, AuthoringSnippet[]>;
   /** Server-bound review findings that must shape the draft, never authorize a write. */
   reviewObjectives?: ReviewObjective[];
   /** Unified demand and review guidance, already bound to the saved run. */
@@ -120,7 +127,7 @@ export async function executeWritePlan(args: ExecuteArgs, onProgress?: (p: Execu
   return withSourceContext(originals, () => executeWritePlanImpl(args, onProgress, run?.groundContext));
 }
 async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteProgress) => void, groundContext?: GroundContextSnapshot): Promise<OpResult[]> {
-  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [], directives = [] } = args;
+  const { runId, user, plan, collection, language, restructureEnabled, standardsRules = [], standardRulesByCandidate = {}, snippetsByCandidate = {}, directives = [] } = args;
   if (args.requirePrepared && !args.prepareOnly) await assertPreparedPlan(args);
   const results: OpResult[] = [];
   const ctx = { impUser: user };
@@ -136,6 +143,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
     let writing = false;
     let result: OpResult;
     let payload: unknown = op;
+    const snippets = op.kind === "flag" ? [] : snippetsByCandidate[op.candidateKey] ?? [];
     try {
       if (state?.status === "ok" || prior) {
         result = state?.result ?? { ...base, outcome: "ok", solutionId: prior?.target ?? undefined, message: "Completed in an earlier attempt" };
@@ -149,8 +157,8 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         if (op.kind !== "create" || op.mergeSources?.length || !op.rawContent) throw new Error("Regeneration is available for unwritten new articles with saved source content.");
         const target = templates.find((t) => t.templateName === (review.templateName ?? prepared!.templateName));
         if (!target) throw new Error("Choose an available template.");
-        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"));
-        prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [] };
+        const generated = await restructure([{ label: "saved source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"), snippets);
+        prepared = { version: randomUUID(), title: op.titleLocked ? op.title : generated.data.title, summary: generated.data.summary, keywords: [...new Set([...(op.keywords ?? []), ...generated.data.keywords])], templateName: target.templateName, fields: generated.data.fields, warnings: [], ...(snippets.length ? { snippetIds: snippets.map(snippet => snippet.id) } : {}) };
         if (groundContext?.selection.enabled) {
           prepared.groundContext = groundContext;
           const enriched = await enrichWithReferences(prepared, groundContext);
@@ -179,9 +187,9 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
       } else {
         if (!prepared) {
           if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare this draft before submitting.");
-          prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [], ...(groundContext?.selection.enabled ? { groundContext } : {}) };
+          prepared = { version: randomUUID(), title: op.title, summary: op.summary ?? "", keywords: op.keywords ?? [], templateName: op.templateName ?? "", fields: op.fields ?? [], warnings: [], ...(groundContext?.selection.enabled ? { groundContext } : {}), ...(snippets.length ? { snippetIds: snippets.map(snippet => snippet.id) } : {}) };
           if (op.mergeSources?.length) {
-            const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion, directives: applicableDirectives(directives, "merge") });
+            const merged = await mergeGroupFields({ survivorId: op.kind === "revise" ? op.solutionId : op.candidateKey, survivorTitle: op.title, survivorTemplateName: op.templateName, survivorFields: op.fields, survivorRawContent: op.rawContent, proposal: op.proposal, sources: op.mergeSources, user, survivorEdited: op.edited, sourceVersion: op.sourceVersion, directives: applicableDirectives(directives, "merge"), snippets });
             prepared.fields = merged.fields;
             prepared.title = op.titleLocked ? op.title : merged.title ?? op.title;
             prepared.summary = merged.summary ?? prepared.summary;
@@ -195,7 +203,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             onProgress?.({ index, total: plan.length, description: `Generating draft: ${op.title}` });
             const target = templates.find((t) => t.templateName === op.templateName);
             if (!target) throw new Error("Final template is unavailable; choose a valid template in a new run.");
-            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"));
+            const r = await restructure([{ label: "source content", content: op.rawContent }], target, op.proposal, !restructureEnabled, applicableDirectives(directives, "author"), snippets);
             prepared.fields = r.data.fields;
             prepared.title = op.titleLocked ? op.title : r.data.title;
             prepared.summary = r.data.summary;
@@ -229,9 +237,10 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
           try {
             validateSummary(prepared.summary);
             prepared.fields = validateFields(prepared.fields, target);
-            if (standardsRules.length && !prepared.standardsApplied) {
+            const applicableStandards = standardRulesByCandidate[op.candidateKey] ?? standardsRules;
+            if (applicableStandards.length && !prepared.standardsApplied) {
               if (args.requirePrepared && !args.prepareOnly) throw new Error("Prepare standards changes before submitting.");
-              const standards = await applyStandards(prepared.fields, standardsRules, applicableDirectives(directives, "standards"));
+              const standards = await applyStandards(prepared.fields, applicableStandards, applicableDirectives(directives, "standards"), snippets);
               prepared.fields = validateFields(standards.data.fields, target);
               prepared.ruleResults = standards.data.ruleResults;
               prepared.standardsApplied = true;

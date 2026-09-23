@@ -20,6 +20,7 @@ import {
 import { buildDuplicateGroups, type DuplicateGroup } from "./grouping";
 import type { ReviewObjective } from "../ks/solution-reviews";
 import { demandDirectives, reviewDirectives, type DemandSpecification } from "../demand/spec";
+import type { GroundTruthSelection } from "../ground-context/ground-truth";
 
 export type OperationName =
   | "Discover and suggest metadata"
@@ -34,6 +35,8 @@ export interface RunInput {
   /** Saved RightAnswers customer connection selected for this run. */
   connectionId?: string;
   groundContext?: GroundContextInput;
+  /** Server-resolved from Manual, Saved Bundle, or Match Scope Ground Truth selection. */
+  groundTruth?: GroundTruthSelection;
   text: string;
   /** Text extracted from uploaded files and fetched URLs. */
   attachments?: SourceAttachment[];

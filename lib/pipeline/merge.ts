@@ -7,6 +7,7 @@ import type { WSTemplate } from "../ra/types";
 import type { MergeSource } from "./submit";
 import { solutionToText } from "./dedupe";
 import type { ScopedDirective } from "../demand/spec";
+import type { AuthoringSnippet } from "../llm/operations";
 
 export interface MergeGroupArgs {
   survivorId: string;
@@ -26,6 +27,7 @@ export interface MergeGroupArgs {
   /** The group's other members; their real content is retrieved and folded in. */
   sources: MergeSource[];
   directives?: ScopedDirective[];
+  snippets?: AuthoringSnippet[];
 }
 
 export interface MergeGroupResult {
@@ -104,7 +106,7 @@ export async function mergeGroupFields(args: MergeGroupArgs): Promise<MergeGroup
       ? `These solutions used different templates (${distinctTemplates.join(", ")}); some content may not have lined up field by field.`
       : null;
 
-  const result = await mergeSections(blocks, target, [args.proposal, ...sources.map((s) => s.proposal)].filter((p): p is ContentProposal => !!p), args.directives);
+  const result = await mergeSections(blocks, target, [args.proposal, ...sources.map((s) => s.proposal)].filter((p): p is ContentProposal => !!p), args.directives, args.snippets);
 
   const fields = result.data.sections
     .map((s) => ({ fieldName: s.fieldName, fieldValue: s.combined }));

@@ -12,6 +12,7 @@ export interface RunRequest {
   demandSpecification?: DemandSpecification;
   demandRecommendationId?: string;
   groundContext?: import("@/lib/ground-context/types").GroundContextInput;
+  groundTruth?: import("@/lib/ground-context/ground-truth").GroundTruthSelection;
   text: string;
   attachments?: SourceAttachment[];
   content?: SourceBlock[];
