@@ -12,7 +12,6 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DsDropdown, IdChip, Snackbar, useActionToast } from "@/components/ds";
 import {
-  KsAddRuleMenu,
   KsSmartInput,
   KsStepper,
   type Attachment,
@@ -33,8 +32,6 @@ import type { ContentReview } from "@/lib/pipeline/execute";
 import Link from "next/link";
 import { MergeWorkspaceModal } from "./MergeWorkspaceModal";
 import {
-  KS_CS_ALL_RULES,
-  KS_CS_PRESETS,
   KS_OPS_DEFAULT,
   KS_PATHS,
   KS_STEPS,
@@ -166,8 +163,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [metadataSettings, setMetadataSettings] = useState<MetadataSettings>({});
   const [metadataBusy, setMetadataBusy] = useState(false);
   const [metaFields, setMetaFields] = useState({ Collection: "", Language: "", Owner: "Loading author…" });
-  const [csStandard, setCsStandard] = useState("Default company standard");
-  const [csRules, setCsRules] = useState<string[]>([...KS_CS_PRESETS["Default company standard"]]);
   /** Default template new solutions are created with; a per-solution override wins over this. */
   const [newSolutionTemplate, setNewSolutionTemplate] = useState<string | null>(null);
   const [templateOverrides, setTemplateOverrides] = useState<Set<string>>(new Set());
@@ -182,13 +177,12 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const [preview, setPreview] = useState<{ title: string; article?: { summary?: string; keywords?: string[]; templateName?: string; fields?: { fieldName: string; fieldValue: string }[] }; candidateKey?: string } | null>(null);
   const [toast, showToast, dismissToast] = useActionToast();
 
-  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, reviewStandards: string[] = [], launchContext?: { sourceSolutionIds?: string[]; sourceSolutions?: { id: string; title: string }[]; duplicateScopeIds?: string[] }) {
+  function bootstrapSource(source: { id: string; connectionId?: string; title?: string }, nativeOperations: string[] = [], fromReview = false, launchContext?: { sourceSolutionIds?: string[]; sourceSolutions?: { id: string; title: string }[]; duplicateScopeIds?: string[] }) {
     setConnectionId(source.connectionId ?? "");
     setPath("improve");
     const required = fromReview ? ["Restructure content", ...nativeOperations] : nativeOperations;
     const exactLaunchOperations = !fromReview && nativeOperations.length > 0;
     setOps(KS_OPS_DEFAULT.map(o => ({ ...o, on: exactLaunchOperations ? required.includes(o.name) : KS_PATHS.improve.on.includes(o.name) || required.includes(o.name) })));
-    if (reviewStandards.length) { setCsStandard("Selected review requirements"); setCsRules(reviewStandards); }
     const ids = [...new Set([source.id, ...(launchContext?.sourceSolutionIds ?? [])])];
     const titles = new Map(launchContext?.sourceSolutions?.map((item) => [item.id, item.title]));
     setKbSelected(Object.fromEntries(ids.map((id) => [id, { id, title: titles.get(id) ?? (id === source.id ? source.title ?? `Solution ${id}` : `Solution ${id}`), meta: fromReview ? "Selected from AI Solution Review" : "Selected from AI Solution View" }])));
@@ -223,7 +217,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         if (snapshot) {
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: snapshot.collection, Language: snapshot.language }));
-          setCsStandard(snapshot.standard); setCsRules(snapshot.standardsRules);
           setNewSolutionTemplate(snapshot.newSolutionTemplate); setTemplateOverrides(new Set(snapshot.templateOverrides));
         } else if (stored.decisions?.collection) {
           restored.current = true;
@@ -272,8 +265,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           setReviewHandoff(handoff);
           setResolutionDrafts(Object.fromEntries(handoff.reviewObjectives.flatMap(objective => objective.clarification ? [[objective.key, { choice: objective.resolution?.choice ?? "", finalInformation: objective.resolution?.finalInformation ?? "" }]] : [])));
           setAutoMode(false);
-          const reviewStandards = [...new Set(handoff.reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
-          bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true, reviewStandards);
+          bootstrapSource({ id: handoff.solutionId, connectionId: handoff.connectionId, title: handoff.title }, handoff.nativeOperations, true);
           showToast({ message: "Review findings were added as governed scope. Confirm the workflow before analysis.", icon: "fact_check" });
         })
         .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
@@ -300,7 +292,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           showToast({ message: "The source solution changed after this launch was prepared. Return to AI Solution View and open a new pipeline launch.", icon: "error" });
           return;
         }
-        bootstrapSource({ id: launch.solutionId, connectionId: launch.connectionId, title: launch.title }, launch.operations, false, [], launch);
+        bootstrapSource({ id: launch.solutionId, connectionId: launch.connectionId, title: launch.title }, launch.operations, false, launch);
         showToast({ message: launch.duplicateScopeIds.length ? `Targeted duplicate detection opened with ${launch.duplicateScopeIds.length} selected solutions.` : launch.operations.includes("Find duplicates") ? "Duplicate detection opened for this solution. Review the scope, then start analysis." : "AI Knowledge Creation opened this saved solution in the pipeline. Review the options, then start analysis.", icon: "auto_awesome" });
       })
       .catch((error: Error) => !cancelled && showToast({ message: error.message, icon: "error" }));
@@ -391,7 +383,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
         ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : { groundContext }), sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         duplicateScopeIds: duplicateScope,
-        standardsRules: ops.some(o => o.name === "Apply content standards" && o.on) ? csRules : [],
+        standardsRules: [],
         demandSpecification: savedDemandSpecification,
         demandRecommendationId: demandRecommendation?.status === "accepted" ? demandRecommendation.id : undefined,
       };
@@ -576,8 +568,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       Collection: meta ? pickDefaultCollection(meta.collections) : "",
       Language: meta ? (meta.languages.find((l) => /^english/i.test(l)) ?? meta.languages[0] ?? "English") : "English",
     }));
-    setCsStandard("Default company standard");
-    setCsRules([...KS_CS_PRESETS["Default company standard"]]);
     setNewSolutionTemplate(null);
     setTemplateOverrides(new Set());
     setTemplateEditOpen({});
@@ -648,9 +638,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const snapshot = useMemo<DecisionSnapshot>(() => ({
     groundContextIdentity,
     candidates, groups: effectiveGroups, selectedKeys: [...selected], resolutions, operations: ops,
-    collection: metaFields.Collection, language: metaFields.Language, standard: csStandard, standardsRules: csRules,
+    collection: metaFields.Collection, language: metaFields.Language, standard: "Managed in Solution Standards Management", standardsRules: [],
     newSolutionTemplate, templateOverrides: [...templateOverrides], metadata: metadataSettings,
-  }), [groundContextIdentity, candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, csStandard, csRules, newSolutionTemplate, templateOverrides, metadataSettings]);
+  }), [groundContextIdentity, candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, newSolutionTemplate, templateOverrides, metadataSettings]);
   useEffect(() => {
     if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || (submitRun.locked || submitRun.phase === "preparing" || submitRun.phase === "submitting")) return;
     const t = setTimeout(() => {
@@ -677,7 +667,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   const scopedDirectives = [...demandDirectives(demandSpecification), ...reviewDirectives(reviewObjectives)];
   const reviewStandards = [...new Set(reviewObjectives.filter(objective => objective.nativeOperation === "Apply content standards" && objective.criteria).map(objective => objective.criteria!))];
   const reviewRestructureEnabled = ops.some((o) => o.name === "Restructure content" && o.on) || scopedDirectives.length > 0;
-  const reviewRules = [...new Set([...(ops.some((o) => o.name === "Apply content standards" && o.on) ? csRules : []), ...reviewStandards])];
+  const reviewRules = reviewStandards;
   const frozenConfiguration = useMemo(() => frozenConfigurationIdentity(submitRun.identity), [submitRun.identity]);
   const currentIdentity = submissionIdentity(proposedWritePlan.plan, snapshot, { objectives: scopedDirectives, restructure: reviewRestructureEnabled, standards: [...new Set([...reviewRules, ...frozenConfiguration.standards])], snippets: frozenConfiguration.snippets });
   const displayedStandards = frozenConfiguration.standards.length ? frozenConfiguration.standards : reviewRules;
@@ -1347,7 +1337,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
 
   /* ── Metadata ── */
   function renderMetadataStep() {
-    const availRules = KS_CS_ALL_RULES.filter((r) => !csRules.includes(r));
     return (
       <div className="ks-scroll">
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -1446,46 +1435,6 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                 <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>
                   Not writable through the API.
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="ks-card">
-            <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" }}>
-              <span
-                className="section-lbl"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  textTransform: "uppercase",
-                  color: T.textSecondary,
-                }}
-              >
-                Content standards
-              </span>
-              <div style={{ width: 260, maxWidth: "100%" }}>
-                <DsDropdown
-                  value={csStandard}
-                  options={Object.keys(KS_CS_PRESETS)}
-                  onChange={(v) => {
-                    setCsStandard(v);
-                    setCsRules([...KS_CS_PRESETS[v]]);
-                  }}
-                />
-                <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>
-                  Applied to final content on submit, including merges.
-                </div>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                {csRules.map((r) => (
-                  <span key={r} className="ks-cs-chip">
-                    {r}
-                    <button type="button" onClick={() => setCsRules((p) => p.filter((x) => x !== r))}>
-                      <span className="ms">cancel</span>
-                    </button>
-                  </span>
-                ))}
-                <KsAddRuleMenu options={availRules} onPick={(r) => setCsRules((p) => [...p, r])} />
               </div>
             </div>
           </div>

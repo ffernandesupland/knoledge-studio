@@ -40,7 +40,6 @@ export const KS_STEPS: Step[] = [
   { id: "metadata", name: "Metadata", helper: "Set fields", icon: "sell" },
   { id: "submit", name: "Submit", helper: "For review", icon: "send" },
 ];
-
 export const KS_PATHS: Record<PathKey, PathDef> = {
   create: {
     key: "create",
@@ -97,7 +96,7 @@ export const KS_OPS_DEFAULT: Operation[] = [
   },
   {
     name: "Apply content standards",
-    desc: "Use your organization's formatting and tone rules",
+    desc: "Use the applicable company or scoped standard from Solution Standards Management",
     icon: "rule",
     on: true,
   },
@@ -120,22 +119,3 @@ export const KS_OPS_DEFAULT: Operation[] = [
     on: true,
   },
 ];
-
-export const KS_CS_ALL_RULES = [
-  "Sentence-case headings",
-  "Second person",
-  "Numbered steps",
-  "Active voice",
-  "Metric units",
-];
-
-export const KS_CS_PRESETS: Record<string, string[]> = {
-  "Default company standard": ["Sentence-case headings", "Second person", "Numbered steps"],
-  "Support content (external)": [
-    "Sentence-case headings",
-    "Second person",
-    "Numbered steps",
-    "Active voice",
-  ],
-  "Internal only": ["Sentence-case headings"],
-};
