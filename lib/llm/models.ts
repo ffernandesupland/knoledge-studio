@@ -42,6 +42,10 @@ export const OPERATION_TIER: Record<string, ModelTier> = {
   optimizeSearch: "cheap",
   findGaps: "cheap",
   solutionReview: "reasoning",
+  // A rubric is compiled once per stable pipeline signature; an independent low-cost
+  // judge then scores individual drafts against that frozen rubric.
+  evalRubric: "reasoning",
+  evalJudge: "cheap",
 };
 
 export function modelFor(operation: string): string {

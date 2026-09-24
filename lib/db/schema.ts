@@ -290,5 +290,33 @@ CREATE TABLE IF NOT EXISTS solution_review_handoff_resolutions (
   PRIMARY KEY (handoff_id, question_key)
 );
 
+-- Evals are an internal measurement layer. They are intentionally separate from
+-- write_state and write_audit, so a score can never block an authoring or publishing flow.
+CREATE TABLE IF NOT EXISTS eval_rubrics (
+  id TEXT PRIMARY KEY,
+  signature TEXT NOT NULL UNIQUE,
+  scenario_label TEXT NOT NULL,
+  pipeline_json TEXT NOT NULL,
+  rubric_json TEXT NOT NULL,
+  compiler_model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_results (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  idempotency_key TEXT NOT NULL,
+  prepared_version TEXT NOT NULL,
+  rubric_id TEXT NOT NULL REFERENCES eval_rubrics(id) ON DELETE RESTRICT,
+  judge_model TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  score REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(run_id, idempotency_key, prepared_version, rubric_id)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_rubric_created ON eval_results(rubric_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(run_id, idempotency_key);
+
 `;
 

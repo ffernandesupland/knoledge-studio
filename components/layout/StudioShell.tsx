@@ -10,6 +10,7 @@ const knowledgeStudioItems = [
   { href: "/ground-truth-management", label: "Ground Truth Management", icon: "library_books", description: "Manage reusable reference context" },
   { href: "/solution-standards-management", label: "Solution Standards Management", icon: "rule", description: "Manage content standards" },
   { href: "/snippets-management", label: "Snippets Management", icon: "code_blocks", description: "Manage reusable content structures" },
+  { href: "/knowledge-studio-evals", label: "Knowledge Studio Evals", icon: "analytics", description: "Compare internal draft evaluations" },
 ];
 const sections = [
   { href: "/ai-solution-view", label: "AI Solution View", icon: "article", description: "Review and improve solutions" },

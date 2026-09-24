@@ -6,10 +6,11 @@ import { GroundContextReport } from "./GroundContextReport";
 import { GroundContextSummary } from "./GroundContextSummary";
 import { MetadataEvidence } from "./MetadataEvidence";
 import { ArticlePreview } from "./ArticlePreview";
+import type { EvaluationResponse } from "@/lib/evals/types";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
-export function SubmissionGraph({ model, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
-  decisionActor?: "author" | "agent"; templates?: string[]; model: SubmissionGraphModel; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
+export function SubmissionGraph({ model, runId, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
+  decisionActor?: "author" | "agent"; templates?: string[]; model: SubmissionGraphModel; runId?: string; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
   onSave?: (key: string, review: ContentReview) => void; onChangePlan?: () => void; onDirtyChange?: (dirty: boolean) => void; flowHref?: string;
 }) {
   const [selection, setSelection] = useState<{ key: string; source?: string; action?: boolean; comment?: string } | null>(null);
@@ -18,6 +19,9 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
   const [editing, setEditing] = useState(false);
   const [metadataEvidence, setMetadataEvidence] = useState(false);
   const [standardsReport, setStandardsReport] = useState<NonNullable<OpResult["prepared"]> | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationResponse | null>(null);
+  const [evaluationPending, setEvaluationPending] = useState<string | null>(null);
+  const [evaluationError, setEvaluationError] = useState("");
   const viewport = useRef<HTMLDivElement>(null);
   const row = model.rows.find((r) => r.key === selection?.key) ?? model.rows[0];
   const source = row?.sources.find((s) => s.id === selection?.source);
@@ -25,6 +29,17 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
   const prepared = row?.result?.prepared;
   function choose(next: NonNullable<typeof selection>) { if (editing) return; setSelection(next); }
   function edit(value: boolean) { setEditing(value); onDirtyChange?.(value); }
+  async function runEvaluation(key: string) {
+    if (!runId) return;
+    setEvaluationPending(key); setEvaluationError("");
+    try {
+      const response = await fetch("/api/evals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, idempotencyKey: key }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not run the evaluation");
+      setEvaluation(data);
+    } catch (error) { setEvaluationError(error instanceof Error ? error.message : "Could not run the evaluation"); }
+    finally { setEvaluationPending(null); }
+  }
   function node(r: SubmissionRow, kind: "source" | "action" | "result", s?: GraphSource) {
     const selected = row?.key === r.key && (kind === "source" ? selection?.source === s?.id : kind === "action" ? selection?.action : !selection?.source && !selection?.action && !selection?.comment);
     const state = currentKey === r.key ? (mode === "submission" ? "Writing…" : "Preparing…") : statusLabel(r.result);
@@ -86,6 +101,8 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
             {prepared.metadataResearch && <button type="button" onClick={() => setMetadataEvidence(true)}>Review metadata evidence map</button>}
             {!!Object.keys(prepared.metadataDecisions ?? {}).length && <details><summary>Metadata and attribute decisions</summary>{Object.entries(prepared.metadataDecisions ?? {}).map(([key, decision]) => <p key={key}><strong>{decision.label}</strong> · {decision.kind === "attribute" && decision.status === "accepted" ? "Kept for validation — not submitted" : decision.status}{decision.attributeSet ? ` · ${decision.attributeSet}` : ""}</p>)}</details>}
             {!!prepared.ruleResults?.length && <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} onClick={() => setStandardsReport(prepared)}>Review content standards</button>}
+            {runId && <div style={{ marginTop: 12 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={evaluationPending === row.key} onClick={() => void runEvaluation(row.key)}>{evaluationPending === row.key ? "Running evaluation…" : "Run evaluation"}</button><small style={{ display: "block", marginTop: 7 }}>Internal measurement only. It never changes readiness or publishing behavior.</small></div>}
+            {evaluationError && <p className="sg-warning" role="alert">{evaluationError}</p>}
             {prepared.warnings.map((w, i) => <p className="sg-warning" key={i}>{w}</p>)}
             {editing && onSave ? <form key={prepared.version} onSubmit={(e) => {
               e.preventDefault(); const data = new FormData(e.currentTarget);
@@ -109,8 +126,27 @@ export function SubmissionGraph({ model, busy = false, currentKey, mode = "prepa
       </aside>
       {metadataEvidence && prepared?.metadataResearch && <MetadataEvidence report={prepared.metadataResearch} onClose={() => setMetadataEvidence(false)} />}
       {standardsReport && <ContentStandardsDialog prepared={standardsReport} onClose={() => setStandardsReport(null)} />}
+      {evaluation && <EvaluationDialog evaluation={evaluation} onClose={() => setEvaluation(null)} />}
     </div>
   </section>;
+}
+
+function EvaluationDialog({ evaluation, onClose }: { evaluation: EvaluationResponse; onClose: () => void }) {
+  const byId = new Map(evaluation.result.judgment.criteria.map(criterion => [criterion.criterionId, criterion]));
+  return <div className="entity-modal-scrim" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="entity-modal" role="dialog" aria-modal="true" aria-labelledby="evaluation-result-title" style={{ maxWidth: 920, maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
+      <div className="entity-modal-hdr"><div className="entity-modal-title"><span className="ms" aria-hidden="true">analytics</span><div><span className="ks-eyebrow">RUBRIC EVALUATION</span><h2 id="evaluation-result-title">{evaluation.result.score.toFixed(1)} / 100</h2><p>{evaluation.result.judgment.summary}</p></div></div><button type="button" className="ds-btn ds-btn-secondary" aria-label="Close evaluation results" onClick={onClose}>Close</button></div>
+      <div className="entity-modal-body" style={{ overflowY: "auto", flex: 1 }}>
+        <p><strong>{evaluation.rubric.scenarioLabel}</strong> · Rubric revision {evaluation.rubric.revision} · Judged by {evaluation.result.judgeModel}{evaluation.cached ? " · Loaded saved result" : ""}</p>
+        <p className="sg-warning">This score is internal measurement only. It does not approve, block, edit, or publish this draft.</p>
+        <div style={{ display: "grid", gap: 10 }}>{evaluation.rubric.rubric.criteria.map(criterion => {
+          const result = byId.get(criterion.id);
+          return <article key={criterion.id} className="ks-card" style={{ padding: 14 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><div><h3 style={{ margin: 0 }}>{criterion.title}</h3><small>Weight {criterion.weight} · {result?.verdict?.replaceAll("_", " ") ?? "Not scored"}</small></div><strong style={{ fontSize: 20 }}>{result?.score ?? 0} / 4</strong></div><p style={{ margin: "10px 0 6px" }}>{result?.explanation ?? "No result was returned for this criterion."}</p>{result?.evidence.length ? <details><summary>Evidence</summary><ul>{result.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul></details> : <small>No supporting evidence was found.</small>}</article>;
+        })}</div>
+      </div>
+      <div className="entity-modal-footer"><span>Fixed rubric · {evaluation.rubric.rubric.criteria.length} criteria</span><button type="button" className="ds-btn ds-btn-primary" onClick={onClose}>Done</button></div>
+    </section>
+  </div>;
 }
 
 function ContentStandardsDialog({ prepared, onClose }: { prepared: NonNullable<OpResult["prepared"]>; onClose: () => void }) {
