@@ -39,6 +39,13 @@ describe("evaluation scoring", () => {
     expect(evaluationSignature(howTo[0].descriptor)).toBe(evaluationSignature(error[0].descriptor));
   });
 
+  it("uses the saved pipeline snapshot instead of a stale broad run operation list", () => {
+    const run = { operations: ["Apply content standards", "Optimize for search"], snapshot: { operations: [{ name: "Apply content standards", on: true }, { name: "Optimize for search", on: false }] } } as unknown as StoredRun;
+    const execution = { plan: [{ idempotencyKey: "draft-1", kind: "revise", candidateKey: "candidate-1" }] } as ExecuteArgs;
+    const prepared: PreparedContent = { version: "draft-v1", title: "VPN", summary: "", keywords: [], templateName: "How To (RA)", fields: [], warnings: [], standardsApplied: true, standardsUsed: ["[Company standard]\nUse clear commands."], ruleResults: [] };
+    expect(buildEvaluationDimensions(run, execution, "draft-1", prepared).map(dimension => dimension.descriptor.dimension)).toEqual(["content_standards"]);
+  });
+
   it("calculates a weighted score from the fixed rubric", () => {
     const judgment: EvaluationJudgment = { summary: "Measured.", criteria: [
       { criterionId: "factual_grounding", score: 4, verdict: "met", explanation: "Supported.", evidence: ["Source"] },

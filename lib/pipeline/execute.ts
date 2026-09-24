@@ -26,6 +26,8 @@ import { assessDemandCompliance, validateDemandCompliance, type DemandCompliance
 import type { AuthoringSnippet } from "../llm/operations";
 
 export interface PreparedContent {
+  /** Frozen target-template contract used for preparation and template-integrity evaluation. */
+  templateContract?: { fieldName: string; required: boolean; description?: string }[];
   groundContext?: GroundContextSnapshot;
   grounding?: GroundingReport;
   groundingEnriched?: boolean;
@@ -89,7 +91,7 @@ export interface OpResult {
   idempotencyKey: string;
   kind: WriteOp["kind"];
   description: string;
-  outcome: "ok" | "error" | "skipped" | "review" | "uncertain" | "ready";
+  outcome: "ok" | "error" | "skipped" | "review" | "blocked" | "uncertain" | "ready";
   solutionId?: string;
   message?: string;
   fields?: WSDisplayField[];
@@ -233,6 +235,7 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
         }
         const target = templates.find((t) => t.templateName === prepared!.templateName);
         if (!target) throw new Error("The prepared template is no longer available.");
+        prepared.templateContract = target.fields.map((field) => ({ fieldName: field.fieldName, required: !!field.required, description: field.description }));
         if (!prepared.reviewed && prepared.sections?.some((s) => s.conflict.present)) {
           result = { ...base, outcome: "review", prepared, message: "Resolve the conflicting claims below. No write has occurred for this article." };
         } else {
@@ -253,10 +256,12 @@ async function executeWritePlanImpl(args: ExecuteArgs, onProgress?: (p: ExecuteP
             if (unknown.length) prepared.warnings.push(`Unmapped content requires placement: ${unknown.map((f) => `${f.fieldName}: ${f.fieldValue}`).join("\n")}`);
             prepared.fields = target.fields.map((f) => ({ fieldName: f.fieldName, fieldValue: prepared!.fields.find((v) => v.fieldName === f.fieldName)?.fieldValue ?? "" }));
             prepared.readyForSubmission = false;
-            const reviewResult: OpResult = { ...base, outcome: "review", prepared, message: (e as Error).message };
-            (await saveWriteState(runId, op.idempotencyKey, { status: "review", prepared, result: reviewResult }));
+            const message = (e as Error).message;
+            const outcome: OpResult["outcome"] = /^Required field /.test(message) ? "blocked" : "review";
+            const reviewResult: OpResult = { ...base, outcome, prepared, message };
+            (await saveWriteState(runId, op.idempotencyKey, { status: outcome, prepared, result: reviewResult }));
             results.push(reviewResult);
-            onProgress?.({ index, total: plan.length, description, outcome: "review", result: reviewResult });
+            onProgress?.({ index, total: plan.length, description, outcome, result: reviewResult });
             continue;
           }
           if (groundContext?.selection.enabled && (args.prepareOnly || !prepared.grounding)) {

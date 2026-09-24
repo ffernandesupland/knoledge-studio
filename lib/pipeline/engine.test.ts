@@ -299,7 +299,7 @@ describe("submission contracts", () => {
   it("pauses for missing required content rather than inventing it", async () => {
     mocks.templates.mockResolvedValue([{ ...template, fields: template.fields.map((f) => ({ ...f, required: true })) }]);
     const [r] = await executeWritePlan(args([newOp()]));
-    expect(r.outcome).toBe("review"); expect(r.message).toContain("Required field"); expect(mocks.write).not.toHaveBeenCalled();
+    expect(r.outcome).toBe("blocked"); expect(r.message).toContain("Required field"); expect(mocks.write).not.toHaveBeenCalled();
   });
   it("will not overwrite an unrelated pending revision", async () => {
     mocks.solution.mockResolvedValue({ ...source, revisionID: "child260909000000009" });
