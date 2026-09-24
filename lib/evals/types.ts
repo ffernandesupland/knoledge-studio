@@ -1,13 +1,14 @@
 import { z } from "zod";
 
+export const evaluationDimensionSchema = z.enum(["content_standards", "ground_context", "demand_requirements", "content_structure", "search_optimization", "metadata_selection", "gap_coverage", "snippets"]);
+export type EvaluationDimension = z.infer<typeof evaluationDimensionSchema>;
+
 export const pipelineEvalDescriptorSchema = z.object({
-  version: z.literal(1),
-  path: z.string().min(1).max(80),
-  draftKind: z.enum(["create", "revise"]),
-  merged: z.boolean(),
-  operations: z.array(z.string().min(1).max(160)).max(12),
-  template: z.object({ name: z.string().max(240), fields: z.array(z.string().max(240)).max(100) }),
-  context: z.object({ ground: z.boolean(), standards: z.boolean(), snippets: z.boolean(), demandRequirements: z.boolean() }),
+  version: z.literal(2),
+  dimension: evaluationDimensionSchema,
+  dimensionLabel: z.string().min(1).max(120),
+  action: z.string().min(1).max(160),
+  configurationIdentity: z.string().min(1).max(160),
 });
 export type PipelineEvalDescriptor = z.infer<typeof pipelineEvalDescriptorSchema>;
 
@@ -66,8 +67,8 @@ export interface StoredEvalResult {
 
 export interface EvaluationResponse {
   cached: boolean;
-  rubric: StoredEvalRubric;
-  result: StoredEvalResult;
+  score: number;
+  evaluations: Array<{ rubric: StoredEvalRubric; result: StoredEvalResult; cached: boolean }>;
 }
 
 export interface EvalDashboardRubric extends StoredEvalRubric {

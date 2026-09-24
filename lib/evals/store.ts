@@ -46,5 +46,5 @@ export async function listEvalDashboard(author: string) {
     const rubric = rubricFrom(row);
     const results = resultRows.filter(result => result.rubric_id === rubric.id).map(resultFrom);
     return { ...rubric, evaluationCount: results.length, averageScore: results.length ? results.reduce((sum, result) => sum + result.score, 0) / results.length : null, latestResult: results[0] };
-  });
+  }).filter(rubric => rubric.pipeline.version === 2);
 }
