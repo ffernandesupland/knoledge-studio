@@ -420,6 +420,7 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: "Open Sans", sans
 .sg-status-ready { color:#195f49; background:#e5f4ed; }
 .sg-status-ok { color:#1b643b; background:#dff3e5; }
 .sg-status-review,.sg-status-uncertain { color:#845611; background:#fff1d3; }
+.sg-status-blocked { color:#a04800; background:#ffebe0; }
 .sg-status-error { color:#ac2940; background:#ffe9ee; }
 .sg-comment { position:relative; display:block; width:100%; border:1px dashed #bbc8d8; border-radius:7px; padding:10px; margin-top:10px; background:#fff; color:#5e7189; font-size:11px; text-align:left; cursor:pointer; }
 .sg-comment small { display:block; margin-top:5px; }
