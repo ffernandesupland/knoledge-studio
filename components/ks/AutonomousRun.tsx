@@ -72,7 +72,7 @@ export function AutonomousRun({ runId, onClose }: { runId: string; onClose: () =
       {active && <div className="ks-card"><LoadingProgress label={stages[run?.stage ?? "queued"]} /><p>This may take a few minutes. Keep this page open while the agent completes the run. If you leave, reopen this saved run to continue automatically.</p></div>}
       {run?.outcome && <AutonomousOutcome outcome={run.outcome} error={run.error} showProposals={!active && !run.graph?.rows.length} />}
       {run?.outcome.canResume && <div className="ks-card"><p>Your analysis is saved. Resume planning to choose actions and metadata, prepare articles, and submit them automatically.</p><button type="button" className="ds-btn ds-btn-primary" disabled={resuming} onClick={resume}>{resuming ? "Resuming…" : "Resume planning"}</button></div>}
-      {!!run?.graph?.rows.length && <SubmissionGraph model={run.graph} mode="history" flowHref={flowHref} decisionActor="agent" />}
+      {!!run?.graph?.rows.length && <SubmissionGraph model={run.graph} runId={runId} mode="history" flowHref={flowHref} decisionActor="agent" />}
       <p>Recorded AI cost: ${(run?.costUsd ?? 0).toFixed(4)} · <Link href={`/?autonomousRun=${encodeURIComponent(runId)}`}>Saved run link</Link></p>
       <AutonomousLog key={runId} runId={runId} live={active} />
     </main>

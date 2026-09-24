@@ -1605,7 +1605,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       {submitRun.identity && !preparedMatches && !submitRun.locked && <p className="sg-warning">The plan or metadata changed. Prepare the updated drafts before submitting.</p>}
       {draftEditing && <p className="sg-warning">Save or cancel your article edits before changing the plan or submitting.</p>}
       {submissionBusy && <div className="ks-card"><LoadingProgress key={submitRun.phase} label={submitRun.phase === "preparing" ? "Preparing drafts — no articles are being written to RightAnswers." : "Writing the reviewed drafts to RightAnswers…"} /></div>}
-      <SubmissionGraph templates={templateOptions} model={submissionGraph} busy={submissionBusy} currentKey={submitRun.currentKey} mode={submitRun.phase === "preparing" ? "preparation" : submitRun.locked ? "submission" : "preparation"}
+      <SubmissionGraph templates={templateOptions} model={submissionGraph} runId={pipeline.runId ?? undefined} busy={submissionBusy} currentKey={submitRun.currentKey} mode={submitRun.phase === "preparing" ? "preparation" : submitRun.locked ? "submission" : "preparation"}
         onSave={preparedMatches ? (key, review) => prepareCurrent({ [key]: review }) : undefined} onDirtyChange={setDraftEditing}
         onChangePlan={!submitRun.locked ? () => setScreen("check") : undefined} flowHref={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId ?? "")}`} />
       {displayResults.some((r) => r.outcome === "uncertain") && <section id="pending-write-verification"><SubmissionReview runId={pipeline.runId ?? ""} results={displayResults.filter((r) => r.outcome === "uncertain")} onRetry={() => prepareCurrent()} /></section>}
