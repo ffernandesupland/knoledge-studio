@@ -101,7 +101,7 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
             {prepared.metadataResearch && <button type="button" onClick={() => setMetadataEvidence(true)}>Review metadata evidence map</button>}
             {!!Object.keys(prepared.metadataDecisions ?? {}).length && <details><summary>Metadata and attribute decisions</summary>{Object.entries(prepared.metadataDecisions ?? {}).map(([key, decision]) => <p key={key}><strong>{decision.label}</strong> · {decision.kind === "attribute" && decision.status === "accepted" ? "Kept for validation — not submitted" : decision.status}{decision.attributeSet ? ` · ${decision.attributeSet}` : ""}</p>)}</details>}
             {!!prepared.ruleResults?.length && <button type="button" className="ds-btn ds-btn-secondary" style={{ marginTop: 12 }} onClick={() => setStandardsReport(prepared)}>Review content standards</button>}
-            {runId && <div style={{ marginTop: 12 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={evaluationPending === row.key} onClick={() => void runEvaluation(row.key)}>{evaluationPending === row.key ? "Running evaluation…" : "Run evaluation"}</button><small style={{ display: "block", marginTop: 7 }}>Internal measurement only. It never changes readiness or publishing behavior.</small></div>}
+            {runId && <div style={{ marginTop: 12 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={evaluationPending === row.key} onClick={() => void runEvaluation(row.key)}>{evaluationPending === row.key ? "Running evaluations…" : "Run applicable evaluations"}</button><small style={{ display: "block", marginTop: 7 }}>Only dimensions requested and applied in this pipeline are measured. It never changes readiness or publishing behavior.</small></div>}
             {evaluationError && <p className="sg-warning" role="alert">{evaluationError}</p>}
             {prepared.warnings.map((w, i) => <p className="sg-warning" key={i}>{w}</p>)}
             {editing && onSave ? <form key={prepared.version} onSubmit={(e) => {
@@ -132,19 +132,20 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
 }
 
 function EvaluationDialog({ evaluation, onClose }: { evaluation: EvaluationResponse; onClose: () => void }) {
-  const byId = new Map(evaluation.result.judgment.criteria.map(criterion => [criterion.criterionId, criterion]));
   return <div className="entity-modal-scrim" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="entity-modal" role="dialog" aria-modal="true" aria-labelledby="evaluation-result-title" style={{ maxWidth: 920, maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
-      <div className="entity-modal-hdr"><div className="entity-modal-title"><span className="ms" aria-hidden="true">analytics</span><div><span className="ks-eyebrow">RUBRIC EVALUATION</span><h2 id="evaluation-result-title">{evaluation.result.score.toFixed(1)} / 100</h2><p>{evaluation.result.judgment.summary}</p></div></div><button type="button" className="ds-btn ds-btn-secondary" aria-label="Close evaluation results" onClick={onClose}>Close</button></div>
+      <div className="entity-modal-hdr"><div className="entity-modal-title"><span className="ms" aria-hidden="true">analytics</span><div><span className="ks-eyebrow">APPLICABLE EVALUATIONS</span><h2 id="evaluation-result-title">{evaluation.score.toFixed(1)} / 100</h2><p>{evaluation.evaluations.length} requested and applied dimension{evaluation.evaluations.length === 1 ? "" : "s"} measured for this draft.</p></div></div><button type="button" className="ds-btn ds-btn-secondary" aria-label="Close evaluation results" onClick={onClose}>Close</button></div>
       <div className="entity-modal-body" style={{ overflowY: "auto", flex: 1 }}>
-        <p><strong>{evaluation.rubric.scenarioLabel}</strong> · Rubric revision {evaluation.rubric.revision} · Judged by {evaluation.result.judgeModel}{evaluation.cached ? " · Loaded saved result" : ""}</p>
         <p className="sg-warning">This score is internal measurement only. It does not approve, block, edit, or publish this draft.</p>
-        <div style={{ display: "grid", gap: 10 }}>{evaluation.rubric.rubric.criteria.map(criterion => {
-          const result = byId.get(criterion.id);
-          return <article key={criterion.id} className="ks-card" style={{ padding: 14 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><div><h3 style={{ margin: 0 }}>{criterion.title}</h3><small>Weight {criterion.weight} · {result?.verdict?.replaceAll("_", " ") ?? "Not scored"}</small></div><strong style={{ fontSize: 20 }}>{result?.score ?? 0} / 4</strong></div><p style={{ margin: "10px 0 6px" }}>{result?.explanation ?? "No result was returned for this criterion."}</p>{result?.evidence.length ? <details><summary>Evidence</summary><ul>{result.evidence.map((item, index) => <li key={index}>{item}</li>)}</ul></details> : <small>No supporting evidence was found.</small>}</article>;
+        <div style={{ display: "grid", gap: 14 }}>{evaluation.evaluations.map(({ rubric, result, cached }) => {
+          const byId = new Map(result.judgment.criteria.map(criterion => [criterion.criterionId, criterion]));
+          return <section key={rubric.id} className="ks-card" style={{ padding: 16 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><div><span className="ks-eyebrow">{rubric.pipeline.action}</span><h3 style={{ margin: "4px 0" }}>{rubric.pipeline.dimensionLabel}</h3><small>Rubric revision {rubric.revision} · Judged by {result.judgeModel}{cached ? " · Loaded saved result" : ""}</small></div><strong style={{ fontSize: 22 }}>{result.score.toFixed(1)} / 100</strong></div><p>{result.judgment.summary}</p><div style={{ display: "grid", gap: 10 }}>{rubric.rubric.criteria.map(criterion => {
+            const item = byId.get(criterion.id);
+            return <article key={criterion.id} style={{ borderTop: "1px solid #dfe1e6", paddingTop: 10 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}><div><h4 style={{ margin: 0 }}>{criterion.title}</h4><small>Weight {criterion.weight} · {item?.verdict?.replaceAll("_", " ") ?? "Not scored"}</small></div><strong>{item?.score ?? 0} / 4</strong></div><p style={{ margin: "8px 0 5px" }}>{item?.explanation ?? "No result was returned for this criterion."}</p>{item?.evidence.length ? <details><summary>Evidence</summary><ul>{item.evidence.map((evidence, index) => <li key={index}>{evidence}</li>)}</ul></details> : <small>No supporting evidence was found.</small>}</article>;
+          })}</div></section>;
         })}</div>
       </div>
-      <div className="entity-modal-footer"><span>Fixed rubric · {evaluation.rubric.rubric.criteria.length} criteria</span><button type="button" className="ds-btn ds-btn-primary" onClick={onClose}>Done</button></div>
+      <div className="entity-modal-footer"><span>Fixed rubrics · {evaluation.evaluations.length} applied dimension{evaluation.evaluations.length === 1 ? "" : "s"}</span><button type="button" className="ds-btn ds-btn-primary" onClick={onClose}>Done</button></div>
     </section>
   </div>;
 }

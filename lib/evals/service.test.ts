@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { evaluationSignature, scoreJudgment } from "./service";
+import { buildEvaluationDimensions, evaluationSignature, scoreJudgment } from "./service";
+import type { ExecuteArgs, PreparedContent } from "../pipeline/execute";
+import type { StoredRun } from "../db/runs";
 import type { EvaluationJudgment, EvaluationRubric, PipelineEvalDescriptor } from "./types";
 
 const descriptor: PipelineEvalDescriptor = {
-  version: 1,
-  path: "improve",
-  draftKind: "revise",
-  merged: false,
-  operations: ["Apply content standards", "Optimize for search"],
-  template: { name: "Troubleshooting", fields: ["Cause", "Resolution"] },
-  context: { ground: false, standards: true, snippets: false, demandRequirements: false },
+  version: 2,
+  dimension: "content_standards",
+  dimensionLabel: "Content standards",
+  action: "Apply content standards",
+  configurationIdentity: "frozen-standard-rules-v1",
 };
 const rubric: EvaluationRubric = {
   title: "Knowledge draft quality",
@@ -23,8 +23,20 @@ const rubric: EvaluationRubric = {
 };
 
 describe("evaluation scoring", () => {
-  it("creates a stable signature for the same fixed pipeline descriptor", () => {
-    expect(evaluationSignature(descriptor)).toBe(evaluationSignature({ ...descriptor, operations: [...descriptor.operations] }));
+  it("creates a stable signature for one fixed evaluation dimension", () => {
+    expect(evaluationSignature(descriptor)).toBe(evaluationSignature({ ...descriptor }));
+    expect(evaluationSignature(descriptor)).not.toBe(evaluationSignature({ ...descriptor, configurationIdentity: "different-standard-rules" }));
+  });
+
+  it("uses one standards dimension regardless of the output template", () => {
+    const run = { operations: ["Apply content standards"] } as StoredRun;
+    const execution = { plan: [{ idempotencyKey: "draft-1", kind: "revise", candidateKey: "candidate-1" }] } as ExecuteArgs;
+    const prepared = (templateName: string): PreparedContent => ({ version: "draft-v1", title: "VPN", summary: "", keywords: [], templateName, fields: [], warnings: [], standardsApplied: true, standardsUsed: ["[Company standard]\nUse clear commands."], ruleResults: [] });
+    const howTo = buildEvaluationDimensions(run, execution, "draft-1", prepared("How To (RA)"));
+    const error = buildEvaluationDimensions(run, execution, "draft-1", prepared("Error (RA)"));
+    expect(howTo).toHaveLength(1);
+    expect(howTo[0].descriptor.dimension).toBe("content_standards");
+    expect(evaluationSignature(howTo[0].descriptor)).toBe(evaluationSignature(error[0].descriptor));
   });
 
   it("calculates a weighted score from the fixed rubric", () => {
