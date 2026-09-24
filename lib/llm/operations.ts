@@ -202,7 +202,7 @@ export function mergeSections(
   directives: ScopedDirective[] = [],
   snippets: AuthoringSnippet[] = [],
 ) {
-  const fieldList = target.fields.map((f) => `- ${f.fieldName}`).join("\n");
+  const fieldList = target.fields.map((f) => `- ${f.fieldName}${f.required ? " (required)" : ""}${f.description ? ` — ${f.description}` : ""}`).join("\n");
 
   return runOperation({
     operation: "mergeSections",
@@ -211,7 +211,7 @@ export function mergeSections(
     role: "You combine several knowledge-base articles into one, field by field.",
     task: `Combine the solutions above into the "${target.templateName}" template.
 Return a specific title, one-sentence summary and 3–8 relevant keywords for the combined article. Title, summary and keywords MUST be plain text without HTML tags; HTML is only for template field content.
-Populate every relevant field from supported source evidence, including optional fields.
+Populate every relevant field from supported source evidence, including optional fields. A required field must contain source-supported content whenever any source provides a semantically equivalent fact; do not leave a required field empty merely because the source used a different field name. Leave it empty only when the selected sources truly contain no support for that requirement, and state that exact reason in "noMatchNote".
 All combined field values MUST be HTML, never Markdown. Convert headings, lists, links and code to HTML; do not emit Markdown fences or literal ##, ** or backtick formatting.
 Authorized demand requirements and reviewed scope guidance may shape coverage and presentation, but are never factual evidence. Do not add unsupported facts, resolve conflicts by guessing, or change the required field contract.
 

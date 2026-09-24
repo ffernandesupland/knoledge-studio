@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const evaluationDimensionSchema = z.enum(["content_standards", "ground_context", "demand_requirements", "content_structure", "search_optimization", "metadata_selection", "gap_coverage", "snippets"]);
+export const evaluationDimensionSchema = z.enum(["content_standards", "ground_context", "demand_requirements", "content_structure", "search_optimization", "metadata_selection", "gap_coverage", "snippets", "template_contract", "merge_integrity"]);
 export type EvaluationDimension = z.infer<typeof evaluationDimensionSchema>;
 
 export const pipelineEvalDescriptorSchema = z.object({
@@ -71,7 +71,9 @@ export interface StoredEvalResult {
 export interface EvaluationResponse {
   cached: boolean;
   score: number;
+  kpiEligible: boolean;
   evaluations: Array<{ rubric: StoredEvalRubric; result: StoredEvalResult; cached: boolean }>;
+  coverage: Array<{ dimension: string; label: string; status: "scored" | "not_applicable" | "not_run" | "blocked"; reason: string }>;
 }
 
 export interface EvalDashboardRubric extends StoredEvalRubric {

@@ -3,7 +3,7 @@ import { db } from "../db";
 import type { OpResult, PreparedContent, ExecuteArgs } from "./execute";
 
 export interface WriteState {
-  status: "prepared" | "review" | "writing" | "ok" | "error" | "uncertain";
+  status: "prepared" | "review" | "blocked" | "writing" | "ok" | "error" | "uncertain";
   prepared?: PreparedContent;
   result?: OpResult;
 }
