@@ -5,7 +5,7 @@ import type { StoredRun } from "../db/runs";
 import type { EvaluationJudgment, EvaluationRubric, PipelineEvalDescriptor } from "./types";
 
 const descriptor: PipelineEvalDescriptor = {
-  version: 2,
+  version: 3,
   dimension: "content_standards",
   dimensionLabel: "Content standards",
   action: "Apply content standards",
@@ -47,5 +47,15 @@ describe("evaluation scoring", () => {
       { criterionId: "usefulness", score: 0, verdict: "not_met", explanation: "Missing.", evidence: [] },
     ] };
     expect(scoreJudgment(rubric, judgment)).toBe(62.5);
+  });
+
+  it("excludes not-applicable criteria from the weighted score", () => {
+    const judgment: EvaluationJudgment = { summary: "Measured.", criteria: [
+      { criterionId: "factual_grounding", score: 4, verdict: "met", explanation: "Supported.", evidence: ["Source"] },
+      { criterionId: "structure", score: 4, verdict: "met", explanation: "Structured.", evidence: ["Field"] },
+      { criterionId: "standards", score: null, verdict: "not_applicable", explanation: "The draft contains no material governed by this conditional rule.", evidence: [] },
+      { criterionId: "usefulness", score: null, verdict: "not_applicable", explanation: "The draft contains no material governed by this conditional rule.", evidence: [] },
+    ] };
+    expect(scoreJudgment(rubric, judgment)).toBe(100);
   });
 });

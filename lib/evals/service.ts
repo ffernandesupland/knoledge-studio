@@ -35,7 +35,9 @@ function draftBlock(prepared: PreparedContent): UntrustedBlock {
 }
 function descriptor(dimension: EvaluationDimension, configuration: unknown): PipelineEvalDescriptor {
   const meta = dimensionMeta[dimension];
-  return { version: 2, dimension, dimensionLabel: meta.label, action: meta.action, configurationIdentity: hash(configuration) };
+  // Version changes whenever rubric semantics change, preventing an older broad rubric
+  // from being silently reused after its scoring rules have been corrected.
+  return { version: 3, dimension, dimensionLabel: meta.label, action: meta.action, configurationIdentity: hash(configuration) };
 }
 
 /** Builds a composable set of dimensions from actions actually requested and used. */
@@ -66,8 +68,10 @@ export function scenarioLabel(value: PipelineEvalDescriptor) { return `${value.d
 export function scoreJudgment(rubric: StoredEvalRubric["rubric"], judgment: EvaluationJudgment) {
   const byId = new Map(judgment.criteria.map(criterion => [criterion.criterionId, criterion]));
   if (byId.size !== rubric.criteria.length || rubric.criteria.some(criterion => !byId.has(criterion.id))) throw new Error("The evaluator did not score every fixed rubric criterion");
-  const totalWeight = rubric.criteria.reduce((sum, criterion) => sum + criterion.weight, 0);
-  const earned = rubric.criteria.reduce((sum, criterion) => sum + criterion.weight * (byId.get(criterion.id)?.score ?? 0), 0);
+  const applicable = rubric.criteria.filter(criterion => byId.get(criterion.id)?.verdict !== "not_applicable");
+  if (!applicable.length) throw new Error("The evaluator found no applicable rubric criteria");
+  const totalWeight = applicable.reduce((sum, criterion) => sum + criterion.weight, 0);
+  const earned = applicable.reduce((sum, criterion) => sum + criterion.weight * (byId.get(criterion.id)?.score ?? 0), 0);
   return Math.round((earned / (totalWeight * 4)) * 1000) / 10;
 }
 
