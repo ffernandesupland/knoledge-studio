@@ -4,7 +4,7 @@ export const evaluationDimensionSchema = z.enum(["content_standards", "ground_co
 export type EvaluationDimension = z.infer<typeof evaluationDimensionSchema>;
 
 export const pipelineEvalDescriptorSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   dimension: evaluationDimensionSchema,
   dimensionLabel: z.string().min(1).max(120),
   action: z.string().min(1).max(160),
@@ -30,10 +30,13 @@ export type EvaluationRubric = z.infer<typeof evaluationRubricSchema>;
 
 export const evaluationCriterionResultSchema = z.object({
   criterionId: z.string().regex(/^[a-z][a-z0-9_]{1,60}$/),
-  score: z.number().int().min(0).max(4),
-  verdict: z.enum(["met", "partially_met", "not_met", "insufficient_evidence"]),
+  score: z.number().int().min(0).max(4).nullable(),
+  verdict: z.enum(["met", "partially_met", "not_met", "insufficient_evidence", "not_applicable"]),
   explanation: z.string().min(1).max(1200),
   evidence: z.array(z.string().min(1).max(1000)).max(4),
+}).superRefine((result, context) => {
+  if (result.verdict === "not_applicable" && result.score !== null) context.addIssue({ code: "custom", message: "Not-applicable criteria must have a null score" });
+  if (result.verdict !== "not_applicable" && result.score === null) context.addIssue({ code: "custom", message: "Scored criteria require a 0–4 score" });
 });
 export const evaluationJudgmentSchema = z.object({
   summary: z.string().min(1).max(1600),
