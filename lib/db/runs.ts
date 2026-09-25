@@ -14,6 +14,7 @@ export interface DecisionSnapshot {
   standardsRules: string[];
   newSolutionTemplate: string | null;
   templateOverrides: string[];
+  maxNewSolutions?: number;
 }
 import { db } from "./index";
 import type { ViewCandidate, ViewDupeGroup } from "../ks/model";
@@ -38,6 +39,7 @@ export interface StoredRun {
   attachments?: SourceAttachment[];
   content?: SourceBlock[];
   sourceIds: string[];
+  maxNewSolutions?: number;
   operations: string[];
   costUsd: number;
   candidates: ViewCandidate[];
@@ -89,6 +91,7 @@ export async function createRun(args: {
   attachments?: SourceAttachment[];
   content?: SourceBlock[];
   sourceIds: string[];
+  maxNewSolutions?: number;
   operations: string[];
   connectionId?: string;
 }): Promise<void> {
@@ -110,6 +113,7 @@ export async function createRun(args: {
     (await db().prepare("INSERT INTO run_sources(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.attachments ?? [])));
     if (args.groundContext) await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.groundContext));
     if (args.demandSpecification) await db().prepare("INSERT INTO run_demand_specifications(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.demandSpecification));
+    if (args.maxNewSolutions) await db().prepare("INSERT INTO run_options(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify({ maxNewSolutions: args.maxNewSolutions }));
     if (args.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(args.id, JSON.stringify(args.content));
     if (args.connectionId) await db().prepare("INSERT INTO run_ra_connections(run_id,connection_id) VALUES (?,?)").run(args.id, args.connectionId);
   })();
@@ -205,6 +209,7 @@ async function hydrate(row: RunRow, decision?: DecisionRow): Promise<StoredRun> 
     demandSpecification: JSON.parse(((await db().prepare("SELECT payload FROM run_demand_specifications WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "null") ?? undefined,
     demandRecommendation: await import("../demand/store").then(({ getRunDemandRecommendation }) => getRunDemandRecommendation(row.id)),
     sourceIds: JSON.parse(row.source_ids),
+    maxNewSolutions: JSON.parse(((await db().prepare("SELECT payload FROM run_options WHERE run_id=?").get(row.id)) as { payload: string } | undefined)?.payload ?? "{}").maxNewSolutions,
     operations: JSON.parse(row.operations),
     costUsd: row.cost_usd,
     candidates: JSON.parse(row.candidates),

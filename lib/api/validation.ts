@@ -34,8 +34,9 @@ export const runSchema = z.object({
   ])).max(200).optional(),
   sourceSolutionIds: z.array(z.string().regex(/^\d{15}$/)).max(20).refine((v) => new Set(v).size === v.length, "Source IDs must be unique").optional(),
   duplicateScopeIds: z.array(z.string().regex(/^\d{15}$/)).min(2).max(20).refine((v) => new Set(v).size === v.length, "Duplicate scope IDs must be unique").optional(),
+  maxNewSolutions: z.number().int().min(1).max(10).optional(),
   operations: z.array(operationName).max(7), templateName: z.string().max(200).optional(),
-  path: z.enum(["create", "improve", "gap"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
+  path: z.enum(["create", "improve", "gap", "merge"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
 }).superRefine((v, ctx) => {
   if (v.groundContext?.enabled) {
     if (v.groundContext.referenceSolutionIds.some(id => v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Processing targets and Ground Context references must be different solutions" });
@@ -46,6 +47,13 @@ export const runSchema = z.object({
   }
   if (v.groundContext && v.groundTruth) ctx.addIssue({ code: "custom", message: "Choose either manual Ground Context or a Ground Truth selection, not both." });
   if (v.duplicateScopeIds?.some(id => !v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Targeted duplicate comparisons must use selected source solutions" });
+  if (v.path === "merge") {
+    if ((v.sourceSolutionIds?.length ?? 0) < 2) ctx.addIssue({ code: "custom", message: "Select at least two existing solutions to merge" });
+    if (v.text.trim() || v.attachments?.length || v.content?.some(block => block.type === "text" && block.text.trim())) ctx.addIssue({ code: "custom", message: "Merge existing solutions accepts only selected existing solutions" });
+    if (v.groundContext || v.groundTruth) ctx.addIssue({ code: "custom", message: "Merge existing solutions accepts only selected existing solutions; remove Ground Context or Ground Truth" });
+    if (v.maxNewSolutions) ctx.addIssue({ code: "custom", message: "A new-solution limit does not apply when merging existing solutions" });
+    if (v.operations.includes("Split topics") || v.operations.includes("Find duplicates") || v.operations.includes("Find gaps")) ctx.addIssue({ code: "custom", message: "Merge existing solutions cannot split, discover duplicates, or find gaps" });
+  }
   if (!v.content) return;
   const ids = (v.attachments ?? []).map(a => a.id);
   const refs = v.content.flatMap(b => b.type === "attachment" ? [b.attachmentId] : []);
@@ -68,6 +76,7 @@ export const snapshotSchema = z.object({
   operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).min(6).max(7),
   collection: z.string().max(200), language: z.string().max(100), standard: z.string().max(100),
   standardsRules: z.array(z.string().min(1).max(500)).max(20), newSolutionTemplate: z.string().max(200).nullable(), templateOverrides: z.array(z.string().max(100)).max(60),
+  maxNewSolutions: z.number().int().min(1).max(10).optional(),
 });
 export const reviewSchema = z.record(z.string().max(200), z.object({ version: z.string().uuid(), fields, title: z.string().min(1).max(500).optional(), summary: z.string().max(4000).optional(), keywords: z.array(z.string().max(100)).max(30).optional(), regenerate: z.boolean().optional(), templateName: z.string().max(200).optional() }));
 
@@ -90,6 +99,7 @@ export async function readJson<T>(request: Request, schema: z.ZodType<T>): Promi
 export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapshot {
   if (run.formatVersion === 1) throw new ApiError("This run predates the source-identity fixes. Return to Content and analyze its restored sources again.", 409);
   const input = snapshotSchema.parse(raw);
+  if (input.maxNewSolutions !== run.maxNewSolutions) throw new ApiError("New-solution limit changed. Create a new plan before submitting.");
   if (input.groundContextIdentity !== groundIdentity(run.groundContext)) throw new ApiError("Ground Context changed. Analyze and prepare the current references again.", 409);
   if (new Set(input.candidates.map((c) => c.key)).size !== run.candidates.length || input.candidates.length !== run.candidates.length) throw new ApiError("Candidate list does not match this run");
   for (const name of ["Split topics", "Find duplicates", "Optimize for search", "Find gaps"]) {
@@ -109,6 +119,18 @@ export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapsho
     return { ...g, survivorId, members: g.members.map((m) => ({ ...m, retained: m.id === survivorId })) };
   });
   if (input.selectedKeys.some((key) => !candidates.some((c) => c.key === key && !c.researchOnly))) throw new ApiError("Unknown or research-only candidate selected");
+  if (run.path === "merge") {
+    const group = groups[0];
+    if (!group || groups.length !== 1 || input.resolutions[0] !== "merged" || group.members.some(member => !input.selectedKeys.includes(member.id))) throw new ApiError("Manual merge requires every selected existing solution to remain in one merge group.");
+  }
+  if (run.maxNewSolutions) {
+    const newOutputs = candidates.filter((candidate) => {
+      if (!input.selectedKeys.includes(candidate.key) || candidate.targetSolutionId) return false;
+      const groupIndex = groups.findIndex(group => group.members.some(member => member.id === candidate.key));
+      return groupIndex < 0 || input.resolutions[groupIndex] !== "merged" || groups[groupIndex].survivorId === candidate.key;
+    });
+    if (newOutputs.length > run.maxNewSolutions) throw new ApiError(`This plan creates ${newOutputs.length} new solutions, exceeding the saved limit of ${run.maxNewSolutions}.`);
+  }
   if (new Set(input.operations.map((o) => o.name)).size !== input.operations.length || KS_OPS_DEFAULT.filter(o => o.name !== "Discover and suggest metadata").some(o => !input.operations.some(v => v.name === o.name))) throw new ApiError("Invalid operation choices");
   return { ...input, candidates, groups, operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: input.operations.find((v) => v.name === o.name)?.on ?? false })) };
 }

@@ -152,6 +152,7 @@ export function KsSmartInput({
   onToggleKbRow,
   showToast,
   onBusyChange,
+  existingSolutionsOnly = false,
 }: {
   content: SourceBlock[];
   onContentChange: (v: SourceBlock[]) => void;
@@ -170,6 +171,8 @@ export function KsSmartInput({
   onToggleKbRow: (id: string) => void;
   showToast: (t: ToastState) => void;
   onBusyChange: (busy: boolean) => void;
+  /** Manual merge accepts selected KB articles only; text and file controls stay out of that workflow. */
+  existingSolutionsOnly?: boolean;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const editor = useRef<SourceEditorHandle>(null);
@@ -275,15 +278,16 @@ export function KsSmartInput({
 
   return (
     <div
-      className={"ks-smart-input" + (dragOver ? " dragover" : "")}
+      className={"ks-smart-input" + (!existingSolutionsOnly && dragOver ? " dragover" : "")}
       onDragOver={(e) => {
+        if (existingSolutionsOnly) return;
         e.preventDefault();
         onDragOver(true);
       }}
-      onDragLeave={() => onDragOver(false)}
-      onDrop={handleDrop}
+      onDragLeave={() => { if (!existingSolutionsOnly) onDragOver(false); }}
+      onDrop={existingSolutionsOnly ? undefined : handleDrop}
     >
-      <SourceEditor ref={editor} blocks={content} onChange={onContentChange} onFiles={ingestFiles} onUrl={addUrl} renderSource={id => {
+      {!existingSolutionsOnly && <SourceEditor ref={editor} blocks={content} onChange={onContentChange} onFiles={ingestFiles} onUrl={addUrl} renderSource={id => {
         const a = attachments.find(a => a.id === id);
         const upload = uploads.find(u => u.id === id);
         return <div className="ks-inline-source" role={upload?.error ? "alert" : undefined}>
@@ -299,12 +303,12 @@ export function KsSmartInput({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {a?.imageId ? <img className="ks-source-image" src={`/api/ingest/images/${a.imageId}`} alt={a.name} /> : a?.fileId ? <p className="ks-si-summary">Original file will be sent to AI for full multimodal analysis.</p> : a && <details className="ks-si-preview"><summary>View document content</summary><div>{a.text}</div></details>}
         </div>;
-      }} />
+      }} />}
       <div className="ks-si-summary" role="status">
-        {attachments.length + (content.some(b => b.type === "text" && b.text.trim()) ? 1 : 0) + kbCount} sources ready{pendingCount > 0 && ` · ${pendingCount} processing`} · Text, images and documents are sent in the order shown.
+        {existingSolutionsOnly ? `${kbCount} existing solution${kbCount === 1 ? "" : "s"} selected for the merge.` : `${attachments.length + (content.some(b => b.type === "text" && b.text.trim()) ? 1 : 0) + kbCount} sources ready${pendingCount > 0 ? ` · ${pendingCount} processing` : ""} · Text, images and documents are sent in the order shown.`}
       </div>
       <div className="ks-si-bar">
-        <input
+        {!existingSolutionsOnly && <><input
           ref={fileInput}
           type="file"
           hidden
@@ -323,7 +327,7 @@ export function KsSmartInput({
           onClick={() => fileInput.current?.click()}
         >
           <span className="ms">attach_file</span>
-        </button>
+        </button></>}
         <button
           type="button"
           className="icon-btn"
@@ -333,7 +337,7 @@ export function KsSmartInput({
           <span className="ms">database</span>
         </button>
         <span className="ks-si-help">
-          {pendingCount > 0 ? `Reading ${pendingCount} sources. You can add more files while these finish.` : `Select or drop multiple PDF, Word, image, or text files. Files can be the only source or can be mixed with typed text. ${MAX_UPLOAD_MB} MB each.`}
+          {existingSolutionsOnly ? "Select two or more existing solutions. You will choose the retained article before preparation." : pendingCount > 0 ? `Reading ${pendingCount} sources. You can add more files while these finish.` : `Select or drop multiple PDF, Word, image, or text files. Files can be the only source or can be mixed with typed text. ${MAX_UPLOAD_MB} MB each.`}
         </span>
       </div>
       {(kbOpen || kbCount > 0) && (
@@ -396,10 +400,10 @@ export function KsSmartInput({
           <div className="ks-kb-count" role="status">{kbCount} selected</div>
         </div>
       )}
-      <div className="ks-si-overlay">
+      {!existingSolutionsOnly && <div className="ks-si-overlay">
         <span className="ms">cloud_upload</span>
         <span>Drop to attach</span>
-      </div>
+      </div>}
     </div>
   );
 }

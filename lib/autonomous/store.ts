@@ -26,6 +26,7 @@ export async function enqueue(id: string, author: string, input: AutonomousInput
     if (input.connectionId) await db().prepare("INSERT INTO run_ra_connections(run_id,connection_id) VALUES (?,?)").run(id, input.connectionId);
     if (groundContext) await db().prepare("INSERT INTO run_ground_context(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(groundContext));
     if (input.demandSpecification) await db().prepare("INSERT INTO run_demand_specifications(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(input.demandSpecification));
+    if (input.maxNewSolutions) await db().prepare("INSERT INTO run_options(run_id,payload) VALUES (?,?)").run(id, JSON.stringify({ maxNewSolutions: input.maxNewSolutions }));
     if (input.content) await db().prepare("INSERT INTO run_source_documents(run_id,payload) VALUES (?,?)").run(id, JSON.stringify(input.content));
     await db().prepare("INSERT INTO autonomous_jobs(run_id,author,input,authorization,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, author, JSON.stringify(input), JSON.stringify(authorization), ts, ts);
     await event(id, "queued", "state", "Autonomous run authorized", "succeeded", { input: { authorization, selectedOptions: input.operations } });

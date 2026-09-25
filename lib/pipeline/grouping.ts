@@ -13,6 +13,8 @@ export interface DuplicateGroup {
   survivorId: string;
   averageSimilarity: number;
   rationales: string[];
+  /** The operator explicitly selected these articles; this is not a duplicate-detection result. */
+  manualSelection?: boolean;
 }
 
 class UnionFind {

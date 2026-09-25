@@ -52,6 +52,8 @@ export interface ViewDupeGroup {
   survivorId: string;
   averageSimilarity: number;
   reason: string;
+  /** A deliberate selection, rather than a match created by duplicate analysis. */
+  manualSelection?: boolean;
 }
 
 export interface ViewRun {
@@ -72,6 +74,7 @@ export function mapRunToView(run: RunOutput): ViewRun {
   const groups: ViewDupeGroup[] = run.groups.map((g) => ({
     survivorId: g.survivorId,
     averageSimilarity: g.averageSimilarity,
+    manualSelection: g.manualSelection,
     reason:
       g.rationales[0] ??
       "These cover the same topic. Merging keeps one solution and flags the rest.",
