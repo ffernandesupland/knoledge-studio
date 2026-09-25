@@ -19,7 +19,7 @@ export const demandSpecificationSchema = z.object({
 
 export const fieldSchema = z.object({ fieldName: z.string().min(1).max(200), fieldValue: z.string().max(500_000) });
 const fields = z.array(fieldSchema).max(100);
-const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
+const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Merge solutions", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 export const runSchema = z.object({
   connectionId: z.string().max(100).optional(),
   reviewHandoffId: z.string().uuid().optional(),
@@ -35,7 +35,7 @@ export const runSchema = z.object({
   sourceSolutionIds: z.array(z.string().regex(/^\d{15}$/)).max(20).refine((v) => new Set(v).size === v.length, "Source IDs must be unique").optional(),
   duplicateScopeIds: z.array(z.string().regex(/^\d{15}$/)).min(2).max(20).refine((v) => new Set(v).size === v.length, "Duplicate scope IDs must be unique").optional(),
   maxNewSolutions: z.number().int().min(1).max(10).optional(),
-  operations: z.array(operationName).max(7), templateName: z.string().max(200).optional(),
+  operations: z.array(operationName).max(8), templateName: z.string().max(200).optional(),
   path: z.enum(["create", "improve", "gap", "merge"]).optional(), collection: z.string().max(200).optional(), language: z.string().max(100).optional(),
 }).superRefine((v, ctx) => {
   if (v.groundContext?.enabled) {
@@ -47,12 +47,13 @@ export const runSchema = z.object({
   }
   if (v.groundContext && v.groundTruth) ctx.addIssue({ code: "custom", message: "Choose either manual Ground Context or a Ground Truth selection, not both." });
   if (v.duplicateScopeIds?.some(id => !v.sourceSolutionIds?.includes(id))) ctx.addIssue({ code: "custom", message: "Targeted duplicate comparisons must use selected source solutions" });
-  if (v.path === "merge") {
+  const manualMerge = v.operations.includes("Merge solutions") || v.path === "merge";
+  if (manualMerge) {
     if ((v.sourceSolutionIds?.length ?? 0) < 2) ctx.addIssue({ code: "custom", message: "Select at least two existing solutions to merge" });
     if (v.text.trim() || v.attachments?.length || v.content?.some(block => block.type === "text" && block.text.trim())) ctx.addIssue({ code: "custom", message: "Merge existing solutions accepts only selected existing solutions" });
     if (v.groundContext || v.groundTruth) ctx.addIssue({ code: "custom", message: "Merge existing solutions accepts only selected existing solutions; remove Ground Context or Ground Truth" });
     if (v.maxNewSolutions) ctx.addIssue({ code: "custom", message: "A new-solution limit does not apply when merging existing solutions" });
-    if (v.operations.includes("Split topics") || v.operations.includes("Find duplicates") || v.operations.includes("Find gaps")) ctx.addIssue({ code: "custom", message: "Merge existing solutions cannot split, discover duplicates, or find gaps" });
+    if (v.operations.some(operation => !["Merge solutions", "Restructure content", "Apply content standards"].includes(operation))) ctx.addIssue({ code: "custom", message: "Merge solutions can only use restructuring and content standards" });
   }
   if (!v.content) return;
   const ids = (v.attachments ?? []).map(a => a.id);
@@ -73,7 +74,7 @@ export const snapshotSchema = z.object({
   }).optional(),
   candidates: z.array(candidatePatch).max(60), groups: z.array(z.object({ survivorId: z.string().max(100) }).passthrough()).max(60),
   selectedKeys: z.array(z.string().max(100)).max(60), resolutions: z.array(z.enum(["separate", "merged"]).nullable()).max(60),
-  operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).min(6).max(7),
+  operations: z.array(z.object({ name: operationName, on: z.boolean() }).passthrough()).min(7).max(8),
   collection: z.string().max(200), language: z.string().max(100), standard: z.string().max(100),
   standardsRules: z.array(z.string().min(1).max(500)).max(20), newSolutionTemplate: z.string().max(200).nullable(), templateOverrides: z.array(z.string().max(100)).max(60),
   maxNewSolutions: z.number().int().min(1).max(10).optional(),
@@ -102,7 +103,7 @@ export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapsho
   if (input.maxNewSolutions !== run.maxNewSolutions) throw new ApiError("New-solution limit changed. Create a new plan before submitting.");
   if (input.groundContextIdentity !== groundIdentity(run.groundContext)) throw new ApiError("Ground Context changed. Analyze and prepare the current references again.", 409);
   if (new Set(input.candidates.map((c) => c.key)).size !== run.candidates.length || input.candidates.length !== run.candidates.length) throw new ApiError("Candidate list does not match this run");
-  for (const name of ["Split topics", "Find duplicates", "Optimize for search", "Find gaps"]) {
+  for (const name of ["Split topics", "Merge solutions", "Find duplicates", "Optimize for search", "Find gaps"]) {
     if (input.operations.find((o) => o.name === name)?.on !== run.operations.includes(name)) throw new ApiError("Analysis options changed. Create a new plan before submitting.");
   }
   const candidates = run.candidates.map((original) => {
@@ -119,7 +120,7 @@ export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapsho
     return { ...g, survivorId, members: g.members.map((m) => ({ ...m, retained: m.id === survivorId })) };
   });
   if (input.selectedKeys.some((key) => !candidates.some((c) => c.key === key && !c.researchOnly))) throw new ApiError("Unknown or research-only candidate selected");
-  if (run.path === "merge") {
+  if (run.operations.includes("Merge solutions") || run.path === "merge") {
     const group = groups[0];
     if (!group || groups.length !== 1 || input.resolutions[0] !== "merged" || group.members.some(member => !input.selectedKeys.includes(member.id))) throw new ApiError("Manual merge requires every selected existing solution to remain in one merge group.");
   }
@@ -131,7 +132,7 @@ export function canonicalSnapshot(run: StoredRun, raw: unknown): DecisionSnapsho
     });
     if (newOutputs.length > run.maxNewSolutions) throw new ApiError(`This plan creates ${newOutputs.length} new solutions, exceeding the saved limit of ${run.maxNewSolutions}.`);
   }
-  if (new Set(input.operations.map((o) => o.name)).size !== input.operations.length || KS_OPS_DEFAULT.filter(o => o.name !== "Discover and suggest metadata").some(o => !input.operations.some(v => v.name === o.name))) throw new ApiError("Invalid operation choices");
+  if (new Set(input.operations.map((o) => o.name)).size !== input.operations.length || KS_OPS_DEFAULT.filter(o => o.name !== "Discover and suggest metadata" && o.name !== "Merge solutions").some(o => !input.operations.some(v => v.name === o.name))) throw new ApiError("Invalid operation choices");
   return { ...input, candidates, groups, operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: input.operations.find((v) => v.name === o.name)?.on ?? false })) };
 }
 
