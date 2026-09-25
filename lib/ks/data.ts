@@ -7,7 +7,7 @@
  * "KCS Solution" template in the real tenant (finding V3).
  */
 
-export type PathKey = "create" | "improve" | "gap" | "merge";
+export type PathKey = "create" | "improve" | "gap";
 export type StepId = "input" | "check" | "metadata" | "submit";
 export type SubmitStatus = "new" | "updated" | "merged" | "flagged";
 
@@ -78,14 +78,6 @@ export const KS_PATHS: Record<PathKey, PathDef> = {
       "Find gaps",
     ],
   },
-  merge: {
-    key: "merge",
-    label: "Merge existing solutions",
-    icon: "merge_type",
-    desc: "Select existing articles and combine them into one reviewed revision.",
-    ops: "Combines selected solutions; no new article is created",
-    on: ["Restructure content", "Apply content standards"],
-  },
 };
 
 export const KS_OPS_DEFAULT: Operation[] = [
@@ -101,6 +93,12 @@ export const KS_OPS_DEFAULT: Operation[] = [
     desc: "Rewrite for clarity within the selected template. New articles always receive template fields and HTML formatting.",
     icon: "article",
     on: true,
+  },
+  {
+    name: "Merge solutions",
+    desc: "Combine selected existing solutions into one reviewed revision; typed content and files are excluded.",
+    icon: "merge_type",
+    on: false,
   },
   {
     name: "Apply content standards",

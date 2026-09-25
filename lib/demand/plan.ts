@@ -2,10 +2,10 @@ import { z } from "zod";
 import { runOperation } from "../llm/client";
 import type { DemandSpecification } from "./spec";
 
-const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
+const operationName = z.enum(["Discover and suggest metadata", "Split topics", "Restructure content", "Merge solutions", "Apply content standards", "Find duplicates", "Optimize for search", "Find gaps"]);
 
 export const DemandPlanSchema = z.object({
-  recommendedOperations: z.array(operationName).max(7),
+  recommendedOperations: z.array(operationName).max(8),
   rationale: z.string().min(1).max(2_000),
   questions: z.array(z.string().min(1).max(500)).max(8),
   evidenceGaps: z.array(z.string().min(1).max(500)).max(8),

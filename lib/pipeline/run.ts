@@ -26,6 +26,7 @@ export type OperationName =
   | "Discover and suggest metadata"
   | "Split topics"
   | "Restructure content"
+  | "Merge solutions"
   | "Apply content standards"
   | "Find duplicates"
   | "Optimize for search"
@@ -52,6 +53,7 @@ export interface RunInput {
   templateName?: string;
   collection?: string;
   language?: string;
+  /** `merge` is retained only so runs saved before Merge became an action remain resumable. */
   path?: "create" | "improve" | "gap" | "merge";
   /** Server-authorized review scope guidance; never supplied directly by the browser. */
   reviewObjectives?: ReviewObjective[];
@@ -133,7 +135,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
   const steps: RunOutput["steps"] = [];
   const warnings: string[] = [];
   const has = (op: OperationName) => input.operations.includes(op);
-  const manualMerge = input.path === "merge";
+  const manualMerge = has("Merge solutions") || input.path === "merge";
   let remainingNewSolutions = input.maxNewSolutions ?? 40;
 
   const templates = await step("Loading article templates", onProgress, steps, async () => ({ value: await ra.getTemplates(), costUsd: 0 }));

@@ -142,7 +142,7 @@ describe("analysis → view → plan contract", () => {
   it("builds one explicit merge group from manually selected existing solutions without duplicate retrieval", async () => {
     const firstId = "260909000000002";
     const secondId = "260909000000003";
-    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId], operations: ["Restructure content", "Apply content standards"], path: "merge" });
+    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId], operations: ["Merge solutions", "Restructure content", "Apply content standards"], path: "improve" });
     expect(output.solutions).toHaveLength(2);
     expect(output.solutions.every(solution => solution.targetSolutionId)).toBe(true);
     expect(output.groups).toMatchObject([{ survivorId: expect.any(String), averageSimilarity: 0, rationales: ["Selected manually for a reviewed merge."], manualSelection: true }]);
