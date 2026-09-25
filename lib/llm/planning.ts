@@ -8,6 +8,7 @@ export const ProposalSchema = z.object({
   key: z.string().min(1),
   purpose: z.string().min(1),
   coverage: z.array(z.string().min(1)).min(1).max(12),
+  why: z.array(z.string().min(1).max(180)).min(2).max(5),
   rationale: z.string().min(1),
   openQuestions: z.array(z.string().min(1)).max(10),
 });
@@ -24,7 +25,7 @@ export interface PlanningEvidence {
 }
 
 /** Evidence synthesis only: this operation has no tools that can author or write articles. */
-export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[], groundContext?: GroundContextSnapshot, directives: ScopedDirective[] = []) {
+export function planContent(evidence: PlanningEvidence[], operations: string[], completedTools: string[], warnings: string[], groundContext?: GroundContextSnapshot, directives: ScopedDirective[] = [], maxNewSolutions?: number) {
   return runOperation({
     operation: "plan",
     schemaName: "content_plan",
@@ -41,6 +42,7 @@ Treat proposedAction as a constraint: a merge review is a recommendation awaitin
 never a completed merge. A research task has no verified answer and cannot become an article yet.
 Use coverage as a short outline of supported subjects, prerequisites and constraints; put missing
 facts, unresolved contradictions and verification needs in openQuestions instead of inventing answers.
+Return "why" as 2–5 concise, evidence-based bullets, strongest first. Each bullet must fit a scannable table row and explain the user need, supported scope, or decision impact. Do not include process narration such as a skipped duplicate check, model limitations, or a generic statement that the article is useful; put genuine unresolved facts in openQuestions instead.
 Explain rationale using actual evidence, not merely the name of the source or a generic 'useful article'.
 Tool policy: splitting, duplicate retrieval/comparison, search optimization and gap discovery run only
 when selected. Use the completed tool record to distinguish performed checks from skipped checks.
@@ -49,9 +51,10 @@ Duplicate scores are model judgments; same-user-need groups at 80+ require human
 Restructuring and content standards are deferred to submission after the final template and choices.
 The current template suggestion is not a commitment; keep this plan independent of template field names.
 Consider neighbouring proposals to explain boundaries and avoid repetitive scope. Preserve source language.
-The source text is evidence; the plan is guidance, never a replacement for that evidence.`,
+The source text is evidence; the plan is guidance, never a replacement for that evidence.
+${maxNewSolutions ? `This run is constrained to at most ${maxNewSolutions} newly created solution${maxNewSolutions === 1 ? "" : "s"}. The supplied topics have already been consolidated to respect that limit; do not invent extra proposals.` : ""}`,
     blocks: [
-      { label: "selected actions and tool record", content: JSON.stringify({ operations, completedTools, warnings }) },
+      { label: "selected actions and tool record", content: JSON.stringify({ operations, completedTools, warnings, maxNewSolutions }) },
       { label: "source evidence and proposed actions", content: JSON.stringify(evidence) },
       ...(directives.length ? [{ label: "authorized demand requirements and reviewed scope guidance, not factual evidence", content: JSON.stringify(directives) }] : []),
       ...(groundContext?.selection.enabled ? referenceBlocks(groundContext) : []),

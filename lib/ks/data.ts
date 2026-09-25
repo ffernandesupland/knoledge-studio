@@ -7,7 +7,7 @@
  * "KCS Solution" template in the real tenant (finding V3).
  */
 
-export type PathKey = "create" | "improve" | "gap";
+export type PathKey = "create" | "improve" | "gap" | "merge";
 export type StepId = "input" | "check" | "metadata" | "submit";
 export type SubmitStatus = "new" | "updated" | "merged" | "flagged";
 
@@ -77,6 +77,14 @@ export const KS_PATHS: Record<PathKey, PathDef> = {
       "Optimize for search",
       "Find gaps",
     ],
+  },
+  merge: {
+    key: "merge",
+    label: "Merge existing solutions",
+    icon: "merge_type",
+    desc: "Select existing articles and combine them into one reviewed revision.",
+    ops: "Combines selected solutions; no new article is created",
+    on: ["Restructure content", "Apply content standards"],
   },
 };
 

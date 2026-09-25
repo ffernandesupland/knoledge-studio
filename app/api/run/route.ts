@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const groundContext = await withRaConnection(author, connection, () => safeInput.groundTruth
       ? resolveGroundTruthSelection(safeInput.groundTruth, configurationSnapshots.groundTruth, connection.id, safeInput.sourceSolutionIds ?? [], author)
       : resolveGroundContext(safeInput.groundContext, safeInput.sourceSolutionIds, author));
-    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, demandSpecification: safeInput.demandSpecification, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
+    (await createRun({ id: runId, author, connectionId: connection.id, groundContext, demandSpecification: safeInput.demandSpecification, path: safeInput.path ?? null, inputText: safeInput.text, sourceIds: safeInput.sourceSolutionIds ?? [], maxNewSolutions: safeInput.maxNewSolutions, operations: safeInput.operations, attachments: safeInput.attachments, content: safeInput.content }));
     await saveRunConfigurationSnapshots(runId, configurationSnapshots);
     const demandRecommendation = safeInput.demandRecommendationId ? await attachDemandRecommendation(runId, author, safeInput.demandRecommendationId, safeInput.demandSpecification) : undefined;
     if (handoff) await saveRunSolutionReviewHandoff(runId, handoff.id);

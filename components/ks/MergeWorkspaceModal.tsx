@@ -24,6 +24,9 @@ export function MergeWorkspaceModal({
   const [survivorId, setSurvivorId] = useState(group.survivorId);
 
   const allNew = group.members.every((m) => !isSolutionId(m.id));
+  const selectionExplanation = group.manualSelection
+    ? "You selected these existing solutions for a deliberate merge. Choose the one that should retain its URL, ID and history."
+    : undefined;
 
   return (
     <div className="entity-modal-scrim" onClick={(e) => e.target === e.currentTarget && onCancel()}>
@@ -51,10 +54,10 @@ export function MergeWorkspaceModal({
               {allNew ? "Which proposal should lead the combined article?" : "Which item should be retained?"}
             </div>
             <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>
-              {allNew
+              {selectionExplanation ?? (allNew
                 ? "These are proposed topics, not existing solutions. Combining them plans one new article from their sources. No URL, history or view counts exist yet. Keep them separate if they serve different reader needs."
-                : "An existing retained solution keeps its URL, ID and history; a new retained proposal becomes a new article. Other existing members receive a merge comment only after the retained article is written. New proposals are combined without creating separate records."}
-              <p><strong>Why this group was suggested:</strong> {group.reason}</p>
+                : "An existing retained solution keeps its URL, ID and history; a new retained proposal becomes a new article. Other existing members receive a merge comment only after the retained article is written. New proposals are combined without creating separate records.")}
+              <p><strong>{group.manualSelection ? "Merge instruction:" : "Why this group was suggested:"}</strong> {group.reason}</p>
             </div>
             <div className="ks-sv-opts">
               {group.members.map((m) => (

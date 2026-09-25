@@ -45,11 +45,14 @@ export interface RunInput {
   sourceSolutionIds?: string[];
   /** Limits duplicate adjudication to a selected set of existing solutions. */
   duplicateScopeIds?: string[];
+  /** Maximum number of newly created articles. Existing updates and retained existing merge targets do not count. */
+  maxNewSolutions?: number;
   operations: OperationName[];
   /** Fixed template for every topic. Omit to let the pipeline pick one per topic. */
   templateName?: string;
   collection?: string;
   language?: string;
+  path?: "create" | "improve" | "gap" | "merge";
   /** Server-authorized review scope guidance; never supplied directly by the browser. */
   reviewObjectives?: ReviewObjective[];
   /** User-authored requirements, validated and frozen when the run starts. */
@@ -130,6 +133,8 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
   const steps: RunOutput["steps"] = [];
   const warnings: string[] = [];
   const has = (op: OperationName) => input.operations.includes(op);
+  const manualMerge = input.path === "merge";
+  let remainingNewSolutions = input.maxNewSolutions ?? 40;
 
   const templates = await step("Loading article templates", onProgress, steps, async () => ({ value: await ra.getTemplates(), costUsd: 0 }));
   const forced: WSTemplate | undefined = input.templateName
@@ -157,13 +162,17 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
   if (!batches.length && !has("Find gaps")) throw new Error("Nothing to process: add content or enable Find gaps");
   const planned: PlannedSolution[] = [];
   for (const batch of batches) {
-    const topics = has("Split topics")
+    const maySplit = !manualMerge && has("Split topics") && (remainingNewSolutions > 0 || !!batch.source);
+    const splitLimit = input.maxNewSolutions ? Math.max(1, remainingNewSolutions) : undefined;
+    const topics = maySplit
       ? await step(`Split topics: ${batch.source?.title ?? "new content"}`, onProgress, steps, async () => {
-          const r = await splitTopics(batch.blocks);
+          const r = await splitTopics(batch.blocks, splitLimit);
           return { value: r.data.topics, costUsd: r.costUsd, model: r.model };
         })
       : [{ title: batch.source?.title ?? batch.blocks[0].content.replace(/<[^>]*>/g, " ").trim().split("\n")[0].slice(0, 100), content: batch.blocks.map((b) => b.content).join("\n\n"), rationale: "Processed as one topic per source." }];
     if (!topics.length || planned.length + topics.length > 40) throw new Error("Analysis must produce 1–40 topics. Use a smaller batch.");
+    const newTopicCount = batch.source && topics.length === 1 ? 0 : topics.length;
+    if (newTopicCount > remainingNewSolutions) throw new Error(`The selected limit allows ${remainingNewSolutions} more new solution${remainingNewSolutions === 1 ? "" : "s"}. Increase the limit or consolidate the source material.`);
     const targetId = batch.source && topics.length === 1 ? batch.source.id : undefined;
     for (const topic of topics) {
       const originalTemplate = targetId ? templates.find((t) => t.templateName === batch.source?.templateName) : undefined;
@@ -195,6 +204,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
         duplicates: [],
       });
     }
+    remainingNewSolutions -= newTopicCount;
   }
 
   /* 3. Optimize for search ----------------------------------------------- */
@@ -221,7 +231,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
 
   /* 5. Duplicates -------------------------------------------------------- */
   let groups: DuplicateGroup[] = [];
-  if (has("Find duplicates")) {
+  if (has("Find duplicates") && !manualMerge) {
     const candidates: Candidate[] = planned.map((p) => ({
       key: p.key,
       title: p.title,
@@ -266,6 +276,13 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
       matchesByCandidate,
       intraBatchPairs,
     });
+  }
+
+  if (manualMerge) {
+    if (planned.length < 2 || planned.some(solution => !solution.targetSolutionId)) throw new Error("Merge existing solutions requires at least two existing solutions.");
+    const members = planned.map(solution => ({ id: solution.targetSolutionId!, title: solution.title, isNew: false, viewCount: sourceSolutions.find(source => source.id === solution.targetSolutionId)?.viewCount ?? 0 }));
+    const survivor = [...members].sort((a, b) => b.viewCount - a.viewCount)[0];
+    groups = [{ members, survivorId: survivor.id, averageSimilarity: 0, rationales: ["Selected manually for a reviewed merge."], manualSelection: true }];
   }
 
   /* 6. Gaps -------------------------------------------------------------- */
@@ -316,7 +333,7 @@ async function runPipelineImpl(input: RunInput, onProgress?: OnProgress, groundC
           reason: p.rationale,
           duplicateEvidence: { checked: has("Find duplicates") && !p.researchOnly, matches: p.duplicates, group },
         };
-      }), input.operations, steps.map((s) => s.name), warnings, groundContext, [...demandDirectives(input.demandSpecification), ...reviewDirectives(input.reviewObjectives)]);
+      }), input.operations, steps.map((s) => s.name), warnings, groundContext, [...demandDirectives(input.demandSpecification), ...reviewDirectives(input.reviewObjectives)], input.maxNewSolutions);
       return { value: r.data.proposals, costUsd: r.costUsd, model: r.model };
     });
     if (proposals.length !== planned.length || new Set(proposals.map((p) => p.key)).size !== planned.length || proposals.some((p) => !planned.some((s) => s.key === p.key))) {

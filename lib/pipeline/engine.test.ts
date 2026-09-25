@@ -47,7 +47,7 @@ beforeEach(async () => {
   vi.resetAllMocks();
   runId = `engine-${++counter}`;
   (await createRun({ id: runId, author: "sauser", path: "create", inputText: "source", sourceIds: [], operations: [] }));
-  mocks.plan.mockImplementation(async (evidence) => result({ proposals: evidence.map((e: { key: string }) => ({ key: e.key, purpose: "Help the reader", coverage: ["Supported scope"], rationale: "A distinct supported user need", openQuestions: [] })) }));
+  mocks.plan.mockImplementation(async (evidence) => result({ proposals: evidence.map((e: { key: string }) => ({ key: e.key, purpose: "Help the reader", coverage: ["Supported scope"], why: ["The source supports a distinct reader need.", "The scope is bounded by the available evidence."], rationale: "A distinct supported user need", openQuestions: [] })) }));
   mocks.templates.mockResolvedValue([template]); mocks.solution.mockImplementation(async (id) => ({ ...source, id }));
   mocks.history.mockResolvedValue([]); mocks.search.mockResolvedValue({ solutions: [], totalHits: 0 });
   mocks.write.mockResolvedValue("Successfully created solution with ID: 260909000000003");
@@ -128,7 +128,7 @@ describe("analysis → view → plan contract", () => {
     expect(preparationContext).toEqual(analysisContext);
   });
   it("rejects invented topic keys from the planner", async () => {
-    mocks.plan.mockResolvedValue(result({ proposals: [{ key: "made-up", purpose: "x", coverage: ["x"], rationale: "x", openQuestions: [] }] }));
+    mocks.plan.mockResolvedValue(result({ proposals: [{ key: "made-up", purpose: "x", coverage: ["x"], why: ["x", "y"], rationale: "x", openQuestions: [] }] }));
     await expect(runPipeline({ text: "Source", operations: [] })).rejects.toThrow("does not match");
     expect(mocks.write).not.toHaveBeenCalled();
   });
@@ -138,6 +138,23 @@ describe("analysis → view → plan contract", () => {
     expect(view.candidates[0]).toMatchObject({ key: source.id, targetSolutionId: source.id, templateName: source.templateName, action: "Update" });
     expect(plan[0]).toMatchObject({ kind: "revise", fromMerge: false, solutionId: source.id });
     expect(mocks.choose).not.toHaveBeenCalled();
+  });
+  it("builds one explicit merge group from manually selected existing solutions without duplicate retrieval", async () => {
+    const firstId = "260909000000002";
+    const secondId = "260909000000003";
+    const output = await runPipeline({ text: "", sourceSolutionIds: [firstId, secondId], operations: ["Restructure content", "Apply content standards"], path: "merge" });
+    expect(output.solutions).toHaveLength(2);
+    expect(output.solutions.every(solution => solution.targetSolutionId)).toBe(true);
+    expect(output.groups).toMatchObject([{ survivorId: expect.any(String), averageSimilarity: 0, rationales: ["Selected manually for a reviewed merge."], manualSelection: true }]);
+    expect(output.groups[0].members.map(member => member.id)).toEqual([firstId, secondId]);
+    expect(mocks.search).not.toHaveBeenCalled();
+  });
+  it("passes the new-solution cap into splitting and planning", async () => {
+    mocks.split.mockResolvedValue(result({ topics: [{ title: "Combined topic", content: "All supported detail", rationale: "Consolidated to fit the requested limit." }] }));
+    const output = await runPipeline({ text: "Topic one and topic two", operations: ["Split topics"], maxNewSolutions: 1 });
+    expect(output.solutions).toHaveLength(1);
+    expect(mocks.split.mock.calls[0][1]).toBe(1);
+    expect(mocks.plan.mock.calls[0][6]).toBe(1);
   });
   it("retains original HTML if restructuring is disabled after analysis", async () => {
     const markdown = { ...source, fields: [{ name: "Solution", content: "1. Restart\n2. Reconnect" }, { name: "Details", content: "" }] };
@@ -207,7 +224,7 @@ describe("submission contracts", () => {
     expect(mocks.write).not.toHaveBeenCalled();
   });
   it("passes reviewed scope and original source text into merges even before template fields are authored", async () => {
-    const proposal = { purpose: "Consolidate supported coverage", coverage: ["Shared problem", "Unique details"], rationale: "Same need", openQuestions: [] };
+    const proposal = { purpose: "Consolidate supported coverage", coverage: ["Shared problem", "Unique details"], why: ["The selected sources address the same supported need.", "Each source contributes unique details."], rationale: "Same need", openQuestions: [] };
     const op = { ...newOp(), fields: [], proposal, mergeSources: [{ id: "c1", title: "Other topic", fields: [], rawContent: "Unique verified source", proposal }] };
     const [written] = await executeWritePlan(args([op]));
     expect(written.outcome).toBe("ok");
@@ -320,7 +337,7 @@ describe("decision ownership and persistence", () => {
   });
   it("does not accept invented write targets from the browser", async () => {
     const view = mapRunToView(await runPipeline({ text: "New answer", operations: [] })); (await completeRun(runId, view));
-    const snapshot = { ...view, candidates: [{ ...view.candidates[0], targetSolutionId: source.id, proposal: { purpose: "Forged", coverage: ["Invented"], rationale: "Forged", openQuestions: [] } }], selectedKeys: ["c0"], resolutions: [], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "English", standard: "Default", standardsRules: [], newSolutionTemplate: null, templateOverrides: [] };
+    const snapshot = { ...view, candidates: [{ ...view.candidates[0], targetSolutionId: source.id, proposal: { purpose: "Forged", coverage: ["Invented"], why: ["Forged", "Forged again"], rationale: "Forged", openQuestions: [] } }], selectedKeys: ["c0"], resolutions: [], operations: KS_OPS_DEFAULT.map((o) => ({ ...o, on: false })), collection: "Custom", language: "English", standard: "Default", standardsRules: [], newSolutionTemplate: null, templateOverrides: [] };
     expect(canonicalSnapshot((await getRun(runId))!, snapshot).candidates[0].targetSolutionId).toBeUndefined();
     expect(canonicalSnapshot((await getRun(runId))!, snapshot).candidates[0].proposal).toEqual(view.candidates[0].proposal);
   });

@@ -89,6 +89,20 @@ describe("run persistence", () => {
     expect((await getRun("requirements"))?.demandSpecification).toEqual({ version: 1, intent: "Create a technician procedure.", directives: [{ id: "operator-1", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] });
   });
 
+  it("persists a new-solution limit with the run", async () => {
+    await createRun({
+      id: "limited",
+      author: "sauser",
+      path: "create",
+      inputText: "printer notes",
+      sourceIds: [],
+      operations: ["Split topics"],
+      maxNewSolutions: 2,
+    });
+
+    expect((await getRun("limited"))?.maxNewSolutions).toBe(2);
+  });
+
   it("links an accepted, matching workflow recommendation to its run", async () => {
     const specification: DemandSpecification = { version: 1, intent: "Create a technician procedure.", directives: [{ id: "operator-2", text: "Use numbered steps.", priority: "required", appliesTo: ["author", "standards"] }] };
     await createRun({ id: "recommended", author: "sauser", path: "create", inputText: "printer notes", sourceIds: [], operations: ["Restructure content"], demandSpecification: specification });

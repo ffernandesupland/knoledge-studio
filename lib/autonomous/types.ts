@@ -4,7 +4,6 @@ import type { RunInput } from "../pipeline/run";
 export type AutonomousStage = "queued" | "analysis" | "decisions" | "preparation" | "review" | "submission" | "finished";
 export type AutonomousStatus = "queued" | "running" | "completed" | "partial" | "failed";
 export interface AutonomousInput extends RunInput {
-  path?: "create" | "improve" | "gap";
   standardsRules: string[];
 }
 export interface AutonomousAuthorization {

@@ -26,7 +26,7 @@ export function ProposalPreview({ candidate: c, group, resolution, duplicatesChe
     <details style={{ marginTop: 18 }}>
       <summary>View detailed planning evidence</summary>
       <div style={{ marginTop: 14 }}>
-        <h3>Why</h3><p>{c.why}</p>
+        <h3>Why</h3><ul>{(c.proposal?.why?.length ? c.proposal.why : [c.why]).slice(0, 5).map((reason, index) => <li key={index}>{reason}</li>)}</ul>
         {c.proposal ? <>
           <h3>Purpose</h3><p>{c.proposal.purpose}</p>
           <h3>What it should cover</h3><ul>{c.proposal.coverage.map((v, i) => <li key={i}>{v}</li>)}</ul>

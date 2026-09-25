@@ -33,7 +33,7 @@ export const SplitSchema = z.object({
 });
 export type SplitResult = z.infer<typeof SplitSchema>;
 
-export function splitTopics(blocks: UntrustedBlock[]) {
+export function splitTopics(blocks: UntrustedBlock[], maxTopics?: number) {
   return runOperation({
     operation: "split",
     schemaName: "split_topics",
@@ -48,6 +48,7 @@ Keep every substantive detail — move text, do not summarise it away.
 Repeat shared prerequisites, warnings and version constraints in every topic that needs them.
 Preserve the source language. Never invent missing answers.
 If the content covers only one topic, return exactly one topic.
+${maxTopics ? `Return no more than ${maxTopics} topic${maxTopics === 1 ? "" : "s"}. Consolidate closely related material rather than dropping supported information.` : ""}
 "rationale" states in one sentence why this is its own topic.`,
     blocks,
   });

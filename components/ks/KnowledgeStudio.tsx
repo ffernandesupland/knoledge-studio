@@ -143,6 +143,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
   /** A launch from Duplicate Detection may intentionally narrow comparison to these IDs. */
   const [duplicateScopeIds, setDuplicateScopeIds] = useState<string[]>([]);
   const [duplicateLaunchScope, setDuplicateLaunchScope] = useState<"knowledge-base" | "selected" | null>(null);
+  const [maxNewSolutions, setMaxNewSolutions] = useState<number | undefined>();
 
   const [ops, setOps] = useState(() => KS_OPS_DEFAULT.map((o) => ({ ...o })));
 
@@ -222,7 +223,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: stored.decisions.collection, Language: stored.decisions.language ?? p.Language }));
         }
-        setPath(stored.path ?? null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null);
+        setPath(stored.path as PathKey | null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null); setMaxNewSolutions(stored.maxNewSolutions);
         const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
         setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, fileId: a.fileId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
@@ -345,6 +346,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setPath(k);
     const onList = KS_PATHS[k].on;
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o, on: onList.includes(o.name) })));
+    if (k === "merge") { setAutoMode(false); setDuplicateScopeIds([]); }
     showToast({ message: `${KS_PATHS[k].label} · options preset` });
   }
 
@@ -353,22 +355,27 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     if (reviewHandoff && !reviewResolutionsSaved) {
       showToast({ message: "Answer and save every contradiction question before starting analysis.", icon: "error" }); return;
     }
-    if (sourceContent.some(b => b.type === "attachment" && !attachments.some(a => a.id === b.attachmentId))) {
+    if (path !== "merge" && sourceContent.some(b => b.type === "attachment" && !attachments.some(a => a.id === b.attachmentId))) {
       showToast({ message: "Remove failed uploads or wait until every source is ready." }); return;
     }
-    const orderedContent: SourceBlock[] = gapQuestion ? [{ id: "gap-question", type: "text", text: `Question: ${gapQuestion}` }, ...sourceContent] : sourceContent;
+    const mergeMode = path === "merge";
+    const orderedContent: SourceBlock[] = mergeMode ? [] : gapQuestion ? [{ id: "gap-question", type: "text", text: `Question: ${gapQuestion}` }, ...sourceContent] : sourceContent;
     const sourceSolutionIds = Object.entries(kbSelected)
       .filter(([, on]) => on)
       .map(([id]) => id);
     const activeDuplicateScopeIds = duplicateScopeIds.filter((id) => sourceSolutionIds.includes(id));
-    const duplicateScope = activeDuplicateScopeIds.length >= 2 ? activeDuplicateScopeIds : undefined;
+    const duplicateScope = mergeMode ? undefined : activeDuplicateScopeIds.length >= 2 ? activeDuplicateScopeIds : undefined;
     const savedDemandSpecification = hasDemandRequirements(demandSpecification) ? { ...demandSpecification, intent: demandSpecification.intent.trim(), directives: demandSpecification.directives.filter((directive) => directive.text.trim()).map((directive) => ({ ...directive, text: directive.text.trim() })) } : undefined;
-    if (!contentText.trim() && attachments.length === 0 && sourceSolutionIds.length === 0 && !ops.some((o) => o.name === "Find gaps" && o.on)) {
+    if (mergeMode && sourceSolutionIds.length < 2) {
+      showToast({ message: "Select at least two existing solutions to merge." });
+      return;
+    }
+    if (!mergeMode && !contentText.trim() && attachments.length === 0 && sourceSolutionIds.length === 0 && !ops.some((o) => o.name === "Find gaps" && o.on)) {
       showToast({ message: "Add some content, a file, or pick a solution first" });
       return;
     }
-    const activeGroundTruth: GroundTruthSelection | undefined = groundTruth ?? (groundTruthDocuments.length ? { mode: "manual", solutionIds: groundContext.referenceSolutionIds, documentIds: groundTruthDocuments.map(document => document.id), guidance: groundContext.guidance } : undefined);
-    if (!activeGroundTruth && groundContext.enabled && (!groundContext.referenceSolutionIds.length || groundContext.referenceSolutionIds.some(id => sourceSolutionIds.includes(id)))) {
+    const activeGroundTruth: GroundTruthSelection | undefined = mergeMode ? undefined : groundTruth ?? (groundTruthDocuments.length ? { mode: "manual", solutionIds: groundContext.referenceSolutionIds, documentIds: groundTruthDocuments.map(document => document.id), guidance: groundContext.guidance } : undefined);
+    if (!mergeMode && !activeGroundTruth && groundContext.enabled && (!groundContext.referenceSolutionIds.length || groundContext.referenceSolutionIds.some(id => sourceSolutionIds.includes(id)))) {
       showToast({ message: "Choose Ground Context references that are different from your processing targets." }); return;
     }
     if (activeGroundTruth?.mode === "manual" && activeGroundTruth.solutionIds.some(id => sourceSolutionIds.includes(id))) {
@@ -378,11 +385,12 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       if (autoStarting) return;
       const input = {
         connectionId,
-        text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
+        text: mergeMode ? "" : gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
         content: orderedContent,
-        attachments: attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
-        ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : { groundContext }), sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
+        attachments: mergeMode ? [] : attachments.map(a => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+        ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : mergeMode ? {} : { groundContext }), sourceSolutionIds, operations: ops.filter(o => o.on).map(o => o.name), path: path ?? undefined,
         duplicateScopeIds: duplicateScope,
+        ...(maxNewSolutions && !mergeMode ? { maxNewSolutions } : {}),
         standardsRules: [],
         demandSpecification: savedDemandSpecification,
         demandRecommendationId: demandRecommendation?.status === "accepted" ? demandRecommendation.id : undefined,
@@ -409,14 +417,15 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       reviewHandoffId: reviewHandoff?.id,
       demandSpecification: savedDemandSpecification,
       demandRecommendationId: demandRecommendation?.status === "accepted" ? demandRecommendation.id : undefined,
-      text: gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
+      text: mergeMode ? "" : gapQuestion && contentText.trim() ? `Question: ${gapQuestion}\n\nSupported source material:\n${contentText}` : contentText,
       content: orderedContent,
-      attachments: attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
-      ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : { groundContext }),
+      attachments: mergeMode ? [] : attachments.map((a) => ({ id: a.id, imageId: a.imageId, fileId: a.fileId, meta: a.meta, label: a.name, text: a.text, kind: a.icon === "link" ? "url" : "file" })),
+      ...(activeGroundTruth ? { groundTruth: activeGroundTruth } : mergeMode ? {} : { groundContext }),
       sourceSolutionIds,
       duplicateScopeIds: duplicateScope,
       operations: ops.filter((o) => o.on).map((o) => o.name),
       path: path ?? undefined,
+      ...(maxNewSolutions && !mergeMode ? { maxNewSolutions } : {}),
     });
     if (view) {
       setSelected(new Set(view.candidates.filter((c) => !c.researchOnly).map((c) => c.key)));
@@ -458,7 +467,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       const recommendation = await updateDemandRecommendationStatus("accepted");
       if (!recommendation) return;
       setDemandRecommendation(recommendation);
-      setOps(KS_OPS_DEFAULT.map((operation) => ({ ...operation, on: recommendation.recommendation.recommendedOperations.includes(operation.name as typeof recommendation.recommendation.recommendedOperations[number]) })));
+      const allowed = path === "merge" ? new Set(["Restructure content", "Apply content standards"]) : undefined;
+      setOps(KS_OPS_DEFAULT.map((operation) => ({ ...operation, on: recommendation.recommendation.recommendedOperations.includes(operation.name as typeof recommendation.recommendation.recommendedOperations[number]) && (!allowed || allowed.has(operation.name)) })));
       showToast({ message: "Recommended workflow applied. Review the selected operations before analysis.", icon: "fact_check" });
     } catch (error) {
       showToast({ message: error instanceof Error ? error.message : "Could not apply the workflow recommendation.", icon: "error" });
@@ -551,6 +561,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     setKbSelected({});
     setDuplicateScopeIds([]);
     setDuplicateLaunchScope(null);
+    setMaxNewSolutions(undefined);
     setGroundContext(emptyGroundSelection);
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o })));
     setMetadataSettings({});
@@ -639,8 +650,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     groundContextIdentity,
     candidates, groups: effectiveGroups, selectedKeys: [...selected], resolutions, operations: ops,
     collection: metaFields.Collection, language: metaFields.Language, standard: "Managed in Solution Standards Management", standardsRules: [],
-    newSolutionTemplate, templateOverrides: [...templateOverrides], metadata: metadataSettings,
-  }), [groundContextIdentity, candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, newSolutionTemplate, templateOverrides, metadataSettings]);
+    newSolutionTemplate, templateOverrides: [...templateOverrides], metadata: metadataSettings, ...(maxNewSolutions ? { maxNewSolutions } : {}),
+  }), [groundContextIdentity, candidates, effectiveGroups, selected, resolutions, ops, metaFields.Collection, metaFields.Language, newSolutionTemplate, templateOverrides, metadataSettings, maxNewSolutions]);
   useEffect(() => {
     if (!sessionReady || pipeline.phase !== "done" || !pipeline.runId || (submitRun.locked || submitRun.phase === "preparing" || submitRun.phase === "submitting")) return;
     const t = setTimeout(() => {
@@ -734,6 +745,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     const advancedSettings = [
       groundTruth ? `Ground Truth: ${groundTruth.mode === "bundle" ? "saved bundle" : "scope match"}` : groundTruthDocuments.length ? `Ground Truth: ${groundContext.referenceSolutionIds.length + groundTruthDocuments.length} direct sources` : groundContext.enabled ? `Ground Context: ${groundContext.referenceSolutionIds.length} reference${groundContext.referenceSolutionIds.length === 1 ? "" : "s"}` : null,
       hasDemandRequirements(demandSpecification) ? `Demand requirements: ${demandSpecification.directives.filter((directive) => directive.text.trim()).length + (demandSpecification.intent.trim() ? 1 : 0)}` : null,
+      maxNewSolutions ? `Maximum new solutions: ${maxNewSolutions}` : null,
       autoMode ? "Autonomous run enabled" : null,
     ].filter((setting): setting is string => !!setting);
     if (!path) {
@@ -790,7 +802,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               Pick a starting point to get set up.
             </div>
             <div className="ks-paths">
-              {(["create", "improve", "gap"] as PathKey[]).map((k) => {
+              {(["create", "improve", "gap", "merge"] as PathKey[]).map((k) => {
                 const p = KS_PATHS[k];
                 return (
                   <button type="button" key={k} className="ks-path" onClick={() => pickPath(k)}>
@@ -840,11 +852,10 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             </div>
           </section>}
           <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
-            Add your content
+            {path === "merge" ? "Select solutions to merge" : "Add your content"}
           </div>
           <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
-            Add your content however you have it. You&apos;ll review a plan before anything is
-            created.
+            {path === "merge" ? "Select two or more existing solutions. You will choose the retained article before a reviewed revision is prepared." : "Add your content however you have it. You&apos;ll review a plan before anything is created."}
           </div>
           <div className="ks-card">
             <div className="ks-card-head">
@@ -879,6 +890,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                 });
               }}
               showToast={showToast}
+              existingSolutionsOnly={path === "merge"}
             />
           </div>
           <div className="ks-card">
@@ -887,7 +899,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             </div>
             <p style={{ fontSize: 13, color: T.textSecondary, padding: "0 20px" }}>AI builds a reviewable plan from your sources. These options control evidence gathering and later article preparation.</p>
             <div className="ks-ops-grid">
-              {ops.map((op, i) => (
+              {ops.map((op, i) => ({ op, i })).filter(({ op }) => path !== "merge" || ["Restructure content", "Apply content standards"].includes(op.name)).map(({ op, i }) => (
                 <div
                   key={op.name}
                   role="button" tabIndex={0} aria-pressed={op.on}
@@ -926,7 +938,19 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             <div className="ks-advanced-options-head">
               <div><h2 id="advanced-options-title">Advanced options</h2><p>Your sources, selections, and workflow choices stay in place while you show or hide these settings.</p></div>
             </div>
-            <GroundTruthInput value={groundContext} onChange={setGroundContext} selection={groundTruth} onSelectionChange={setGroundTruth} documents={groundTruthDocuments} onDocumentsChange={setGroundTruthDocuments} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />
+            {path !== "merge" && <GroundTruthInput value={groundContext} onChange={setGroundContext} selection={groundTruth} onSelectionChange={setGroundTruth} documents={groundTruthDocuments} onDocumentsChange={setGroundTruthDocuments} excludedIds={Object.keys(kbSelected)} savedReferences={pipeline.run?.groundContext?.references} connectionId={connectionId} />}
+            {path !== "merge" && <section className="ks-card" aria-labelledby="max-new-solutions-title">
+              <div className="ks-card-head"><span className="ms">format_list_numbered</span><span id="max-new-solutions-title">Maximum new solutions</span></div>
+              <div style={{ padding: "0 20px 20px" }}>
+                <p style={{ margin: "0 0 14px", color: T.textSecondary, fontSize: 13, lineHeight: 1.55 }}>AI will consolidate related material so this run creates no more than this number of new solutions. Updates and merges into existing solutions do not count.</p>
+                <label className="form-label" htmlFor="maximum-new-solutions">Maximum <span className="req">Optional</span>
+                  <input id="maximum-new-solutions" className="form-input" type="number" min={1} max={10} inputMode="numeric" value={maxNewSolutions ?? ""} placeholder="No limit" onChange={event => {
+                    const value = event.target.value === "" ? undefined : Number(event.target.value);
+                    setMaxNewSolutions(value && Number.isInteger(value) && value >= 1 && value <= 10 ? value : undefined);
+                  }} />
+                </label>
+              </div>
+            </section>}
             <section className="ks-card" aria-labelledby="demand-requirements-title">
               <div className="ks-card-head">
                 <span className="ms">assignment</span><span id="demand-requirements-title">Demand requirements</span>
@@ -964,11 +988,11 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                 <p style={{ margin: "10px 0 0", color: T.textSecondary, fontSize: 11 }}>Requirements apply to planning, drafting, merging, standards, and quality checks where compatible. If a requirement needs unsupported facts, the draft stays in review for a human decision.</p>
               </div>
             </section>
-            <div className="ks-card auto-option">
+            {path !== "merge" && <div className="ks-card auto-option">
               <div><strong>Run fully autonomously</strong><p>The agent will choose articles, merges, templates and metadata, check the prepared content, and create review drafts and revisions. You can inspect every decision in the executed engine flow.</p></div>
               <button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode(value => !value)} />
               {autoCapability?.latest && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => openAuto(autoCapability.latest!.runId)}>Open last autonomous run</button>}
-            </div>
+            </div>}
           </section>}
         </div>
       </div>
@@ -1056,12 +1080,13 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               </div>
             </div>
           </div>
+          {maxNewSolutions && <div className="ks-banner ks-banner--info" style={{ marginBottom: 16 }}><div className="ks-banner__row"><div className="ks-banner__icon"><span className="ms">format_list_numbered</span></div><div className="ks-banner__text"><div className="ks-banner__title">Up to {maxNewSolutions} new solution{maxNewSolutions === 1 ? "" : "s"}</div><div className="ks-banner__desc">Related source material was consolidated to respect this run’s saved creation limit. Updates and merges into existing solutions do not count.</div></div></div></div>}
           <div style={{ fontSize: 20, fontWeight: 600, color: T.textPrimary, marginBottom: 4 }}>
             Review the content plan
           </div>
           {pipeline.runId && <p><Link href={`/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}`} target="_blank">Open executed engine flow</Link></p>}
           <div style={{ fontSize: 14, color: T.textSecondary, lineHeight: 1.5, marginBottom: 20 }}>
-            Review the proposed scope and why it matters. Suggested merges are approved automatically; open one only if you want to inspect it, change its destination, or keep the items separate. Templates are confirmed in the next step.
+            {path === "merge" ? "Review the selected articles and choose the retained destination. This is a deliberate merge, not a duplicate finding. Templates are confirmed in the next step." : "Review the proposed scope and why it matters. Suggested merges are approved automatically; open one only if you want to inspect it, change its destination, or keep the items separate. Templates are confirmed in the next step."}
           </div>
 
           {pipeline.run?.demandSpecification && <section className="ks-card" aria-label="Applied demand requirements">
@@ -1108,7 +1133,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                   <th>Proposed topic</th>
                   <th>Suggested template</th>
                   <th>Proposed action</th>
-                  <th>Duplicates</th>
+                  <th>{path === "merge" ? "Merge decision" : "Duplicates"}</th>
                   <th>Why</th>
                   <th style={{ textAlign: "right" }}>Plan</th>
                 </tr>
@@ -1161,7 +1186,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                       >
                         <span className="ms">warning</span>
                         <span className="ks-dupe-trigger-label">
-                          {effectiveGroups[idx].averageSimilarity}% · Review
+                          {effectiveGroups[idx].manualSelection ? "Review selected merge" : `${effectiveGroups[idx].averageSimilarity}% · Review`}
                         </span>
                       </button>
                     );
@@ -1195,7 +1220,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
                       </td>
                       <td>{dupeCell}</td>
                       <td>
-                        <div style={{ fontSize: 12, lineHeight: 1.5, minWidth: 180, maxWidth: 300 }}>{c.why}</div>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.45, minWidth: 180, maxWidth: 300 }}>
+                          {(c.proposal?.why?.length ? c.proposal.why : [c.why]).slice(0, 5).map((reason, index) => <li key={index}>{reason}</li>)}
+                        </ul>
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <button
@@ -1246,7 +1273,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               >
                 warning
               </span>
-              Review duplicates
+              {g.manualSelection ? "Review selected merge" : "Review duplicates"}
             </div>
           </div>
           <div
@@ -1254,9 +1281,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
             style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
           >
             <div className="ks-merge-head">
-              <span className="ks-tag ks-tag-mrg">Duplicates</span>
+              <span className="ks-tag ks-tag-mrg">{g.manualSelection ? "Selected articles" : "Duplicates"}</span>
               <span style={{ flex: 1 }} />
-              <span className="ks-dedup hi">{g.averageSimilarity}% avg</span>
+              {!g.manualSelection && <span className="ks-dedup hi">{g.averageSimilarity}% avg</span>}
             </div>
             <div className="ks-sankey">
               <div className="ks-sankey-col left">
