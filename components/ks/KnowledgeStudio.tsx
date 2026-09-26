@@ -31,7 +31,7 @@ import type { DecisionSnapshot } from "@/lib/db/runs";
 import type { ContentReview } from "@/lib/pipeline/execute";
 import Link from "next/link";
 import { MergeWorkspaceModal } from "./MergeWorkspaceModal";
-import { KnowledgeCreateV2Surface } from "./KnowledgeCreateV2Surface";
+import { KnowledgeCreateV2Surface, type V2MasterAction } from "./KnowledgeCreateV2Surface";
 import {
   KS_OPS_DEFAULT,
   KS_PATH_KEYS,
@@ -352,6 +352,22 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
     const onList = KS_PATHS[k].on;
     setOps(KS_OPS_DEFAULT.map((o) => ({ ...o, on: onList.includes(o.name) })));
     showToast({ message: `${KS_PATHS[k].label} · options preset` });
+  }
+
+  function pickV2MasterAction(action: V2MasterAction) {
+    const nextPath: PathKey = action === "create" ? "create" : "improve";
+    const activeOperations = action === "create"
+      ? ["Split topics", "Restructure content"]
+      : action === "deduplicate"
+        ? ["Find duplicates"]
+        : action === "merge"
+          ? ["Merge solutions"]
+          : ["Apply content standards"];
+    setPath(nextPath);
+    setAutoMode(false);
+    setDuplicateScopeIds([]);
+    setOps(KS_OPS_DEFAULT.map((operation) => ({ ...operation, on: activeOperations.includes(operation.name) })));
+    showToast({ message: `${action === "create" ? "Create new content" : action === "deduplicate" ? "Deduplicate" : action === "merge" ? "Merge solutions" : "Apply content standards"} selected. Add any supporting goals before analysis.` });
   }
 
   async function createPlan() {
@@ -764,7 +780,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         {!mergeMode && <div className="ks-card auto-option"><div><strong>Run fully autonomously</strong><p>AI chooses articles, merges, templates, and metadata, then prepares review drafts. You can inspect every decision before publication.</p></div><button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode((value) => !value)} /></div>}
       </>;
       const sourceCount = attachments.length + (sourceContent.some((block) => block.type === "text" && block.text.trim()) ? 1 : 0) + Object.keys(kbSelected).length;
-      return <div className="ks-scroll"><KnowledgeCreateV2Surface customer={<>{customerPicker}{reviewHandoffSummary}</>} selectedPath={selectedPath?.key ?? null} paths={Object.values(KS_PATHS)} onPickPath={pickPath} sourceComposer={sourceComposer} sourceSummary={`${sourceCount} source${sourceCount === 1 ? "" : "s"} ready · Nothing will be published automatically.`} operations={ops} onToggleOperation={(index) => { const operation = ops[index]; if (operation?.name === "Merge solutions" && !operation.on) { setAutoMode(false); setDuplicateScopeIds([]); setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: true } : ["Restructure content", "Apply content standards"].includes(item.name) ? item : { ...item, on: false })); return; } setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: !item.on } : item)); }} mergeMode={mergeMode} advanced={advanced} /></div>;
+      return <div className="ks-scroll"><KnowledgeCreateV2Surface customer={<>{customerPicker}{reviewHandoffSummary}</>} selectedPath={selectedPath?.key ?? null} onPickMasterAction={pickV2MasterAction} onChangeMasterAction={() => setPath(null)} sourceComposer={sourceComposer} sourceSummary={`${sourceCount} source${sourceCount === 1 ? "" : "s"} ready · Nothing will be published automatically.`} operations={ops} onToggleOperation={(index) => { const operation = ops[index]; if (operation?.name === "Merge solutions" && !operation.on) { setAutoMode(false); setDuplicateScopeIds([]); setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: true } : ["Restructure content", "Apply content standards"].includes(item.name) ? item : { ...item, on: false })); return; } setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: !item.on } : item)); }} mergeMode={mergeMode} advanced={advanced} /></div>;
     }
     if (!selectedPath) {
       return (
