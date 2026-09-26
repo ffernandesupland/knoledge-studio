@@ -2,11 +2,20 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import type { Operation, PathDef, PathKey } from "@/lib/ks/data";
+import type { Operation, PathKey } from "@/lib/ks/data";
 import styles from "./KnowledgeCreateV2Surface.module.css";
 
+export type V2MasterAction = "create" | "deduplicate" | "merge" | "standards";
+
+const MASTER_ACTIONS: Array<{ key: V2MasterAction; title: string; description: string; icon: string }> = [
+  { key: "create", title: "Create new content", description: "Turn documents, links, or notes into structured new knowledge.", icon: "note_add" },
+  { key: "deduplicate", title: "Deduplicate", description: "Find overlapping saved solutions before they create confusion.", icon: "content_copy" },
+  { key: "merge", title: "Merge solutions", description: "Combine two or more saved solutions into one reviewed revision.", icon: "merge_type" },
+  { key: "standards", title: "Apply content standards", description: "Apply the company or scoped standard to existing content.", icon: "rule" },
+];
+
 const CORE_GOALS = new Set([
-  "Restructure content",
+  "Merge solutions",
   "Apply content standards",
   "Find duplicates",
 ]);
@@ -24,8 +33,8 @@ const goalCopy: Record<string, { title: string; description: string }> = {
 export function KnowledgeCreateV2Surface({
   customer,
   selectedPath,
-  paths,
-  onPickPath,
+  onPickMasterAction,
+  onChangeMasterAction,
   sourceComposer,
   sourceSummary,
   operations,
@@ -35,8 +44,8 @@ export function KnowledgeCreateV2Surface({
 }: {
   customer: ReactNode;
   selectedPath: PathKey | null;
-  paths: readonly PathDef[];
-  onPickPath: (path: PathKey) => void;
+  onPickMasterAction: (action: V2MasterAction) => void;
+  onChangeMasterAction: () => void;
   sourceComposer: ReactNode;
   sourceSummary: string;
   operations: Operation[];
@@ -64,13 +73,13 @@ export function KnowledgeCreateV2Surface({
   if (!selectedPath) {
     return <main className={styles.page}>
       <header className={styles.hero}>
-        <div><span className={styles.eyebrow}>EARLY ACCESS</span><h1>Create knowledge with confidence</h1><p>Start with the outcome you need. Knowledge Studio turns your material into a reviewable plan before anything changes.</p></div>
+        <div><span className={styles.eyebrow}>EARLY ACCESS</span><h1>Create knowledge with confidence</h1><p>Start with the primary task you need to complete. Knowledge Studio turns your material into a reviewable plan before anything changes.</p></div>
         <Link className="ds-btn ds-btn-secondary" href="/knowledge-studio/create">Use classic Create</Link>
       </header>
       {customer}
       <section className={styles.launcher} aria-labelledby="v2-start-title">
-        <div><h2 id="v2-start-title">What are you working on?</h2><p>Choose the closest starting point. You can change it before building the plan.</p></div>
-        <div className={styles.intentGrid}>{paths.map((path) => <button type="button" className={styles.intent} key={path.key} onClick={() => onPickPath(path.key)}><span className="ms" aria-hidden="true">{path.icon}</span><strong>{path.label}</strong><span>{path.desc}</span></button>)}</div>
+        <div><h2 id="v2-start-title">What is your primary task?</h2><p>Choose one clear starting point. You can add supporting goals before building the plan.</p></div>
+        <div className={styles.intentGrid}>{MASTER_ACTIONS.map((action) => <button type="button" className={styles.intent} key={action.key} onClick={() => onPickMasterAction(action.key)}><span className="ms" aria-hidden="true">{action.icon}</span><strong>{action.title}</strong><span>{action.description}</span></button>)}</div>
       </section>
     </main>;
   }
@@ -78,7 +87,7 @@ export function KnowledgeCreateV2Surface({
   return <main className={styles.page}>
     <header className={styles.heroCompact}>
       <div><span className={styles.eyebrow}>KNOWLEDGE CREATE V2</span><h1>{mergeMode ? "Merge saved articles" : "Create a reviewable knowledge plan"}</h1><p>Nothing is created or published until you review the plan.</p></div>
-      <Link className="ds-btn ds-btn-secondary" href="/knowledge-studio/create">Use classic Create</Link>
+      <div className={styles.headerActions}><button type="button" className="ds-btn ds-btn-secondary" onClick={onChangeMasterAction}>Change primary task</button><Link className="ds-btn ds-btn-secondary" href="/knowledge-studio/create">Use classic Create</Link></div>
     </header>
     {customer}
     <ol className={styles.progress} aria-label="Create plan steps"><li className={styles.current}>1. Add material</li><li>2. Choose results</li><li>3. Review plan</li></ol>

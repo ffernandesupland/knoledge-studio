@@ -7,12 +7,13 @@
 .launcher { padding: 28px; }
 .launcher h2, .section h2 { margin: 0; font-size: 20px; }
 .launcher p, .sectionHeading p { margin: 6px 0 0; color: #525c69; font-size: 14px; line-height: 1.5; }
-.intentGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+.intentGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
 .intent { display: grid; gap: 10px; min-height: 188px; padding: 20px; border: 1px solid #c5d1df; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; transition: border-color .15s, background .15s, transform .15s; font: inherit; }
 .intent:hover, .intent:focus-visible { border-color: #2574db; background: #f0f6fe; transform: translateY(-1px); outline: none; }
 .intent > .ms { color: #2574db; font-size: 28px; }
 .intent strong { font-size: 16px; }
 .intent span:last-child { color: #525c69; font-size: 13px; line-height: 1.45; }
+.headerActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .progress { display: flex; gap: 10px; padding: 0; margin: 0 0 18px; list-style: none; color: #6b7786; font-size: 13px; }
 .progress li { display: flex; align-items: center; gap: 10px; }
 .progress li:not(:last-child)::after { width: 28px; height: 1px; background: #c5d1df; content: ""; }
