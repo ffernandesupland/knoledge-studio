@@ -1,5 +1,6 @@
 "use client";
 import PipelineMetadata from "./PipelineMetadata";
+import { KnowledgeCreateV2Metadata } from "./KnowledgeCreateV2Metadata";
 import { GroundTruthInput } from "./GroundTruthInput";
 import { GroundContextSummary } from "./GroundContextSummary";
 import { emptyGroundSelection, groundIdentity, type GroundContextInput as GroundSelection, type GroundReference } from "@/lib/ground-context/types";
@@ -1418,6 +1419,28 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
 
   /* ── Metadata ── */
   function renderMetadataStep() {
+    if (experience === "v2") {
+      const sharedSettings = <>
+        {showMetadataEditor && pipeline.runId && meta && <PipelineMetadata enabled={metadataEnabled} runId={pipeline.runId} connectionId={connectionId} snapshot={snapshot} plan={proposedWritePlan.plan} options={meta} value={metadataSettings} onChange={setMetadataSettings} onBusy={setMetadataBusy} onReviewReferences={() => setScreen("input")} />}
+        {templateOptions.length > 0 && <div className="ks-meta-grid"><div className="form-field"><div className="form-label">Default template</div><DsDropdown value={newSolutionTemplate ?? templateOptions[0]} options={templateOptions} onChange={applyGlobalTemplate} /><div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Applies to every new result below that has not been overridden.</div></div></div>}
+        {!showMetadataEditor && !templateOptions.length && <p style={{ margin: 0, color: T.textSecondary, fontSize: 13 }}>No shared settings are available for this customer.</p>}
+      </>;
+      const publishingSettings = <div className="ks-meta-grid">
+        <div className="form-field"><div className="form-label">Collection <span className="req">*</span></div>{showMetadataEditor ? <p>Configured in the shared suggestions above.</p> : <DsDropdown value={metaFields.Collection} options={collectionOptions} onChange={(value) => setMetaFields((current) => ({ ...current, Collection: value }))} />}</div>
+        <div className="form-field"><div className="form-label">Language <span className="req">*</span></div>{showMetadataEditor ? <p>Configured in the shared suggestions above.</p> : <DsDropdown value={metaFields.Language} options={languageOptions} onChange={(value) => setMetaFields((current) => ({ ...current, Language: value }))} />}</div>
+        <div className="form-field"><div className="form-label">Owner <span className="req">*</span></div><div className="dsdd"><button type="button" className="dsdd-trigger" style={{ pointerEvents: "none", background: "#F1F3F3", color: "#6B7786" }}><span className="dsdd-value">{metaFields.Owner}</span><span className="ms">lock</span></button></div><div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Acting RightAnswers author for this session.</div></div>
+        <div className="form-field"><div className="form-label">Review date</div><div className="dsdd"><button type="button" className="dsdd-trigger" style={{ pointerEvents: "none", background: "#F1F3F3", color: "#6B7786" }}><span className="dsdd-value">Managed in RightAnswers</span><span className="ms">lock</span></button></div><div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Not writable through the API.</div></div>
+      </div>;
+      const exceptions = <div style={{ display: "grid", gap: 10 }}>
+        {candidates.map((candidate) => {
+          if (isSolutionId(candidate.key)) return <div className="ks-ovr-row" key={candidate.key}><div className="ks-ovr-row-main"><span className="ks-ovr-row-name">{candidate.title}</span><span className="ks-ovr-row-status active"><span className="ms">description</span>{candidate.templateName}</span></div></div>;
+          const overridden = templateOverrides.has(candidate.key);
+          const open = !!templateEditOpen[candidate.key];
+          return <div className="ks-ovr-row" key={candidate.key}><div className="ks-ovr-row-main"><span className="ks-ovr-row-name">{candidate.title}</span><span className={`ks-ovr-row-status${overridden ? " active" : ""}`}><span className="ms">{overridden ? "tune" : "link"}</span>{overridden ? candidate.templateName : `Uses shared template (${candidate.templateName})`}</span><button type="button" className="icon-btn" aria-label={`Edit template for ${candidate.title}`} onClick={() => setTemplateEditOpen((current) => ({ ...current, [candidate.key]: !current[candidate.key] }))}><span className="ms">edit</span></button></div>{open && <div className="ks-ovr-panel"><div style={{ width: 260, maxWidth: "100%" }}><DsDropdown value={candidate.templateName} options={templateOptions} onChange={(value) => overrideTemplate(candidate.key, value)} /></div><div style={{ display: "flex", gap: 10, marginTop: 12 }}><button type="button" className="ds-btn ds-btn-secondary" disabled={!overridden} style={{ opacity: overridden ? 1 : 0.5 }} onClick={() => resetTemplateOverride(candidate.key)}>Reset to shared template</button><button type="button" className="ds-btn ds-btn-primary" onClick={() => setTemplateEditOpen((current) => ({ ...current, [candidate.key]: false }))}>Done</button></div></div>}</div>;
+        })}
+      </div>;
+      return <div className="ks-scroll"><KnowledgeCreateV2Metadata resultCount={candidates.length} ready={Boolean(metaFields.Collection && metaFields.Language)} error={metaError} groundContext={<GroundContextSummary context={pipeline.run?.groundContext} />} sharedSettings={sharedSettings} publishingSettings={publishingSettings} exceptions={exceptions} /></div>;
+    }
     return (
       <div className="ks-scroll">
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
