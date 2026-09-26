@@ -26,6 +26,7 @@ import { buildSubmissionGraph } from "@/lib/ks/submission-graph";
 import { frozenConfigurationIdentity, submissionIdentity } from "@/lib/ks/submission-plan";
 import { SubmissionReview } from "./SubmissionReview";
 import { ProposalPreview } from "./ProposalPreview";
+import { KnowledgeCreateV2PlanReview } from "./KnowledgeCreateV2PlanReview";
 import { ArticlePreview } from "./ArticlePreview";
 import type { DecisionSnapshot } from "@/lib/db/runs";
 import type { ContentReview } from "@/lib/pipeline/execute";
@@ -1101,6 +1102,22 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           </div>
         </div>
       );
+    }
+
+    if (experience === "v2") {
+      return <div className="ks-scroll"><KnowledgeCreateV2PlanReview
+        candidates={candidates}
+        selected={selected}
+        resolutions={resolutions}
+        duplicatesEnabled={ops.some((operation) => operation.name === "Find duplicates" && operation.on)}
+        mergeMode={mergeMode}
+        costUsd={pipeline.run?.costUsd}
+        flowHref={pipeline.runId ? `/flow?view=executed&runId=${encodeURIComponent(pipeline.runId)}` : undefined}
+        onToggle={toggleSelect}
+        onToggleAll={() => setSelected((previous) => previous.size === candidates.filter((candidate) => !candidate.researchOnly).length ? new Set() : new Set(candidates.filter((candidate) => !candidate.researchOnly).map((candidate) => candidate.key)))}
+        onOpenDetails={(candidate) => setPreview({ title: candidate.title, candidateKey: candidate.key })}
+        onReviewMerge={(groupIndex) => setMergeModal(groupIndex)}
+      /></div>;
     }
 
     return (
