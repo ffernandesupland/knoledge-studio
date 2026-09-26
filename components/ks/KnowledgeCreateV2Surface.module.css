@@ -30,6 +30,8 @@
 .goalBody span { color: #525c69; font-size: 12px; line-height: 1.35; }
 .goalCheck { color: #2574db; font-size: 18px; }
 .moreGoals { display: grid; gap: 12px; margin-top: 14px; }
+.selectedAdditionalGoals { display: grid; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e3e6; }
+.selectedAdditionalGoals > p { margin: 0; color: #345c8d; font-size: 12px; font-weight: 700; }
 .advanced { margin-top: 16px; }
 .advanced summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 17px 20px; cursor: pointer; list-style: none; }
 .advanced summary::-webkit-details-marker { display: none; }

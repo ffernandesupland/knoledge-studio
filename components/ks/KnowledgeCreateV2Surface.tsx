@@ -48,6 +48,8 @@ export function KnowledgeCreateV2Surface({
   const visibleGoals = operations.map((operation, index) => ({ operation, index })).filter(({ operation }) => !mergeMode || ["Merge solutions", "Restructure content", "Apply content standards"].includes(operation.name));
   const coreGoals = visibleGoals.filter(({ operation }) => CORE_GOALS.has(operation.name));
   const moreGoals = visibleGoals.filter(({ operation }) => !CORE_GOALS.has(operation.name));
+  const selectedAdditionalGoals = moreGoals.filter(({ operation }) => operation.on);
+  const availableAdditionalGoals = moreGoals.filter(({ operation }) => !operation.on);
   const enabledGoals = operations.filter((operation) => operation.on);
 
   function goalButton(operation: Operation, index: number) {
@@ -87,7 +89,8 @@ export function KnowledgeCreateV2Surface({
     <section className={styles.section} aria-labelledby="v2-goals-title">
       <div className={styles.sectionHeading}><span className="ms" aria-hidden="true">target</span><div><h2 id="v2-goals-title">What should happen?</h2><p>Choose the results you want. You can adjust these before reviewing the plan.</p></div></div>
       <div className={styles.goalGrid}>{coreGoals.map(({ operation, index }) => goalButton(operation, index))}</div>
-      {moreGoals.length > 0 && <div className={styles.moreGoals}><button type="button" className="ds-btn ds-btn-secondary" aria-expanded={moreGoalsOpen} onClick={() => setMoreGoalsOpen((open) => !open)}><span className="ms" aria-hidden="true">tune</span>{moreGoalsOpen ? "Hide additional goals" : `Add another goal (${moreGoals.length})`}</button>{moreGoalsOpen && <div className={styles.goalGrid}>{moreGoals.map(({ operation, index }) => goalButton(operation, index))}</div>}</div>}
+      {selectedAdditionalGoals.length > 0 && <div className={styles.selectedAdditionalGoals}><p>Additional goals selected</p><div className={styles.goalGrid}>{selectedAdditionalGoals.map(({ operation, index }) => goalButton(operation, index))}</div></div>}
+      {availableAdditionalGoals.length > 0 && <div className={styles.moreGoals}><button type="button" className="ds-btn ds-btn-secondary" aria-expanded={moreGoalsOpen} onClick={() => setMoreGoalsOpen((open) => !open)}><span className="ms" aria-hidden="true">tune</span>{moreGoalsOpen ? "Hide additional goals" : `Add another goal (${availableAdditionalGoals.length})`}</button>{moreGoalsOpen && <div className={styles.goalGrid}>{availableAdditionalGoals.map(({ operation, index }) => goalButton(operation, index))}</div>}</div>}
     </section>
     <details className={styles.advanced}><summary><span><span className="ms" aria-hidden="true">settings</span><strong>Advanced settings</strong></span><small>Reference material, instructions, limits, and automation</small></summary><div className={styles.advancedBody}>{advanced}</div></details>
     <aside className={styles.preflight} aria-label="Plan summary"><div><strong>Ready to review a plan</strong><span>{sourceSummary}</span></div><div className={styles.goalTags}>{enabledGoals.map((goal) => <span key={goal.name}>{goalCopy[goal.name]?.title ?? goal.name}</span>)}</div></aside>
