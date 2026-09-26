@@ -9,12 +9,13 @@ import { ArticlePreview } from "./ArticlePreview";
 import type { EvaluationResponse } from "@/lib/evals/types";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
-export function SubmissionGraph({ model, runId, busy = false, currentKey, mode = "preparation", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
+export function SubmissionGraph({ model, runId, busy = false, currentKey, mode = "preparation", defaultView = "graph", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
   decisionActor?: "author" | "agent"; templates?: string[]; model: SubmissionGraphModel; runId?: string; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
+  defaultView?: "graph" | "list";
   onSave?: (key: string, review: ContentReview) => void; onChangePlan?: () => void; onDirtyChange?: (dirty: boolean) => void; flowHref?: string;
 }) {
   const [selection, setSelection] = useState<{ key: string; source?: string; action?: boolean; comment?: string } | null>(null);
-  const [view, setView] = useState<"graph" | "list">("graph");
+  const [view, setView] = useState<"graph" | "list">(defaultView);
   const [zoom, setZoom] = useState(1);
   const [editing, setEditing] = useState(false);
   const [metadataEvidence, setMetadataEvidence] = useState(false);
