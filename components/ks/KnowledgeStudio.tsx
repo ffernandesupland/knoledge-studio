@@ -34,8 +34,10 @@ import { MergeWorkspaceModal } from "./MergeWorkspaceModal";
 import { KnowledgeCreateV2Surface } from "./KnowledgeCreateV2Surface";
 import {
   KS_OPS_DEFAULT,
+  KS_PATH_KEYS,
   KS_PATHS,
   KS_STEPS,
+  isKsPathKey,
   type PathKey,
   type StepId,
 } from "@/lib/ks/data";
@@ -226,7 +228,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: stored.decisions.collection, Language: stored.decisions.language ?? p.Language }));
         }
-        setPath(stored.path === "merge" ? "improve" : stored.path as PathKey | null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null); setMaxNewSolutions(stored.maxNewSolutions);
+        setPath(stored.path === "merge" ? "improve" : isKsPathKey(stored.path) ? stored.path : null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null); setMaxNewSolutions(stored.maxNewSolutions);
         const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
         setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, fileId: a.fileId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
@@ -708,6 +710,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
 
   /* ── Content ── */
   function renderInputScreen() {
+    const selectedPath = path && isKsPathKey(path) ? KS_PATHS[path] : null;
     const customerPicker = <div className="ks-card" style={{ padding: 18, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "end", gap: 14, flexWrap: "wrap" }}>
         <label className="form-label" style={{ flex: "1 1 300px", margin: 0 }}>RightAnswers customer
@@ -761,9 +764,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
         {!mergeMode && <div className="ks-card auto-option"><div><strong>Run fully autonomously</strong><p>AI chooses articles, merges, templates, and metadata, then prepares review drafts. You can inspect every decision before publication.</p></div><button type="button" className={"toggle" + (autoMode ? " on" : "")} role="switch" aria-checked={autoMode} aria-label="Run fully autonomously" disabled={autoStarting} onClick={() => setAutoMode((value) => !value)} /></div>}
       </>;
       const sourceCount = attachments.length + (sourceContent.some((block) => block.type === "text" && block.text.trim()) ? 1 : 0) + Object.keys(kbSelected).length;
-      return <KnowledgeCreateV2Surface customer={<>{customerPicker}{reviewHandoffSummary}</>} selectedPath={path} paths={Object.values(KS_PATHS)} onPickPath={pickPath} sourceComposer={sourceComposer} sourceSummary={`${sourceCount} source${sourceCount === 1 ? "" : "s"} ready · Nothing will be published automatically.`} operations={ops} onToggleOperation={(index) => { const operation = ops[index]; if (operation?.name === "Merge solutions" && !operation.on) { setAutoMode(false); setDuplicateScopeIds([]); setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: true } : ["Restructure content", "Apply content standards"].includes(item.name) ? item : { ...item, on: false })); return; } setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: !item.on } : item)); }} mergeMode={mergeMode} advanced={advanced} />;
+      return <KnowledgeCreateV2Surface customer={<>{customerPicker}{reviewHandoffSummary}</>} selectedPath={selectedPath?.key ?? null} paths={Object.values(KS_PATHS)} onPickPath={pickPath} sourceComposer={sourceComposer} sourceSummary={`${sourceCount} source${sourceCount === 1 ? "" : "s"} ready · Nothing will be published automatically.`} operations={ops} onToggleOperation={(index) => { const operation = ops[index]; if (operation?.name === "Merge solutions" && !operation.on) { setAutoMode(false); setDuplicateScopeIds([]); setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: true } : ["Restructure content", "Apply content standards"].includes(item.name) ? item : { ...item, on: false })); return; } setOps((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, on: !item.on } : item)); }} mergeMode={mergeMode} advanced={advanced} />;
     }
-    if (!path) {
+    if (!selectedPath) {
       return (
         <div className="ks-scroll">
           <div style={{ maxWidth: 880, margin: "0 auto" }}>
@@ -817,8 +820,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               Pick a starting point to get set up.
             </div>
             <div className="ks-paths">
-              {(["create", "improve", "gap", "merge"] as PathKey[]).map((k) => {
+              {KS_PATH_KEYS.map((k) => {
                 const p = KS_PATHS[k];
+                if (!p) return null;
                 return (
                   <button type="button" key={k} className="ks-path" onClick={() => pickPath(k)}>
                     <div className="ks-path-top">
@@ -843,8 +847,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           <div className="ks-pathbar">
             <span>Starting point:</span>
             <span className="ks-chip">
-              <span className="ms">{KS_PATHS[path].icon}</span>
-              {KS_PATHS[path].label}
+              <span className="ms">{selectedPath.icon}</span>
+              {selectedPath.label}
             </span>
             <button
               type="button"
