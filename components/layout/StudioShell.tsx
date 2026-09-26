@@ -7,6 +7,7 @@ import styles from "./StudioShell.module.css";
 
 const knowledgeStudioItems = [
   { href: "/knowledge-studio/create", label: "Knowledge Studio Create", icon: "auto_stories", description: "Create and manage knowledge" },
+  { href: "/knowledge-studio/create-v2", label: "Knowledge Create V2", icon: "auto_awesome", description: "Early-access guided creation" },
   { href: "/ground-truth-management", label: "Ground Truth Management", icon: "library_books", description: "Manage reusable reference context" },
   { href: "/solution-standards-management", label: "Solution Standards Management", icon: "rule", description: "Manage content standards" },
   { href: "/snippets-management", label: "Snippets Management", icon: "code_blocks", description: "Manage reusable content structures" },
