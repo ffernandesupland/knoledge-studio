@@ -1,0 +1,20 @@
+.page { max-width: 1080px; margin: 0 auto; padding: 32px 24px 112px; color: #252b31; }
+.header { margin-bottom: 22px; }
+.eyebrow { color: #0c5cc5; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+.header h1 { margin: 5px 0 8px; font-size: clamp(28px, 4vw, 36px); line-height: 1.18; letter-spacing: -.02em; }
+.header p, .cardHeading p, .exceptions p { margin: 0; color: #525c69; font-size: 14px; line-height: 1.55; }
+.summary { display: flex; align-items: center; flex-wrap: wrap; gap: 18px 36px; padding: 17px 20px; border: 1px solid #c5ddfb; border-radius: 12px; background: #f0f6fe; }
+.summary > div { display: grid; gap: 3px; }
+.summary > div:first-child strong { color: #0c5cc5; font-size: 22px; }
+.summary span { color: #525c69; font-size: 12px; }
+.ready, .needsAttention { position: relative; padding-left: 28px; }
+.ready > .ms, .needsAttention > .ms { position: absolute; top: 1px; left: 0; font-size: 20px; }
+.ready > .ms { color: #216e39; }.needsAttention > .ms { color: #a96500; }
+.ready strong, .needsAttention strong { font-size: 13px; }.ready strong { color: #216e39; }.needsAttention strong { color: #8a5a1e; }
+.error { margin: 16px 0; padding: 12px 14px; border: 1px solid #e0c48a; border-radius: 8px; background: #fff7e7; color: #8a5a1e; font-size: 13px; }
+.card { margin-top: 16px; padding: 24px; border: 1px solid #d7dee7; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(11, 12, 15, .04); }
+.cardHeading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.cardHeading > .ms { color: #2574db; font-size: 23px; }.cardHeading h2 { margin: 0; font-size: 19px; }.cardHeading p { margin-top: 5px; }
+.card :global(.ks-card) { padding: 0; border: 0; box-shadow: none; }.card :global(.ks-meta-group) { margin-top: 22px; }.card :global(.ks-meta-group:first-child) { margin-top: 0; }.card :global(.ks-ovr-row) { margin-bottom: 10px; }
+.exceptions { display: grid; gap: 14px; margin-top: 24px; }.exceptions h2 { margin: 5px 0; font-size: 19px; }
+@media (max-width: 720px) { .page { padding: 22px 16px 104px; }.card { padding: 18px; }.summary { align-items: flex-start; flex-direction: column; }.card :global(.ks-meta-grid) { grid-template-columns: 1fr; } }
