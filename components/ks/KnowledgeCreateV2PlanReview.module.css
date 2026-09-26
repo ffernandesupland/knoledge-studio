@@ -34,5 +34,8 @@
 .reason strong { color: #3a4a5d; font-size: 12px; }
 .reason ul { margin: 7px 0 0; padding-left: 18px; color: #525c69; font-size: 13px; line-height: 1.5; }
 .reason li + li { margin-top: 3px; }
+.dedupDecision { margin-top: 15px; padding: 13px 15px; border: 1px solid #c8dcf5; border-radius: 8px; background: #f4f8fe; }
+.dedupDecision > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }.dedupDecision > div strong { color: #244b7c; font-size: 12px; }.dedupDecision > div span { color: #1558ad; font-size: 12px; font-weight: 700; }
+.dedupDecision p, .dedupDecision li, .dedupDecision small { color: #52667c; font-size: 12px; line-height: 1.5; }.dedupDecision p { margin: 8px 0; }.dedupDecision ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; }.dedupDecision small { color: #718198; }
 .cardActions { justify-content: flex-end; flex-wrap: wrap; margin-top: 15px; }
 @media (max-width: 720px) { .page { padding: 22px 16px 104px; } .header, .listHeader { flex-direction: column; } .summary small { width: 100%; margin-left: 0; } .list { padding: 18px; } .cardActions { justify-content: stretch; } .cardActions :global(.ds-btn) { flex: 1 1 180px; } }

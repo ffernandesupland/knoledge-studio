@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const evaluationDimensionSchema = z.enum(["content_standards", "ground_context", "demand_requirements", "content_structure", "search_optimization", "metadata_selection", "gap_coverage", "snippets"]);
+export const evaluationDimensionSchema = z.enum(["content_standards", "ground_context", "demand_requirements", "content_structure", "search_optimization", "metadata_selection", "gap_coverage", "snippets", "deduplication"]);
 export type EvaluationDimension = z.infer<typeof evaluationDimensionSchema>;
 
 export const pipelineEvalDescriptorSchema = z.object({

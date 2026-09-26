@@ -6,32 +6,29 @@ export function KnowledgeCreateV2Metadata({
   ready,
   error,
   groundContext,
-  sharedSettings,
-  publishingSettings,
-  exceptions,
+  classification,
+  templateSettings,
 }: {
   resultCount: number;
   ready: boolean;
   error?: string | null;
   groundContext?: ReactNode;
-  sharedSettings: ReactNode;
-  publishingSettings: ReactNode;
-  exceptions: ReactNode;
+  classification: ReactNode;
+  templateSettings?: ReactNode;
 }) {
   return <main className={styles.page}>
     <header className={styles.header}>
-      <span className={styles.eyebrow}>PUBLISHING SETTINGS</span>
-      <h1>Confirm how your results will be published</h1>
-      <p>Set shared defaults once. Only results that need a different template or classification require an exception.</p>
+      <span className={styles.eyebrow}>CLASSIFY RESULTS</span>
+      <h1>Choose where each solution belongs</h1>
+      <p>Review evidence-backed collection and taxonomy suggestions. You can edit one solution at a time; shared defaults are available when they genuinely apply.</p>
     </header>
-    <section className={styles.summary} aria-label="Publishing readiness">
-      <div><strong>{resultCount}</strong><span>result{resultCount === 1 ? "" : "s"} to prepare</span></div>
+    <section className={styles.summary} aria-label="Classification readiness">
+      <div><strong>{resultCount}</strong><span>solution{resultCount === 1 ? "" : "s"} to classify</span></div>
       <div className={ready ? styles.ready : styles.needsAttention}><span className="ms" aria-hidden="true">{ready ? "check_circle" : "error"}</span><strong>{ready ? "Ready for draft preparation" : "Publishing details needed"}</strong><span>{ready ? "Collection and language are set." : "Complete the required publishing fields below."}</span></div>
     </section>
     {groundContext}
     {error && <p className={styles.error} role="alert">Could not load RightAnswers options: {error}</p>}
-    <section className={styles.card} aria-labelledby="v2-shared-settings-title"><div className={styles.cardHeading}><span className="ms" aria-hidden="true">tune</span><div><h2 id="v2-shared-settings-title">Shared settings</h2><p>These defaults apply to each eligible result unless you add an exception below.</p></div></div>{sharedSettings}</section>
-    <section className={styles.card} aria-labelledby="v2-publishing-settings-title"><div className={styles.cardHeading}><span className="ms" aria-hidden="true">assignment_turned_in</span><div><h2 id="v2-publishing-settings-title">Required publishing details</h2><p>These values are checked before a draft can be prepared for review.</p></div></div>{publishingSettings}</section>
-    <section className={styles.exceptions} aria-labelledby="v2-exceptions-title"><div><span className={styles.eyebrow}>EXCEPTIONS</span><h2 id="v2-exceptions-title">Adjust an individual result only when needed</h2><p>Results inherit the shared settings by default.</p></div>{exceptions}</section>
+    <section className={styles.classification} aria-labelledby="v2-classification-title"><div className={styles.cardHeading}><span className="ms" aria-hidden="true">category</span><div><h2 id="v2-classification-title">Classification decisions</h2><p>Each recommendation is traceable to source evidence. Nothing is applied without your choice.</p></div></div>{classification}</section>
+    {templateSettings && <section className={styles.templates} aria-labelledby="v2-template-title"><div className={styles.cardHeading}><span className="ms" aria-hidden="true">article</span><div><h2 id="v2-template-title">Content templates</h2><p>Set a default for new solutions, then make a solution-specific change only when its final format needs to differ.</p></div></div>{templateSettings}</section>}
   </main>;
 }

@@ -28,6 +28,7 @@ const dimensionMeta: Record<EvaluationDimension, { label: string; action: string
   metadata_selection: { label: "Metadata selection", action: "Discover and suggest metadata" },
   gap_coverage: { label: "Gap coverage", action: "Find gaps" },
   snippets: { label: "Reusable snippets", action: "Use reusable snippets" },
+  deduplication: { label: "Deduplication", action: "Find duplicates" },
 };
 
 function draftBlock(prepared: PreparedContent): UntrustedBlock {
@@ -59,6 +60,53 @@ export function buildEvaluationDimensions(run: StoredRun, execution: ExecuteArgs
   if (requested.has("Discover and suggest metadata") && prepared.metadata) add("metadata_selection", prepared.metadata, [], [{ label: "Selected metadata", content: bounded(prepared.metadata, 30_000) }]);
   if (requested.has("Find gaps")) add("gap_coverage", { action: "Find gaps", version: 1 }, [], [{ label: "Source material", content: bounded({ sourceDocuments: prepared.sourceDocuments, source: op.rawContent }, 120_000) }]);
   if (prepared.snippetIds?.length) add("snippets", [...prepared.snippetIds].sort(), [], [{ label: "Available snippet IDs", content: bounded(prepared.snippetIds, 20_000) }]);
+  const candidate = (run.candidates ?? []).find(item => item.key === op.candidateKey);
+  const group = candidate?.dupeGroup == null ? undefined : (run.groups ?? [])[candidate.dupeGroup];
+  // A duplicate result is only meaningful when this output has actual match or group evidence.
+  // Do not manufacture a generic quality score for normal outputs just because the pipeline
+  // happened to request duplicate analysis.
+  if (requested.has("Find duplicates") && candidate && (candidate.duplicates.length || group)) {
+    const resolution = candidate.dupeGroup == null ? undefined : run.decisions?.resolutions[candidate.dupeGroup];
+    add("deduplication", { action: "Find duplicates", version: 1 }, [{
+      label: "Fixed deduplication assessment policy",
+      content: bounded({
+        version: 1,
+        scope: "Assess only the duplicate-handling decision represented in the evidence. Do not grade prose quality, writing style, metadata, or publishing readiness.",
+        checks: [
+          "The cited overlap evidence supports the proposed duplicate relationship or a decision to keep items separate.",
+          "The final decision is explicit and consistent with the candidate and duplicate-group evidence.",
+          "When a merge is selected, the retained destination and included sources are unambiguous and consistent with the decision.",
+          "When sources are excluded or left separate, the decision explains the boundary without inventing unsupported claims.",
+        ],
+      }, 30_000),
+    }], [{
+      label: "Deduplication decision evidence",
+      content: bounded({
+        candidate: {
+          id: candidate.key,
+          title: candidate.title,
+          proposedAction: candidate.action,
+          rationale: candidate.why,
+          duplicateMatches: candidate.duplicates,
+        },
+        duplicateGroup: group ? {
+          members: group.members,
+          survivorId: group.survivorId,
+          averageSimilarity: group.averageSimilarity,
+          rationale: group.reason,
+          manuallySelected: group.manualSelection ?? false,
+        } : null,
+        recordedDecision: resolution ?? (group ? "not yet resolved" : "No merge group was created"),
+        selectedForExecution: run.decisions?.selectedKeys.includes(candidate.key) ?? true,
+        resultingWrite: {
+          kind: op.kind,
+          destinationId: op.kind === "revise" ? op.solutionId : null,
+          mergesSources: op.mergeSources?.map(source => ({ id: source.id, title: source.title })) ?? [],
+          isMergedRevision: op.kind === "revise" ? op.fromMerge : !!op.mergeSources?.length,
+        },
+      }, 100_000),
+    }]);
+  }
   return dimensions;
 }
 
