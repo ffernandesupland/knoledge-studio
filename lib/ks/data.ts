@@ -11,6 +11,16 @@ export type PathKey = "create" | "improve" | "gap";
 export type StepId = "input" | "check" | "metadata" | "submit";
 export type SubmitStatus = "new" | "updated" | "merged" | "flagged";
 
+/**
+ * Persisted runs predate some workflow paths. Treat their path value as external
+ * data when restoring a session rather than trusting a TypeScript-only cast.
+ */
+export const KS_PATH_KEYS = ["create", "improve", "gap"] as const satisfies readonly PathKey[];
+
+export function isKsPathKey(value: unknown): value is PathKey {
+  return typeof value === "string" && KS_PATH_KEYS.some((key) => key === value);
+}
+
 export interface Step {
   id: StepId;
   name: string;

@@ -33,8 +33,10 @@ import Link from "next/link";
 import { MergeWorkspaceModal } from "./MergeWorkspaceModal";
 import {
   KS_OPS_DEFAULT,
+  KS_PATH_KEYS,
   KS_PATHS,
   KS_STEPS,
+  isKsPathKey,
   type PathKey,
   type StepId,
 } from "@/lib/ks/data";
@@ -225,7 +227,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           restored.current = true;
           setMetaFields((p) => ({ ...p, Collection: stored.decisions.collection, Language: stored.decisions.language ?? p.Language }));
         }
-        setPath(stored.path === "merge" ? "improve" : stored.path as PathKey | null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null); setMaxNewSolutions(stored.maxNewSolutions);
+        setPath(stored.path === "merge" ? "improve" : isKsPathKey(stored.path) ? stored.path : null); setContentText(stored.inputText ?? ""); setDemandSpecification(stored.demandSpecification ?? emptyDemandSpecification()); setDemandRecommendation(stored.demandRecommendation ?? null); setMaxNewSolutions(stored.maxNewSolutions);
         const restoredAttachments: SourceAttachment[] = (stored.attachments ?? []).map((a: SourceAttachment, i: number) => ({ ...a, id: a.id ?? `legacy-${i}` }));
         setAttachments(restoredAttachments.map(a => ({ id: a.id!, imageId: a.imageId, fileId: a.fileId, meta: a.meta, name: a.label, text: a.text, icon: a.kind === "url" ? "link" : /\.(png|jpe?g|webp)$/i.test(a.label) ? "image" : /\.pdf$/i.test(a.label) ? "picture_as_pdf" : "description" })));
         setSourceContent(stored.content ?? legacyDocument(stored.inputText ?? "", restoredAttachments));
@@ -707,6 +709,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
 
   /* ── Content ── */
   function renderInputScreen() {
+    const selectedPath = path && isKsPathKey(path) ? KS_PATHS[path] : null;
     const customerPicker = <div className="ks-card" style={{ padding: 18, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "end", gap: 14, flexWrap: "wrap" }}>
         <label className="form-label" style={{ flex: "1 1 300px", margin: 0 }}>RightAnswers customer
@@ -748,7 +751,7 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
       !mergeMode && maxNewSolutions ? `Maximum new solutions: ${maxNewSolutions}` : null,
       !mergeMode && autoMode ? "Autonomous run enabled" : null,
     ].filter((setting): setting is string => !!setting);
-    if (!path) {
+    if (!selectedPath) {
       return (
         <div className="ks-scroll">
           <div style={{ maxWidth: 880, margin: "0 auto" }}>
@@ -802,8 +805,9 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
               Pick a starting point to get set up.
             </div>
             <div className="ks-paths">
-              {(["create", "improve", "gap", "merge"] as PathKey[]).map((k) => {
+              {KS_PATH_KEYS.map((k) => {
                 const p = KS_PATHS[k];
+                if (!p) return null;
                 return (
                   <button type="button" key={k} className="ks-path" onClick={() => pickPath(k)}>
                     <div className="ks-path-top">
@@ -828,8 +832,8 @@ export default function KnowledgeStudio({ initialAutonomousRun, initialLaunchId,
           <div className="ks-pathbar">
             <span>Starting point:</span>
             <span className="ks-chip">
-              <span className="ms">{KS_PATHS[path].icon}</span>
-              {KS_PATHS[path].label}
+              <span className="ms">{selectedPath.icon}</span>
+              {selectedPath.label}
             </span>
             <button
               type="button"
