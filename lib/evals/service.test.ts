@@ -39,6 +39,21 @@ describe("evaluation scoring", () => {
     expect(evaluationSignature(howTo[0].descriptor)).toBe(evaluationSignature(error[0].descriptor));
   });
 
+  it("adds a stable deduplication dimension only for an output with duplicate evidence", () => {
+    const run = {
+      operations: ["Find duplicates"],
+      candidates: [{ key: "candidate-1", title: "VPN setup", action: "Merge", why: "The articles cover the same setup.", duplicates: [{ solutionId: "123456789012345", title: "VPN configuration", similarity: 92, verdict: "Likely duplicate", rationale: "Same navigation and credentials." }], dupeGroup: 0 }],
+      groups: [{ survivorId: "candidate-1", averageSimilarity: 92, reason: "Same setup task.", members: [{ id: "candidate-1", title: "VPN setup", stat: "New", retained: true }, { id: "123456789012345", title: "VPN configuration", stat: "12 views", retained: false }] }],
+      decisions: { selectedKeys: ["candidate-1"], resolutions: ["merged"] },
+    } as unknown as StoredRun;
+    const execution = { plan: [{ idempotencyKey: "draft-1", kind: "revise", candidateKey: "candidate-1", solutionId: "123456789012345", fromMerge: true, mergeSources: [{ id: "123456789012346", title: "VPN legacy" }] }] } as ExecuteArgs;
+    const output: PreparedContent = { version: "draft-v1", title: "VPN", summary: "", keywords: [], templateName: "How To (RA)", fields: [], warnings: [] };
+    const dimensions = buildEvaluationDimensions(run, execution, "draft-1", output);
+    expect(dimensions).toHaveLength(1);
+    expect(dimensions[0].descriptor.dimension).toBe("deduplication");
+    expect(dimensions[0].descriptor.action).toBe("Find duplicates");
+  });
+
   it("calculates a weighted score from the fixed rubric", () => {
     const judgment: EvaluationJudgment = { summary: "Measured.", criteria: [
       { criterionId: "factual_grounding", score: 4, verdict: "met", explanation: "Supported.", evidence: ["Source"] },

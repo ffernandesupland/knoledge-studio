@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ViewCandidate } from "@/lib/ks/model";
+import type { ViewCandidate, ViewDupeGroup } from "@/lib/ks/model";
 import type { DupeResolution } from "@/lib/ks/helpers";
 import styles from "./KnowledgeCreateV2PlanReview.module.css";
 
@@ -14,6 +14,7 @@ function actionLabel(candidate: ViewCandidate, resolution: DupeResolution | unde
 
 export function KnowledgeCreateV2PlanReview({
   candidates,
+  groups,
   selected,
   resolutions,
   duplicatesEnabled,
@@ -26,6 +27,7 @@ export function KnowledgeCreateV2PlanReview({
   onReviewMerge,
 }: {
   candidates: ViewCandidate[];
+  groups: ViewDupeGroup[];
   selected: Set<string>;
   resolutions: DupeResolution[];
   duplicatesEnabled: boolean;
@@ -70,6 +72,7 @@ export function KnowledgeCreateV2PlanReview({
           const selectedResult = selected.has(candidate.key);
           const reasons = (candidate.proposal?.why?.length ? candidate.proposal.why : [candidate.why]).filter(Boolean).slice(0, 3);
           const duplicate = candidate.duplicates[0];
+          const group = candidate.dupeGroup == null ? undefined : groups[candidate.dupeGroup];
           const decision = candidate.dupeGroup != null
             ? resolution === "separate" ? "Kept separate" : resolution === "merged" ? "Merge approved" : "Review merge decision"
             : duplicate ? `${duplicate.similarity}% possible overlap`
@@ -82,6 +85,12 @@ export function KnowledgeCreateV2PlanReview({
             <div className={styles.cardTitle}><div><h3>{candidate.title}</h3><p>{candidate.subtitle}</p></div><span className="ms" aria-hidden="true">{candidate.action === "Update" ? "edit_note" : candidate.dupeGroup != null ? "merge_type" : "note_add"}</span></div>
             <div className={styles.meta}><span>Template: {candidate.templateName}</span><span>{decision}</span></div>
             <div className={styles.reason}><strong>Why this result</strong><ul>{reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></div>
+            {group && <section className={styles.dedupDecision} aria-label={`Deduplication decision for ${candidate.title}`}>
+              <div><strong>Duplicate decision</strong><span>{resolution === "merged" ? "Merge selected" : resolution === "separate" ? "Keep separate" : "Your decision needed"}</span></div>
+              <p>{group.reason}</p>
+              <ul>{group.members.map(member => <li key={member.id}><strong>{member.retained ? "Retain" : "Contribute"}:</strong> {member.title} <small>{member.stat}</small></li>)}</ul>
+              {resolution === "merged" && <small>The retained solution receives the combined draft. Existing contributing solutions remain in place and receive a tracking comment only after submission succeeds.</small>}
+            </section>}
             <div className={styles.cardActions}>
               {candidate.dupeGroup != null && <button type="button" className="ds-btn ds-btn-secondary" onClick={() => onReviewMerge(candidate.dupeGroup!)}>{resolution ? "Review merge choice" : "Review merge"}</button>}
               <button type="button" className="ds-btn ds-btn-secondary" onClick={() => onOpenDetails(candidate)}>View full plan</button>

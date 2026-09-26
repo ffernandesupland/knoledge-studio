@@ -9,9 +9,9 @@ import { ArticlePreview } from "./ArticlePreview";
 import type { EvaluationResponse } from "@/lib/evals/types";
 
 const statusLabel = (r?: OpResult) => r ? ({ ready: "Ready for review", ok: "Submitted to RightAnswers", error: "Failed", review: "Needs your review", uncertain: "Verify write outcome", skipped: "Waiting" }[r.outcome]) : "Planned";
-export function SubmissionGraph({ model, runId, busy = false, currentKey, mode = "preparation", defaultView = "graph", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
+export function SubmissionGraph({ model, runId, busy = false, currentKey, mode = "preparation", defaultView = "graph", presentation = "default", onSave, onChangePlan, onDirtyChange, flowHref, decisionActor = "author", templates = [] }: {
   decisionActor?: "author" | "agent"; templates?: string[]; model: SubmissionGraphModel; runId?: string; busy?: boolean; currentKey?: string | null; mode?: "preparation" | "submission" | "history";
-  defaultView?: "graph" | "list";
+  defaultView?: "graph" | "list"; presentation?: "default" | "solution-workspace";
   onSave?: (key: string, review: ContentReview) => void; onChangePlan?: () => void; onDirtyChange?: (dirty: boolean) => void; flowHref?: string;
 }) {
   const [selection, setSelection] = useState<{ key: string; source?: string; action?: boolean; comment?: string } | null>(null);
@@ -51,10 +51,11 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
       {kind === "source" ? <small>{s?.existing ? `ID ${s.id}` : "Not created separately"}{s?.retained && r.merge ? " · Retained destination" : ""}</small> : kind === "action" ? <small>{r.sources.length} source{r.sources.length === 1 ? "" : "s"}{r.merge && r.result?.outcome === "ok" ? " · Merged" : ""}</small> : <><small>{r.result?.prepared?.templateName ?? r.templateName ?? "Retained article’s template"}</small><span className={`sg-status sg-status-${r.result?.outcome ?? "planned"}`}>{state}</span></>}
     </button>;
   }
-  return <section className="sg-studio" aria-label="Submission graph and draft review">
+  const solutionWorkspace = presentation === "solution-workspace";
+  return <section className={`sg-studio${solutionWorkspace ? " sg-solution-workspace" : ""}`} aria-label={solutionWorkspace ? "Solution results workspace" : "Submission graph and draft review"}>
     <div className="sg-summary">
-      <div><span className="sg-eyebrow">Resulting articles</span><strong>{model.rows.length} output{model.rows.length === 1 ? "" : "s"}</strong></div>
-      <span>{model.counts.created} new</span><span>{model.counts.revised} revised</span><span>{model.counts.merged} merge group{model.counts.merged === 1 ? "" : "s"}</span><span>{model.counts.comments} tracking comment{model.counts.comments === 1 ? "" : "s"}</span>
+      <div><span className="sg-eyebrow">{solutionWorkspace ? "Solution workspace" : "Resulting articles"}</span><strong>{model.rows.length} output{model.rows.length === 1 ? "" : "s"}</strong></div>
+      <span>{model.counts.created} new</span><span>{model.counts.revised} revised</span><span>{model.counts.merged} merge group{model.counts.merged === 1 ? "" : "s"}</span>{model.counts.comments > 0 && <span>{model.counts.comments} tracking comment{model.counts.comments === 1 ? "" : "s"}</span>}
     </div>
     <div className="sg-layout">
       <div className="sg-canvas-panel">
@@ -76,7 +77,7 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
             </div>)}
           </div>
         </div>
-        <p className="sg-legend">Select a source, action or result to inspect it. Existing source articles remain in place. New proposals absorbed into a merge do not become separate articles.</p>
+        <p className="sg-legend">{solutionWorkspace ? "Open a solution to review its draft, edit it, and trace the material that contributed to it. The relationship map is available when you need the full source path." : "Select a source, action or result to inspect it. Existing source articles remain in place. New proposals absorbed into a merge do not become separate articles."}</p>
       </div>
       <aside className="sg-inspector" aria-label="Selected item details" aria-live="polite">
         {!row ? <p>No articles in this plan.</p> : <>
@@ -89,7 +90,8 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
             <p>Template: {source.templateName ?? "Read from the existing article during preparation"}</p>
             {source.body ? <pre className="sg-source-text">{source.body}</pre> : <p>Full source content is retrieved during preparation. The recorded engine prompts contain the exact source content used.</p>}
           </> : selection?.action ? <>
-            <p>{row.reason}</p>{row.similarity != null && <p>Group similarity: {row.similarity}% · AI assessment, confirmed by {decisionActor === "agent" ? "the agent’s" : "your"} merge decision.</p>}<p><strong>Destination:</strong> {row.destinationId ? `Retain article ${row.destinationId}; create its review draft or revision.` : "Create one new article for review."}</p>
+            {row.merge && solutionWorkspace && <section className="sg-decision-card"><span className="sg-eyebrow">Deduplication decision</span><h3>Combine {row.sources.length} sources into one solution</h3><p>{row.reason}</p><dl><div><dt>Retained destination</dt><dd>{row.destinationId ? `Existing article ${row.destinationId}` : "A new solution"}</dd></div><div><dt>Contributing sources</dt><dd>{row.sources.slice(1).map(item => item.title).join(", ") || "No additional source"}</dd></div>{row.similarity != null && <div><dt>Similarity signal</dt><dd>{row.similarity}%</dd></div>}</dl><small>Contributing existing solutions stay in place. A tracking comment is saved only after the retained solution is successfully submitted.</small></section>}
+            {!row.merge && <p>{row.reason}</p>}{row.similarity != null && !solutionWorkspace && <p>Group similarity: {row.similarity}% · AI assessment, confirmed by {decisionActor === "agent" ? "the agent’s" : "your"} merge decision.</p>}<p><strong>Destination:</strong> {row.destinationId ? `Retain article ${row.destinationId}; create its review draft or revision.` : "Create one new article for review."}</p>
             <h3>Preparation steps</h3><ol>{row.preparation.map((p, i) => <li key={i}>{p.label}</li>)}</ol><h3>Included sources</h3><ul>{row.sources.map((s) => <li key={s.id}>{s.title}{s.retained ? " (retained)" : ""}</li>)}</ul>
             {!!row.coverage.length && <><h3>Planned coverage</h3><ul>{row.coverage.map((c, i) => <li key={i}>{c}</li>)}</ul></>}
             {!!row.questions.length && <><h3>Open questions</h3><ul>{row.questions.map((q, i) => <li key={i}>{q}</li>)}</ul></>}
@@ -97,7 +99,8 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
           </> : prepared ? <>
             <p className={`sg-status sg-status-${row.result?.outcome}`}>{statusLabel(row.result)}</p>
             {row.result?.message && <p>{row.result.message}</p>}
-            {prepared.metadata && <div className="sg-warning"><strong>Selected metadata</strong><p>Collections: {prepared.metadata.collections?.join(", ") ?? "Default / existing"}</p><p>Taxonomies: {prepared.metadata.taxonomies?.map(p => p.replaceAll("//", " › ")).join("; ") || "None / existing"}</p><p>Language: {prepared.metadata.language ?? "Default / existing"}</p></div>}
+            {row.merge && solutionWorkspace && <section className="sg-decision-card"><span className="sg-eyebrow">Merged solution</span><h3>{row.sources.length} sources contributed to this draft</h3><p>{row.reason}</p><dl><div><dt>Retained destination</dt><dd>{row.destinationId ? `Existing article ${row.destinationId}` : "New solution"}</dd></div><div><dt>Contributing sources</dt><dd>{row.sources.slice(1).map(item => item.title).join(", ") || "No additional source"}</dd></div></dl><small>Use the source contribution map below to see where source material was used. Edit final article updates this draft only.</small></section>}
+            {prepared.metadata && <details className={solutionWorkspace ? "sg-classification-summary" : undefined} open={!solutionWorkspace}><summary>Classification applied</summary><p>Collections: {prepared.metadata.collections?.join(", ") ?? "Default / existing"}</p><p>Taxonomies: {prepared.metadata.taxonomies?.map(p => p.replaceAll("//", " › ")).join("; ") || "None / existing"}</p><p>Language: {prepared.metadata.language ?? "Default / existing"}</p></details>}
             {prepared.metadataEvidenceChanged && <p className="sg-warning">The final wording differs from an accepted metadata suggestion’s original excerpt. Review the classification against this draft before approving it.</p>}
             {prepared.metadataResearch && <button type="button" onClick={() => setMetadataEvidence(true)}>Review metadata evidence map</button>}
             {!!Object.keys(prepared.metadataDecisions ?? {}).length && <details><summary>Metadata and attribute decisions</summary>{Object.entries(prepared.metadataDecisions ?? {}).map(([key, decision]) => <p key={key}><strong>{decision.label}</strong> · {decision.kind === "attribute" && decision.status === "accepted" ? "Kept for validation — not submitted" : decision.status}{decision.attributeSet ? ` · ${decision.attributeSet}` : ""}</p>)}</details>}
@@ -120,7 +123,7 @@ export function SubmissionGraph({ model, runId, busy = false, currentKey, mode =
               <label>Template for regeneration<select name="template" defaultValue={prepared.templateName}>{[...new Set([prepared.templateName, ...templates])].map((t) => <option key={t}>{t}</option>)}</select></label>
               <button type="submit" disabled={busy}>Regenerate from saved sources</button><p>Creates a new draft version for review. Completed writes stay saved.</p>
             </form>}
-            {prepared.sections && <details className="sg-contributions"><summary>Source contributions and conflicts</summary>{prepared.sections.map((s) => <section key={s.fieldName}><h3>{s.fieldName}</h3>{s.contributions.map((c, i) => <p key={i}><strong>{c.from}</strong>: {c.text}</p>)}{s.conflict.present && <div className="sg-warning"><strong>Conflicting claims — resolve before submitting</strong><p>{s.conflict.optionA.from}: {s.conflict.optionA.text}</p><p>{s.conflict.optionB.from}: {s.conflict.optionB.text}</p></div>}</section>)}</details>}
+            {prepared.sections && <details className="sg-contributions" open={solutionWorkspace && row.merge}><summary>{solutionWorkspace ? `Source contribution map · ${prepared.sections.length} field${prepared.sections.length === 1 ? "" : "s"}` : "Source contributions and conflicts"}</summary><p className="sg-contribution-intro">Each entry records which source supplied material to the prepared draft. Open the draft editor to update the final wording.</p>{prepared.sections.map((s) => <section key={s.fieldName}><h3>{s.fieldName}</h3>{s.contributions.map((c, i) => <p key={i}><strong>{c.from}</strong>: {c.text}</p>)}{s.conflict.present && <div className="sg-warning"><strong>Conflicting claims — resolve before submitting</strong><p>{s.conflict.optionA.from}: {s.conflict.optionA.text}</p><p>{s.conflict.optionB.from}: {s.conflict.optionB.text}</p></div>}</section>)}</details>}
           </> : <><p>Planned result. Prepare drafts to see the combined article in its final template.</p><p>{row.reason}</p><ul>{row.coverage.map((c, i) => <li key={i}>{c}</li>)}</ul>{row.result?.message && <p role="alert">{row.result.message}</p>}</>}
           {flowHref && <details className="sg-engine"><summary>Engine details</summary><p>Preparation uses the selected merge, authoring and standards operations. Submission writes the reviewed version and then adds dependent tracking comments.</p><ul>{row.preparation.filter((p) => p.prompt).map((p, i) => <li key={i}>Prompt: <code>{p.prompt}</code></li>)}</ul><a href={flowHref} target="_blank" rel="noreferrer">Inspect recorded prompts, inputs and results ↗</a></details>}
         </>}
